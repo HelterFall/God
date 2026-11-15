@@ -292,7 +292,7 @@ private class GameScanner(private val activity: Activity) {
     private fun readPeMachine(file: DocumentFile?): String? {
         if (file == null) return null
         return try {
-            val bytes = activity.contentResolver.openInputStream(file.uri)?.use { it.readNBytes(4096) } ?: return null
+            val bytes = activity.contentResolver.openInputStream(file.uri)?.use { input ->\n                val buffer = ByteArray(4096)\n                val count = input.read(buffer)\n                if (count <= 0) ByteArray(0) else buffer.copyOf(count)\n            } ?: return null
             if (bytes.size < 64 || bytes[0] != 'M'.code.toByte() || bytes[1] != 'Z'.code.toByte()) return null
             val offset = intLE(bytes, 0x3c)
             if (offset < 0 || offset + 6 > bytes.size) return null
