@@ -18,6 +18,7 @@ class GameScanner(private val activity: Activity) {
     private val warnings = mutableListOf<String>()
     private val peResults = linkedMapOf<String, PeInfo>()
     private val unityHeaders = linkedMapOf<String, UnityFileHeader>()
+    private val unityMetadata = linkedMapOf<String, UnityMetadataSummary>()
     private var totalBytes = 0L
 
     companion object {
@@ -26,7 +27,7 @@ class GameScanner(private val activity: Activity) {
         private const val MAX_PE_FILES = 150
         private const val MAX_PE_READ = 1024 * 1024
         private const val MAX_UNITY_HEADER_FILES = 500
-        private const val MAX_UNITY_HEADER_READ = 64
+        private const val MAX_UNITY_HEADER_READ = 256
         private const val MAX_GGM_READ = 16 * 1024 * 1024
         private const val MAX_TREE_LINES = 20_000
     }
@@ -40,6 +41,7 @@ class GameScanner(private val activity: Activity) {
         warnings.clear()
         peResults.clear()
         unityHeaders.clear()
+        unityMetadata.clear()
         totalBytes = 0L
         walk(root, "", 0, shouldCancel, onProgress)
         if (shouldCancel()) throw ScanCancelledException()
@@ -83,7 +85,10 @@ class GameScanner(private val activity: Activity) {
             if (shouldCancel()) throw ScanCancelledException()
             try {
                 val prefix = readPrefix(entry.uri, MAX_UNITY_HEADER_READ) ?: return@forEach
-                UnityFileHeaderParser.parse(prefix, entry.size)?.let { unityHeaders[entry.path] = it }
+                UnityFileHeaderParser.parse(prefix, entry.size)?.let { header ->
+                    unityHeaders[entry.path] = header
+                    UnityMetadataParser.parse(prefix, header)?.let { unityMetadata[entry.path] = it }
+                }
             } catch (e: Exception) {
                 warnings.add("Unity-заголовок не прочитан для " + entry.path + ": " + e.message)
             }
@@ -97,11 +102,11 @@ class GameScanner(private val activity: Activity) {
         val md = buildMarkdown(
             root.name ?: "(unnamed)", backend, unityVersion, gameAssemblies, unityModules,
             monoFolder, managedDir, hasGameAssembly, hasMetadata, hasIl2CppDir, hasUnityPlayer,
-            managedBinaries, nativeBinaries, importSummary, unityHeaders
+            managedBinaries, nativeBinaries, importSummary, unityHeaders, unityMetadata
         )
         val json = buildJson(
             root.name ?: "(unnamed)", backend, unityVersion, gameAssemblies, unityModules,
-            managedBinaries, nativeBinaries, importSummary, unityHeaders
+            managedBinaries, nativeBinaries, importSummary, unityHeaders, unityMetadata
         )
         return ScanResult(md, json)
     }
@@ -193,7 +198,7 @@ class GameScanner(private val activity: Activity) {
         unityModules: List<ScanEntry>, monoFolder: Boolean, managedDir: Boolean,
         hasGameAssembly: Boolean, hasMetadata: Boolean, hasIl2CppDir: Boolean, hasUnityPlayer: Boolean,
         managedBinaries: Set<String>, nativeBinaries: Set<String>, importSummary: List<Map.Entry<String, Int>>,
-        unityHeaders: Map<String, UnityFileHeader>
+        unityHeaders: Map<String, UnityFileHeader>, unityMetadata: Map<String, UnityMetadataSummary>
     ): String = buildString {
         appendLine("# Unity Game Architecture Report")
         appendLine()
@@ -250,6 +255,17 @@ class GameScanner(private val activity: Activity) {
                 (header.note?.let { "; " + it } ?: ""))
         }
         appendLine()
+        appendLine("## Unity metadata (leading fields)")
+        if (unityMetadata.isEmpty()) appendLine("- Метаданные не прочитаны или версия формата пока не поддерживается")
+        unityMetadata.forEach { (path, metadata) ->
+            appendLine("- " + path +
+                (metadata.unityVersion?.let { "; Unity=" + it } ?: "") +
+                (metadata.targetPlatform?.let { "; platformId=" + it } ?: "") +
+                (metadata.typeTreeEnabled?.let { "; TypeTree=" + if (it) "enabled" else "disabled" } ?: "") +
+                (metadata.typeCount?.let { "; typeCount=" + it } ?: "") +
+                (metadata.note?.let { "; " + it } ?: ""))
+        }
+        appendLine()
         appendLine("## Directory tree")
         val shown = entries.take(MAX_TREE_LINES)
         shown.forEach { entry ->
@@ -275,7 +291,8 @@ class GameScanner(private val activity: Activity) {
     private fun buildJson(
         rootName: String, backend: String, unityVersion: String?, gameAssemblies: List<ScanEntry>,
         unityModules: List<ScanEntry>, managedBinaries: Set<String>, nativeBinaries: Set<String>,
-        importSummary: List<Map.Entry<String, Int>>, unityHeaders: Map<String, UnityFileHeader>
+        importSummary: List<Map.Entry<String, Int>>, unityHeaders: Map<String, UnityFileHeader>,
+        unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
         root.put("schemaVersion", 3)
@@ -291,6 +308,14 @@ class GameScanner(private val activity: Activity) {
         root.put("nativePeBinaries", JSONArray(nativeBinaries))
         root.put("nativeImports", JSONArray(importSummary.map {
             JSONObject().put("dll", it.key).put("referencedByCount", it.value)
+        }))
+        root.put("unityMetadata", JSONArray(unityMetadata.map { (path, metadata) ->
+            JSONObject().put("path", path)
+                .put("unityVersion", metadata.unityVersion ?: JSONObject.NULL)
+                .put("targetPlatform", metadata.targetPlatform ?: JSONObject.NULL)
+                .put("typeTreeEnabled", metadata.typeTreeEnabled ?: JSONObject.NULL)
+                .put("typeCount", metadata.typeCount ?: JSONObject.NULL)
+                .put("note", metadata.note ?: JSONObject.NULL)
         }))
         root.put("unityFileHeaders", JSONArray(unityHeaders.map { (path, header) ->
             JSONObject().put("path", path).put("kind", header.kind)
