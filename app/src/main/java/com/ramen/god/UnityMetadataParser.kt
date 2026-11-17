@@ -190,7 +190,10 @@ internal object UnityMetadataParser {
             if (serializedTypes.size < MAX_SERIALIZED_TYPE_SAMPLES) {
                 serializedTypes.add(UnitySerializedTypeSummary(typeEntry.classId, typeEntry.scriptTypeIndex, typeEntry.scriptId))
             }
-            typeEntry.typeTree?.let { tree -> if (typeTrees.size < MAX_TYPE_TREE_SAMPLES) typeTrees.add(tree) }
+            typeEntry.typeTree?.let { tree ->
+                val isCoreSceneType = tree.classId == 1 || tree.classId == 4 || tree.classId == 114
+                if (isCoreSceneType || typeTrees.size < MAX_TYPE_TREE_SAMPLES) typeTrees.add(tree)
+            }
         }
 
         val objectCount = cursor.readU32()
