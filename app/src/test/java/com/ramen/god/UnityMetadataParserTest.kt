@@ -368,7 +368,7 @@ class UnityMetadataParserTest {
         assertEquals(0, binding.scriptTypeIndex)
         assertEquals(0, binding.fileId)
         assertEquals(777L, binding.pathId)
-        assertEquals(115, binding.localObjectClassId)
+        assertEquals(115, binding.targetObjectClassId)
         assertEquals("local-monoscript-object-found", binding.resolution)
     }
 
