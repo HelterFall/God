@@ -27,6 +27,11 @@ internal data class UnityScriptTypeBinding(
     val localObjectClassId: Int?,
     val objectByteStart: Long?,
     val objectByteSize: Long?,
+    val monoScriptName: String? = null,
+    val className: String? = null,
+    val namespace: String? = null,
+    val assemblyName: String? = null,
+    val executionOrder: Int? = null,
     val resolution: String
 )
 
@@ -41,6 +46,7 @@ internal data class UnityMetadataSummary(
     val externalReferenceCount: Long? = null,
     val objectSamples: List<UnityObjectSummary> = emptyList(),
     val monoScriptObjects: List<UnityObjectSummary> = emptyList(),
+    val monoScripts: List<UnityMonoScriptSummary> = emptyList(),
     val typeTrees: List<UnityTypeTreeSummary> = emptyList(),
     val serializedTypes: List<UnitySerializedTypeSummary> = emptyList(),
     val serializedReferenceTypeCount: Long? = null,
