@@ -100,6 +100,10 @@ class UnityMetadataParserTest {
         assertEquals(1L, result.objectCount)
         assertEquals(0L, result.scriptTypeCount)
         assertEquals(0L, result.externalReferenceCount)
+        assertEquals(1, result.objectSamples.size)
+        assertEquals(7L, result.objectSamples[0].pathId)
+        assertEquals(24L, result.objectSamples[0].byteSize)
+        assertEquals(1, result.objectSamples[0].classId)
     }
 
     private fun put64(bytes: ByteArray, offset: Int, value: Long, little: Boolean) {
