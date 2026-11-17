@@ -551,7 +551,7 @@ internal object ClrMetadataParser {
                 val value = ((first and 0x1f).toLong() shl 24) or
                     ((bytes[(offset + 1L).toInt()].toLong() and 0xff) shl 16) or
                     ((bytes[(offset + 2L).toInt()].toLong() and 0xff) shl 8) or
-                    (bytes[(offset + 3L).toLong()].toLong() and 0xff)
+                    (bytes[(offset + 3L).toInt()].toLong() and 0xff)
                 value to (offset + 4L)
             }
             else -> null
