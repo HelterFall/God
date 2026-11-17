@@ -90,7 +90,9 @@ class GameScanner(private val activity: Activity) {
                 val prefix = readPrefix(entry.uri, readLimit) ?: return@forEachIndexed
                 UnityFileHeaderParser.parse(prefix, entry.size)?.let { header ->
                     unityHeaders[entry.path] = header
-                    UnityMetadataParser.parse(prefix, header)?.let { unityMetadata[entry.path] = it }
+                    UnityMetadataParser.parse(prefix, header)?.let { metadata ->
+                        unityMetadata[entry.path] = readMonoScriptRecords(entry, header, metadata)
+                    }
                 }
             } catch (e: Exception) {
                 warnings.add("Unity-заголовок не прочитан для " + entry.path + ": " + e.message)
@@ -167,6 +169,58 @@ class GameScanner(private val activity: Activity) {
         } catch (e: Exception) {
             warnings.add("Не удалось прочитать globalgamemanagers: " + e.message)
             null
+        }
+    }
+
+    private fun readMonoScriptRecords(
+        entry: ScanEntry,
+        header: UnityFileHeader,
+        metadata: UnityMetadataSummary
+    ): UnityMetadataSummary {
+        val dataOffset = header.dataOffset ?: return metadata
+        val fileSize = header.fileSize ?: entry.size
+        val littleEndian = when (header.endianness) {
+            "Little Endian" -> true
+            "Big Endian" -> false
+            else -> return metadata
+        }
+        val targets = metadata.scriptTypeBindings.mapNotNull { binding ->
+            if (binding.fileId != 0 || binding.pathId == null ||
+                binding.objectByteStart == null || binding.objectByteSize == null) {
+                null
+            } else {
+                MonoScriptObjectTarget(binding.pathId, binding.objectByteStart, binding.objectByteSize)
+            }
+        }.distinctBy { it.pathId }
+        if (targets.isEmpty()) return metadata
+
+        return try {
+            val input = activity.contentResolver.openInputStream(entry.uri) ?: return metadata
+            val result = input.use { stream ->
+                MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
+            }
+            val byPathId = result.scripts.associateBy { it.pathId }
+            val updatedBindings = metadata.scriptTypeBindings.map { binding ->
+                val script = if (binding.fileId == 0) byPathId[binding.pathId] else null
+                if (script == null) binding else binding.copy(
+                    monoScriptName = script.name,
+                    className = script.className,
+                    namespace = script.namespace,
+                    assemblyName = script.assemblyName,
+                    executionOrder = script.executionOrder,
+                    resolution = "local-monoscript-decoded"
+                )
+            }
+            val note = listOfNotNull(metadata.note, result.note).joinToString(" ").ifBlank { null }
+            metadata.copy(
+                monoScripts = result.scripts,
+                scriptTypeBindings = updatedBindings,
+                note = note
+            )
+        } catch (e: Exception) {
+            val readNote = "MonoScript payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
+            val note = listOfNotNull(metadata.note, readNote).joinToString(" ")
+            metadata.copy(note = note)
         }
     }
 
