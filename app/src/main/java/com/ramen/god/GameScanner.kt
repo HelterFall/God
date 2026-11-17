@@ -29,7 +29,7 @@ class GameScanner(private val activity: Activity) {
         private const val MAX_UNITY_HEADER_FILES = 500
         private const val MAX_UNITY_HEADER_READ = 256
         private const val MAX_UNITY_METADATA_FILES = 40
-        private const val MAX_UNITY_METADATA_READ = 1024 * 1024
+        private const val MAX_UNITY_METADATA_READ = 8 * 1024 * 1024
         private const val MAX_GGM_READ = 16 * 1024 * 1024
         private const val MAX_TREE_LINES = 20_000
     }
