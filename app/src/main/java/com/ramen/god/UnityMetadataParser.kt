@@ -65,7 +65,7 @@ internal object UnityMetadataParser {
             val typeEntry = readTypeEntry(cursor, version, typeTreeEnabled)
                 ?: return partial.copy(note = "Таблица типов обрезана или содержит неподдерживаемые размеры; object count не прочитан.")
             typeClassIds.add(typeEntry.first)
-            if (typeEntry.second != null && typeTrees.size < MAX_TYPE_TREE_SAMPLES) typeTrees.add(typeEntry.second)
+            typeEntry.second?.let { tree -> if (typeTrees.size < MAX_TYPE_TREE_SAMPLES) typeTrees.add(tree) }
         }
 
         val objectCount = cursor.readU32()
