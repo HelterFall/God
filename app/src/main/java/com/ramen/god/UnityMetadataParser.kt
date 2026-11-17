@@ -285,8 +285,16 @@ internal object UnityMetadataParser {
             val reference = scriptReferences.getOrNull(type.scriptTypeIndex)
             if (reference == null) {
                 return@mapNotNull UnityScriptTypeBinding(
-                    type.classId, type.scriptTypeIndex, type.scriptId,
-                    null, null, null, null, null, null, "script-reference-not-in-sample"
+                    classId = type.classId,
+                    scriptTypeIndex = type.scriptTypeIndex,
+                    scriptId = type.scriptId,
+                    fileId = null,
+                    pathId = null,
+                    externalPath = null,
+                    localObjectClassId = null,
+                    objectByteStart = null,
+                    objectByteSize = null,
+                    resolution = "script-reference-not-in-sample"
                 )
             }
             val localObject = if (reference.fileId == 0) {
@@ -303,9 +311,16 @@ internal object UnityMetadataParser {
                 else -> "external-file-not-in-sample"
             }
             UnityScriptTypeBinding(
-                type.classId, type.scriptTypeIndex, type.scriptId,
-                reference.fileId, reference.pathId, externalPath,
-                localObject?.classId, localObject?.byteStart, localObject?.byteSize, resolution
+                classId = type.classId,
+                scriptTypeIndex = type.scriptTypeIndex,
+                scriptId = type.scriptId,
+                fileId = reference.fileId,
+                pathId = reference.pathId,
+                externalPath = externalPath,
+                localObjectClassId = localObject?.classId,
+                objectByteStart = localObject?.byteStart,
+                objectByteSize = localObject?.byteSize,
+                resolution = resolution
             )
         }
     }
@@ -330,11 +345,9 @@ internal object UnityMetadataParser {
         if (version >= 16L && cursor.readU8() == null) return null
         val scriptTypeIndex = if (version >= 17L) cursor.readI16() ?: return null else -1
         var scriptId: String? = null
-        // For modern SerializedFiles (v16+), the extra 16-byte script ID is
-        // present for MonoBehaviour class ID 114, not for every non-negative
-        // scriptTypeIndex. Older negative class IDs use the legacy condition.
-        if ((isReferenceType && scriptTypeIndex >= 0) ||
-            (version < 16L && classId < 0) || (version >= 16L && classId == 114)) {
+        // Supported SerializedFiles (v19+) store scriptID for undefined types,
+        // MonoBehaviour, and any type backed by a MonoScript reference.
+        if (classId == -1 || classId == 114 || scriptTypeIndex >= 0) {
             val scriptIdBytes = cursor.readBytes(16) ?: return null
             scriptId = scriptIdBytes.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
         }
