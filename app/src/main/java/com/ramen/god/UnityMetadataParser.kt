@@ -80,6 +80,7 @@ internal data class UnityMetadataSummary(
     val externalReferences: List<UnityExternalReference> = emptyList(),
     val scriptTypeBindings: List<UnityScriptTypeBinding> = emptyList(),
     val decodedObjects: List<UnityDecodedObjectSummary> = emptyList(),
+    val sceneGraph: UnitySceneGraphResult? = null,
     val sceneDecodeNote: String? = null,
     val note: String? = null
 )
