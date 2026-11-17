@@ -9,7 +9,9 @@ internal data class UnityFileHeader(
     val dataOffset: Long?,
     val endianness: String?,
     val headerSize: Int,
-    val note: String? = null
+    val note: String? = null,
+    val playerVersion: String? = null,
+    val engineVersion: String? = null
 )
 
 internal object UnityFileHeaderParser {
@@ -81,7 +83,8 @@ internal object UnityFileHeaderParser {
             "UnityFS bundle", version, null, null, null, null,
             revisionStart + revision.second,
             "Распознан только заголовок контейнера; блоки и сжатие пока не разбираются. Player=" +
-                player.first + ", revision=" + revision.first
+                player.first + ", revision=" + revision.first,
+            player.first, revision.first
         )
     }
 
