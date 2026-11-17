@@ -44,7 +44,7 @@ internal object UnitySceneGraphResolver {
                 var unresolved = 0
                 var external = 0
                 fun resolveLocal(pointer: UnityObjectPointerSummary?): UnityDecodedObjectSummary? {
-                    if (pointer == null) return null
+                    if (pointer == null || pointer.pathId == 0L) return null
                     if (pointer.fileId != 0) {
                         unresolved++
                         external++
