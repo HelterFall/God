@@ -120,6 +120,7 @@ Suggested analyzer contract:
 
 ### Phase 3 — Managed code intelligence
 - [x] First CLR metadata inventory: Assembly identity/version, Module name, TypeDef names/namespaces and AssemblyRef dependencies from bounded ECMA-335 metadata tables.
+- [x] Link parsed MonoBehaviour MonoScript identities to exact managed assembly + namespace + TypeDef names; keep ambiguous assembly matches and truncated type samples explicit.
 - [ ] Expand to fields, methods, attributes, nested type relationships and dependency graph.
 - P/Invoke inventory and IL call-site scan.
 - Android packaging strategy for parser dependencies and offline use.
@@ -181,7 +182,7 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 ## Immediate next implementation slice
 
 1. Resolve external scene PPtr links across SerializedFiles using fileID/external table entries and the existing unambiguous path resolver; preserve ambiguous and missing states.
-2. Connect MonoScript class/namespace/assembly identities to the bounded TypeDef inventory in managed DLLs; preserve ambiguous or missing matches.
+2. Expand MonoScript↔TypeDef linking to nested types, broader scriptTypeIndex associations and more complete managed metadata; preserve ambiguous or missing matches.
 3. Extend the bounded TypeTree interpreter to more variable-length field patterns and ScriptableObject payloads without guessing unknown layouts.
 4. Add real-file fixtures across Unity generations and publish a TypeTree/object-decoding compatibility matrix.
 5. Continue with UnityFS block-table metadata, positional SAF reads, and streaming report writers as separate bounded work items.
