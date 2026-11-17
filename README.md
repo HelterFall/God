@@ -14,10 +14,10 @@ Android-приложение для анализа Windows Unity-игр непо
 - Определение CLR-флага для различения managed .NET assemblies и native PE.
 - Чтение статической таблицы импортов PE и сводка DLL-зависимостей.
 - Распознавание заголовков Unity SerializedFile (включая 64-битный формат v22+) и UnityFS bundles без распаковки данных.
-- Чтение metadata SerializedFile v19–v26: версия Unity, target platform, флаг TypeTree, число типов, до 500 записей объектов (PathID, смещение, размер и ClassID), а также числа и ограниченные выборки MonoScript-ссылок (fileID/pathID), внешних файлов (fileID/path) и первых 500 serialized type-записей (ClassID, scriptTypeIndex, scriptID), число SerializeReference-типов и до 200 их записей с className/namespace/assemblyName (если формат v21+). Для v26 считывается число shared TypeTree subtrees. Проверяет границы object data ranges перед принятием записей.
+- Чтение metadata SerializedFile v19–v26: версия Unity, target platform, флаг TypeTree, число типов, до 500 записей объектов (PathID, смещение, размер и ClassID), а также числа и ограниченные выборки MonoScript-ссылок (fileID/pathID), внешних файлов (fileID/path) и первых 500 serialized type-записей (ClassID, scriptTypeIndex, scriptID), число SerializeReference-типов и до 200 их записей с className/namespace/assemblyName (если формат v21+). Связывает scriptTypeIndex с MonoScript fileID/pathID; для локальных ссылок проверяет, попала ли цель ClassID 115 в выборку объектов, а для внешних показывает путь файла. Для v26 считывается число shared TypeTree subtrees. Проверяет границы object data ranges перед принятием записей.
 - Отчёт по версии формата, размерам, data offset и endianness; UnityFS пока определяется только по заголовку.
 - Список игровых сборок и UnityEngine modules.
-- Экспорт Markdown и JSON (JSON schemaVersion 8).
+- Экспорт Markdown и JSON (JSON schemaVersion 9).
 - Отображение прогресса при обходе папок.
 - Возможность остановить длительный анализ; незавершённый отчёт не экспортируется.
 
@@ -44,7 +44,7 @@ GitHub Actions собирает debug APK при каждом push в main. От
 - PE-анализ: первые 150 EXE/DLL, первые 1 MiB каждого файла.
 - Таблица импортов не обнаруживает LoadLibrary, managed references или все P/Invoke calls.
 - Версия Unity определяется эвристически.
-- Полные TypeTree-графы и декодирование содержимого объектов ещё не реализованы; анализатор извлекает корневые типы и ограниченную выборку встроенных имён полей (common-string offsets пока не разрешаются), а также первые 500 объектов и MonoScript-ссылок на файл; внешние ссылки ограничены первыми 200 записями. object data ranges проверяются относительно data section. Внешние ссылки пока не разрешаются между файлами, script references ещё не декодируют содержимое MonoScript и не сопоставляют пользовательские типы с классами/namespace/assembly из DLL. В v26 читается только число shared TypeTree subtrees, их payload пока не разбирается. UnityFS не распаковывается.
+- Полные TypeTree-графы и декодирование содержимого объектов ещё не реализованы; анализатор извлекает корневые типы и ограниченную выборку встроенных имён полей (common-string offsets пока не разрешаются), а также первые 500 объектов и MonoScript-ссылок на файл; внешние ссылки ограничены первыми 200 записями. object data ranges проверяются относительно data section. Внешние ссылки пока не разрешаются между файлами, содержимое MonoScript objects пока не декодируется и managed DLL классы/namespace/assembly пока не сопоставляются. Статус локальной ссылки означает только, что MonoScript (ClassID 115) найден в первых 500 записях объектов; отсутствие в выборке не доказывает отсутствие объекта. В v26 читается только число shared TypeTree subtrees, их payload пока не разбирается. UnityFS не распаковывается.
 - Метаданные форматов старше v26 пока не разбираются, чтобы не трактовать неизвестные структуры как известные.
 - Для форматов до v9 нужен отдельный позиционный read для endian marker.
 - Это анализатор, не runtime и не декомпилятор.
