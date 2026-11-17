@@ -22,6 +22,8 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var output: TextView
     private var selectedTree: Uri? = null
+    @Volatile private var scanCancelled = false
+    private lateinit var cancelScanButton: Button
     private var markdownReport: String? = null
     private var jsonReport: String? = null
 
@@ -74,6 +76,15 @@ class MainActivity : Activity() {
             text = "2. Анализировать"
             setOnClickListener { scanSelectedFolder() }
         }
+        cancelScanButton = Button(this).apply {
+            text = "Остановить анализ"
+            isEnabled = false
+            setOnClickListener {
+                scanCancelled = true
+                status.text = "Останавливаю анализ…"
+                isEnabled = false
+            }
+        }
         val saveMd = Button(this).apply {
             text = "Экспорт отчёта Markdown"
             setOnClickListener { requestExport(SAVE_MD) }
@@ -90,6 +101,7 @@ class MainActivity : Activity() {
         }
         root.addView(choose, match())
         root.addView(scan, match())
+        root.addView(cancelScanButton, match())
         root.addView(saveMd, match())
         root.addView(saveJson, match())
         root.addView(status)
@@ -118,6 +130,8 @@ class MainActivity : Activity() {
             status.text = "Сначала выберите папку игры."
             return
         }
+        scanCancelled = false
+        cancelScanButton.isEnabled = true
         status.text = "Анализирую. Исходные файлы остаются на месте…"
         output.text = ""
         markdownReport = null
@@ -125,15 +139,33 @@ class MainActivity : Activity() {
         executor.execute {
             try {
                 val root = DocumentFile.fromTreeUri(this, tree) ?: error("Не удалось открыть выбранную папку.")
-                val result = GameScanner(this).scan(root)
+                val result = GameScanner(this).scan(
+                    root,
+                    shouldCancel = { scanCancelled }
+                ) { count, path ->
+                    if (count % 128 == 0) {
+                        runOnUiThread {
+                            if (!scanCancelled) status.text = "Просмотрено записей: $count\\nПоследний путь: $path"
+                        }
+                    }
+                }
                 markdownReport = result.markdown
                 jsonReport = result.json
                 runOnUiThread {
                     output.text = result.markdown
                     status.text = "Анализ завершён. Доступен экспорт Markdown и JSON."
+                    cancelScanButton.isEnabled = false
+                }
+            } catch (_: ScanCancelledException) {
+                runOnUiThread {
+                    status.text = "Анализ остановлен. Отчёт не создан."
+                    cancelScanButton.isEnabled = false
                 }
             } catch (e: Exception) {
-                runOnUiThread { status.text = "Ошибка анализа: " + (e.message ?: e.javaClass.simpleName) }
+                runOnUiThread {
+                    status.text = "Ошибка анализа: " + (e.message ?: e.javaClass.simpleName)
+                    cancelScanButton.isEnabled = false
+                }
             }
         }
     }
@@ -185,6 +217,7 @@ class MainActivity : Activity() {
 private data class ScanEntry(val path: String, val name: String, val directory: Boolean, val size: Long, val uri: Uri)
 private data class PeInfo(val machine: String, val managed: Boolean, val imports: List<String>, val note: String? = null)
 private data class ScanResult(val markdown: String, val json: String)
+private class ScanCancelledException : Exception()
 
 private class GameScanner(private val activity: Activity) {
     private val entries = mutableListOf<ScanEntry>()
@@ -201,12 +234,18 @@ private class GameScanner(private val activity: Activity) {
         private const val MAX_TREE_LINES = 20_000
     }
 
-    fun scan(root: DocumentFile): ScanResult {
+    fun scan(
+        root: DocumentFile,
+        shouldCancel: () -> Boolean,
+        onProgress: (Int, String) -> Unit
+    ): ScanResult {
         entries.clear()
         warnings.clear()
         peResults.clear()
         totalBytes = 0L
-        walk(root, "", 0)
+        walk(root, "", 0, shouldCancel, onProgress)
+        if (shouldCancel()) throw ScanCancelledException()
+        onProgress(entries.size, "Инвентаризация завершена; анализирую PE-файлы")
 
         val files = entries.filter { !it.directory }
         val dlls = files.filter { it.name.endsWith(".dll", true) }
@@ -234,6 +273,7 @@ private class GameScanner(private val activity: Activity) {
         val peCandidates = files.filter { it.name.endsWith(".exe", true) || it.name.endsWith(".dll", true) }
         if (peCandidates.size > MAX_PE_FILES) warnings.add("PE-анализ ограничен первыми " + MAX_PE_FILES + " EXE/DLL.")
         peCandidates.take(MAX_PE_FILES).forEach { entry ->
+            if (shouldCancel()) throw ScanCancelledException()
             readPeInfo(entry)?.let { peResults[entry.path] = it }
         }
 
@@ -254,7 +294,14 @@ private class GameScanner(private val activity: Activity) {
         return ScanResult(md, json)
     }
 
-    private fun walk(dir: DocumentFile, parent: String, depth: Int) {
+    private fun walk(
+        dir: DocumentFile,
+        parent: String,
+        depth: Int,
+        shouldCancel: () -> Boolean,
+        onProgress: (Int, String) -> Unit
+    ) {
+        if (shouldCancel()) throw ScanCancelledException()
         if (depth > MAX_DEPTH) {
             warnings.add("Достигнут лимит глубины " + MAX_DEPTH + " в " + parent)
             return
@@ -268,6 +315,7 @@ private class GameScanner(private val activity: Activity) {
             return
         }
         for (child in children) {
+            if (shouldCancel()) throw ScanCancelledException()
             if (entries.size >= MAX_ENTRIES) {
                 warnings.add("Достигнут лимит " + MAX_ENTRIES + " записей; дерево неполное.")
                 break
@@ -277,8 +325,9 @@ private class GameScanner(private val activity: Activity) {
             val isDir = child.isDirectory
             val size = if (isDir) 0L else child.length().coerceAtLeast(0L)
             entries.add(ScanEntry(path, name, isDir, size, child.uri))
+            onProgress(entries.size, path)
             if (!isDir) totalBytes += size
-            if (isDir) walk(child, path, depth + 1)
+            if (isDir) walk(child, path, depth + 1, shouldCancel, onProgress)
         }
     }
 
