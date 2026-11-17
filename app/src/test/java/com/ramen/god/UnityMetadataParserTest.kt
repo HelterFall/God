@@ -225,6 +225,62 @@ class UnityMetadataParserTest {
     }
 
     @Test
+    fun readsSerializeReferenceTypeIdentityFields() {
+        val header = UnityFileHeader("SerializedFile", 21, 4096, 128, 256, "Little Endian", 20)
+        val bytes = ByteArray(256)
+        val version = "2021.3.20f1".toByteArray()
+        version.copyInto(bytes, 20)
+        var p = 20 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0 // TypeTree disabled
+        put32(bytes, p, 0, true); p += 4 // regular types
+        put32(bytes, p, 0, true); p += 4 // objects
+        put32(bytes, p, 0, true); p += 4 // script references
+        put32(bytes, p, 0, true); p += 4 // external references
+        put32(bytes, p, 1, true); p += 4 // SerializeReference types
+        put32(bytes, p, 0xffffffffL, true); p += 4 // ClassID -1
+        bytes[p++] = 0 // not stripped
+        put16(bytes, p, 0xffff, true); p += 2 // scriptTypeIndex -1
+        p += 16 // old type hash
+        val fields = listOf("PlayerData", "Game", "Assembly-CSharp")
+        for (field in fields) {
+            val encoded = field.toByteArray()
+            encoded.copyInto(bytes, p); p += encoded.size
+            bytes[p++] = 0
+        }
+
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        assertEquals(1L, result.serializedReferenceTypeCount)
+        assertEquals(-1, result.serializedReferenceTypes.single().classId)
+        assertEquals("PlayerData", result.serializedReferenceTypes.single().className)
+        assertEquals("Game", result.serializedReferenceTypes.single().namespace)
+        assertEquals("Assembly-CSharp", result.serializedReferenceTypes.single().assemblyName)
+    }
+
+    @Test
+    fun readsVersion26SharedSubtreeCount() {
+        val header = UnityFileHeader("SerializedFile", 26, 4096, 128, 256, "Little Endian", 48)
+        val bytes = ByteArray(192)
+        val version = "6000.0.0f1".toByteArray()
+        version.copyInto(bytes, 48)
+        var p = 48 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0
+        put32(bytes, p, 0, true); p += 4 // types
+        put32(bytes, p, 0, true); p += 4 // objects
+        put32(bytes, p, 0, true); p += 4 // script references
+        put32(bytes, p, 0, true); p += 4 // external references
+        put32(bytes, p, 0, true); p += 4 // SerializeReference types
+        put32(bytes, p, 0, true) // shared subtree count
+
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        assertEquals(0L, result.serializedReferenceTypeCount)
+        assertEquals(0L, result.sharedSubtreeCount)
+    }
+
+    @Test
     fun readsMonoScriptReferenceAndExternalFilePath() {
         val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
         val bytes = ByteArray(256)
