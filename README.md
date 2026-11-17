@@ -26,7 +26,7 @@ Android-приложение для анализа Windows Unity-игр непо
 - `GameScanner.kt` — обход дерева игры, эвристики Unity/Mono/IL2CPP и формирование отчётов.
 - `PeParser.kt` — независимый PE-парсер: архитектура, CLR-флаг и статические импорты.
 - `UnityFileHeaderParser.kt` — ограниченный парсер заголовков SerializedFile и UnityFS.
-- `UnityMetadataParser.kt` — ограниченный разбор metadata и таблиц объектов/ссылок для поддерживаемых версий 19–26.
+- `UnityMetadataParser.kt` — ограниченный разбор metadata, таблиц объектов и TypeTree-узлов для SerializedFile v19–v26.
 - `app/src/test/...` — JVM-тесты бинарных парсеров.
 
 ## Получение APK
