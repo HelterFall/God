@@ -75,7 +75,7 @@ internal object UnitySceneGraphResolver {
                         } else null
                     }.distinct()
                 if (transform?.children.orEmpty().size > MAX_LINKS_PER_OBJECT) {
-                    unresolved += transform.children.size - MAX_LINKS_PER_OBJECT
+                    unresolved += transform?.children.orEmpty().size - MAX_LINKS_PER_OBJECT
                 }
                 unresolvedTotal += unresolved
                 externalTotal += external
