@@ -680,12 +680,14 @@ class GameScanner(private val activity: Activity) {
                     (type.methodNames.joinToString(prefix = if (type.methodNames.isEmpty()) "" else " methods=[", postfix = if (type.methodNames.isEmpty()) "" else "]")))
             }
             assembly.fields.take(100).forEach { field ->
-                appendLine("  - field " + field.name + " flags=0x" + field.flags.toString(16))
+                appendLine("  - field " + field.name + " flags=0x" + field.flags.toString(16) +
+                    (field.signatureType?.let { " type=" + it } ?: " signature=" + field.signatureStatus))
             }
             assembly.methods.take(100).forEach { method ->
-                appendLine("  - method " + method.name + " RVA=0x" +
+                appendLine("  - method " + (method.signatureDisplay ?: method.name) + " RVA=0x" +
                     method.relativeVirtualAddress.toString(16) + " flags=0x" + method.flags.toString(16) +
-                    " impl=0x" + method.implementationFlags.toString(16))
+                    " impl=0x" + method.implementationFlags.toString(16) +
+                    (if (method.signatureStatus == "parsed") "" else " signature=" + method.signatureStatus))
             }
             assembly.assemblyReferences.forEach { reference ->
                 appendLine("  - AssemblyRef " + reference.name + ", Version=" +
@@ -864,7 +866,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 21)
+        root.put("schemaVersion", 22)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -898,11 +900,18 @@ class GameScanner(private val activity: Activity) {
                     .put("fields", JSONArray(type.fieldNames))
                     .put("methods", JSONArray(type.methodNames)) }))
                 .put("fields", JSONArray(assembly.fields.map { field -> JSONObject()
-                    .put("name", field.name).put("flags", field.flags) }))
+                    .put("name", field.name).put("flags", field.flags)
+                    .put("signatureType", field.signatureType ?: JSONObject.NULL)
+                    .put("signatureStatus", field.signatureStatus) }))
                 .put("methods", JSONArray(assembly.methods.map { method -> JSONObject()
                     .put("name", method.name).put("flags", method.flags)
                     .put("implementationFlags", method.implementationFlags)
-                    .put("relativeVirtualAddress", method.relativeVirtualAddress) }))
+                    .put("relativeVirtualAddress", method.relativeVirtualAddress)
+                    .put("returnType", method.returnType ?: JSONObject.NULL)
+                    .put("parameterTypes", JSONArray(method.parameterTypes))
+                    .put("signatureDisplay", method.signatureDisplay ?: JSONObject.NULL)
+                    .put("callingConvention", method.callingConvention ?: JSONObject.NULL)
+                    .put("signatureStatus", method.signatureStatus) }))
                 .put("assemblyReferences", JSONArray(assembly.assemblyReferences.map { ref -> JSONObject()
                     .put("name", ref.name)
                     .put("majorVersion", ref.majorVersion).put("minorVersion", ref.minorVersion)
