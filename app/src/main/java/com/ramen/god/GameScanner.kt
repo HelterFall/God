@@ -30,6 +30,7 @@ class GameScanner(private val activity: Activity) {
         private const val MAX_UNITY_HEADER_READ = 256
         private const val MAX_UNITY_METADATA_FILES = 40
         private const val MAX_UNITY_METADATA_READ = 8 * 1024 * 1024
+        private const val MAX_EXTERNAL_METADATA_FILES = 24
         private const val MAX_GGM_READ = 16 * 1024 * 1024
         private const val MAX_TREE_LINES = 20_000
     }
@@ -183,11 +184,15 @@ class GameScanner(private val activity: Activity) {
     )
 
     private fun resolveExternalMonoScriptRecords(files: List<ScanEntry>) {
-        val updatedBindings = unityMetadata.mapValues { it.value.scriptTypeBindings.toMutableList() }.toMutableMap()
+        val metadataSnapshot = unityMetadata.toMap()
+        val updatedBindings = metadataSnapshot.mapValues { it.value.scriptTypeBindings.toMutableList() }.toMutableMap()
         val changedOwners = mutableSetOf<String>()
         val requests = mutableListOf<ExternalMonoScriptRequest>()
+        val discoveredMetadata = linkedMapOf<String, UnityMetadataSummary>()
+        val attemptedMetadata = mutableSetOf<String>()
+        var extraMetadataReads = 0
 
-        unityMetadata.forEach { (ownerPath, metadata) ->
+        metadataSnapshot.forEach { (ownerPath, metadata) ->
             metadata.scriptTypeBindings.forEachIndexed { index, binding ->
                 val fileId = binding.fileId ?: return@forEachIndexed
                 if (fileId <= 0 || binding.pathId == null || binding.externalPath.isNullOrBlank()) {
@@ -203,7 +208,38 @@ class GameScanner(private val activity: Activity) {
                 }
 
                 val targetEntry = match.entry
-                val targetMetadata = unityMetadata[targetEntry.path]
+                var targetHeader = unityHeaders[targetEntry.path]
+                var targetMetadata = metadataSnapshot[targetEntry.path] ?: discoveredMetadata[targetEntry.path]
+
+                // The initial metadata pass is deliberately limited to 40 files.
+                // External references can promote another referenced file into a
+                // second bounded pass, without rescanning the full game folder.
+                if (targetMetadata == null && targetEntry.path !in attemptedMetadata) {
+                    if (extraMetadataReads >= MAX_EXTERNAL_METADATA_FILES) {
+                        updatedBindings[ownerPath]?.set(index, current.copy(
+                            matchedExternalFilePath = targetEntry.path,
+                            resolution = "external-metadata-limit-reached"
+                        ))
+                        changedOwners.add(ownerPath)
+                        return@forEachIndexed
+                    }
+                    attemptedMetadata.add(targetEntry.path)
+                    extraMetadataReads++
+                    val prefix = readPrefix(targetEntry.uri, MAX_UNITY_METADATA_READ)
+                    if (prefix != null) {
+                        if (targetHeader == null) {
+                            targetHeader = UnityFileHeaderParser.parse(prefix, targetEntry.size)
+                            if (targetHeader != null) unityHeaders[targetEntry.path] = targetHeader
+                        }
+                        if (targetHeader?.kind == "SerializedFile") {
+                            targetMetadata = UnityMetadataParser.parse(prefix, targetHeader)?.let { parsed ->
+                                readMonoScriptRecords(targetEntry, targetHeader, parsed)
+                            }
+                            if (targetMetadata != null) discoveredMetadata[targetEntry.path] = targetMetadata
+                        }
+                    }
+                }
+
                 if (targetMetadata == null) {
                     updatedBindings[ownerPath]?.set(index, current.copy(
                         matchedExternalFilePath = targetEntry.path,
@@ -221,7 +257,6 @@ class GameScanner(private val activity: Activity) {
                     changedOwners.add(ownerPath)
                     return@forEachIndexed
                 }
-                val targetHeader = unityHeaders[targetEntry.path]
                 if (targetHeader == null || targetHeader.dataOffset == null || targetHeader.fileSize == null) {
                     updatedBindings[ownerPath]?.set(index, current.copy(
                         matchedExternalFilePath = targetEntry.path,
@@ -250,6 +285,11 @@ class GameScanner(private val activity: Activity) {
             }
         }
 
+        // Add newly parsed targets only after iterating the original owner set.
+        discoveredMetadata.forEach { (path, metadata) ->
+            if (!unityMetadata.containsKey(path)) unityMetadata[path] = metadata
+        }
+
         val extraScripts = mutableMapOf<String, MutableList<UnityMonoScriptSummary>>()
         requests.groupBy { it.targetEntry.path }.forEach { (_, group) ->
             val first = group.first()
@@ -260,10 +300,9 @@ class GameScanner(private val activity: Activity) {
             }
             if (littleEndian == null) {
                 group.forEach { request ->
-                    updatedBindings[request.ownerPath]?.set(
-                        request.bindingIndex,
-                        updatedBindings[request.ownerPath]!![request.bindingIndex].copy(resolution = "external-file-endianness-unknown")
-                    )
+                    val bindings = updatedBindings[request.ownerPath] ?: return@forEach
+                    val current = bindings.getOrNull(request.bindingIndex) ?: return@forEach
+                    bindings[request.bindingIndex] = current.copy(resolution = "external-file-endianness-unknown")
                     changedOwners.add(request.ownerPath)
                 }
                 return@forEach
@@ -272,8 +311,9 @@ class GameScanner(private val activity: Activity) {
                 val input = activity.contentResolver.openInputStream(first.targetEntry.uri)
                 if (input == null) {
                     group.forEach { request ->
-                        val current = updatedBindings[request.ownerPath]!![request.bindingIndex]
-                        updatedBindings[request.ownerPath]!![request.bindingIndex] = current.copy(resolution = "external-file-unreadable")
+                        val bindings = updatedBindings[request.ownerPath] ?: return@forEach
+                        val current = bindings.getOrNull(request.bindingIndex) ?: return@forEach
+                        bindings[request.bindingIndex] = current.copy(resolution = "external-file-unreadable")
                         changedOwners.add(request.ownerPath)
                     }
                     return@forEach
@@ -289,13 +329,13 @@ class GameScanner(private val activity: Activity) {
                 }
                 val parsedByPath = readResult.scripts.associateBy { it.pathId }
                 group.forEach { request ->
-                    val current = updatedBindings[request.ownerPath]!![request.bindingIndex]
+                    val bindings = updatedBindings[request.ownerPath] ?: return@forEach
+                    val current = bindings.getOrNull(request.bindingIndex) ?: return@forEach
                     val script = parsedByPath[request.target.pathId]
                     if (script == null) {
-                        updatedBindings[request.ownerPath]!![request.bindingIndex] =
-                            current.copy(resolution = "external-monoscript-unreadable")
+                        bindings[request.bindingIndex] = current.copy(resolution = "external-monoscript-unreadable")
                     } else {
-                        updatedBindings[request.ownerPath]!![request.bindingIndex] = current.copy(
+                        bindings[request.bindingIndex] = current.copy(
                             monoScriptName = script.name,
                             className = script.className,
                             namespace = script.namespace,
@@ -310,9 +350,9 @@ class GameScanner(private val activity: Activity) {
                 }
             } catch (e: Exception) {
                 group.forEach { request ->
-                    val current = updatedBindings[request.ownerPath]!![request.bindingIndex]
-                    updatedBindings[request.ownerPath]!![request.bindingIndex] =
-                        current.copy(resolution = "external-monoscript-read-failed")
+                    val bindings = updatedBindings[request.ownerPath] ?: return@forEach
+                    val current = bindings.getOrNull(request.bindingIndex) ?: return@forEach
+                    bindings[request.bindingIndex] = current.copy(resolution = "external-monoscript-read-failed")
                     changedOwners.add(request.ownerPath)
                 }
             }
@@ -333,26 +373,13 @@ class GameScanner(private val activity: Activity) {
     private data class ExternalFileMatch(val entry: ScanEntry?, val ambiguous: Boolean)
 
     private fun resolveExternalFile(externalPath: String, files: List<ScanEntry>): ExternalFileMatch {
-        var normalized = externalPath.trim().replace('\\', '/')
-        val archiveMarker = normalized.indexOf("archive:/", ignoreCase = true)
-        if (archiveMarker >= 0) normalized = normalized.substring(archiveMarker + "archive:/".length)
-        normalized = normalized.trimStart('/').lowercase(Locale.ROOT)
-        if (normalized.isBlank()) return ExternalFileMatch(null, false)
-
-        val pathMatches = files.filter { entry ->
-            val candidate = entry.path.replace('\\', '/').trimStart('/').lowercase(Locale.ROOT)
-            normalized == candidate || normalized.endsWith("/" + candidate)
-        }
-        if (pathMatches.size == 1) return ExternalFileMatch(pathMatches.single(), false)
-        if (pathMatches.size > 1) return ExternalFileMatch(null, true)
-
-        val baseName = normalized.substringAfterLast('/')
-        val nameMatches = files.filter { it.name.equals(baseName, ignoreCase = true) }
-        return when (nameMatches.size) {
-            1 -> ExternalFileMatch(nameMatches.single(), false)
-            in 2..Int.MAX_VALUE -> ExternalFileMatch(null, true)
-            else -> ExternalFileMatch(null, false)
-        }
+        val match = UnityExternalPathResolver.resolve(
+            externalPath,
+            files,
+            { entry -> entry.path },
+            { entry -> entry.name }
+        )
+        return ExternalFileMatch(match.item, match.ambiguous)
     }
 
     private fun readMonoScriptRecords(
