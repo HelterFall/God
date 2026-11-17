@@ -132,16 +132,18 @@ Suggested analyzer contract:
 - [x] Read up to 8 MiB of metadata prefix for the first 40 SerializedFile candidates; other candidates retain bounded header-only reads.
 - [x] Count all object records grouped by ClassID and preserve up to 10 example PathIDs per class, including GameObject (1), Transform (4), MonoBehaviour (114), and MonoScript (115).
 - [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); resolve the 109 base CommonString entries plus five later Unity 2022+/6 names; unknown offsets remain unresolved.
-- [x] Preserve up to 128 detailed TypeTree nodes per summarized type (level, type/name strings, byteSize and flags) as groundwork for structured object decoding.
+- [x] Preserve up to 128 detailed TypeTree nodes per summarized type (level, type/name strings, byteSize and flags) for reporting; keep complete TypeTrees for GameObject, Transform and MonoBehaviour only when at most 4096 nodes.
 - [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.
 - [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.
 - [x] Read SerializeReference type entries for v20–v26; preserve className, namespace and assemblyName for v21+.
 - [x] Read the v26 shared TypeTree subtree count; subtree payload resolution is still pending.
 - [x] Bind serialized type scriptTypeIndex to MonoScript fileID/pathID; resolve local targets against up to 1000 ClassID 115 object records and external targets against the external-file table (sample-bounded).
 - [x] Decode local MonoScript payloads (name, execution order, class, namespace, assembly) with limits of 64 objects, 64 KiB per object and 64 MiB traversal distance.
-- [x] Basic GameObject/Transform/MonoBehaviour/MonoScript object inventory by ClassID; names and scene relationships still require object payload decoding.
+- [x] Basic GameObject/Transform/MonoBehaviour/MonoScript object inventory by ClassID.
+- [x] Decode bounded GameObject, Transform and MonoBehaviour payloads from complete bounded TypeTrees: GameObject name/active/components; Transform GameObject/parent/children; MonoBehaviour enabled/script PPtrs.
 - [x] Resolve external MonoScript targets when their path matches a selected file exactly or by a unique basename; decode only when that file's SerializedFile metadata and target ClassID 115 object are in the bounded sample. Ambiguous matches remain unresolved.
 - [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL metadata.
+- [ ] Resolve decoded PPtr references into a unified scene hierarchy and bind MonoBehaviour m_Script PPtrs to MonoScript/managed DLL identities.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
 
 ### Phase 5 — Resource and compatibility intelligence
