@@ -136,7 +136,7 @@ Suggested analyzer contract:
 - [x] Read the v26 shared TypeTree subtree count; subtree payload resolution is still pending.\n- [x] Bind serialized type scriptTypeIndex to MonoScript fileID/pathID; resolve local targets against up to 1000 ClassID 115 object records and external targets against the external-file table (sample-bounded).
 - [x] Decode local MonoScript payloads (name, execution order, class, namespace, assembly) with limits of 64 objects, 64 KiB per object and 64 MiB traversal distance.
 - [ ] Scene/GameObject/MonoBehaviour inventory.
-- [ ] Decode externally referenced MonoScript payloads and map MonoScript assembly/class names to managed DLL metadata.
+- [x] Resolve external MonoScript targets when their path matches a selected file exactly or by a unique basename; decode only when that file's SerializedFile metadata and target ClassID 115 object are in the bounded sample. Ambiguous matches remain unresolved.
 - [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL metadata.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
 
@@ -174,5 +174,5 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 1. Validate the new SerializedFile/UnityFS header parser against real Unity samples and expand malformed-header tests.
 2. Add positional SAF reads so pre-v9 SerializedFiles can locate the endian marker without loading the file.
 3. Parse the first bounded metadata fields (Unity version, target platform, TypeTree flag, type/object counts) with strict count and offset limits.
-4. Add UnityFS block-table metadata parsing; keep payload decompression as a separate, explicitly bounded stage.\n5. Decode MonoScript objects using their object TypeTrees and resolve cross-file references through the external-file table.
-5. Move report generation to streaming writers and stop retaining complete Markdown/JSON strings for large scans.
+4. Add UnityFS block-table metadata parsing; keep payload decompression as a separate, explicitly bounded stage.\n5. Add TypeTree-driven decoding for MonoBehaviour, ScriptableObject and GameObject payloads; keep unresolved references explicit.
+6. Move report generation to streaming writers and stop retaining complete Markdown/JSON strings for large scans.
