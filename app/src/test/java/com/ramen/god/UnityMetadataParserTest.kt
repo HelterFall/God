@@ -156,6 +156,12 @@ class UnityMetadataParserTest {
         assertEquals("GameObject", result.typeTrees[0].rootType)
         assertEquals("Base", result.typeTrees[0].rootName)
         assertEquals(listOf("m_Name"), result.typeTrees[0].fieldNames)
+        assertEquals(2L, result.typeTrees[0].nodeCount)
+        assertEquals(2, result.typeTrees[0].nodes.size)
+        assertEquals("int", result.typeTrees[0].nodes[1].typeName)
+        assertEquals("m_Name", result.typeTrees[0].nodes[1].fieldName)
+        assertEquals(1, result.typeTrees[0].nodes[1].level)
+        assertEquals(4, result.typeTrees[0].nodes[1].byteSize)
     }
 
     @Test
@@ -203,6 +209,8 @@ class UnityMetadataParserTest {
         requireNotNull(result)
         assertEquals("RenderingLayerMask", result.typeTrees.single().rootType)
         assertEquals("m_Name", result.typeTrees.single().rootName)
+        assertEquals(1169, result.typeTrees.single().nodes.single().typeName?.let { 1169 })
+        assertEquals("RenderingLayerMask", result.typeTrees.single().nodes.single().typeName)
     }
 
     @Test
