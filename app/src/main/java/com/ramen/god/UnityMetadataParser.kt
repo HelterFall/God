@@ -17,6 +17,17 @@ internal data class UnityScriptTypeReference(val fileId: Int, val pathId: Long)
 
 internal data class UnityExternalReference(val fileId: Int, val path: String, val type: Int)
 
+internal data class UnityScriptTypeBinding(
+    val classId: Int,
+    val scriptTypeIndex: Int,
+    val scriptId: String?,
+    val fileId: Int?,
+    val pathId: Long?,
+    val externalPath: String?,
+    val localObjectClassId: Int?,
+    val resolution: String
+)
+
 /** Bounded metadata summary for modern Unity SerializedFiles. */
 internal data class UnityMetadataSummary(
     val unityVersion: String?,
@@ -34,6 +45,7 @@ internal data class UnityMetadataSummary(
     val sharedSubtreeCount: Long? = null,
     val scriptTypeReferences: List<UnityScriptTypeReference> = emptyList(),
     val externalReferences: List<UnityExternalReference> = emptyList(),
+    val scriptTypeBindings: List<UnityScriptTypeBinding> = emptyList(),
     val note: String? = null
 )
 
@@ -224,6 +236,10 @@ internal object UnityMetadataParser {
                 note = "Число shared TypeTree subtrees превышает безопасный лимит.")
         }
 
+        val scriptTypeBindings = buildScriptTypeBindings(
+            serializedTypes, scriptTypeReferences, externalReferences, objectSamples
+        )
+
         return partial.copy(
             objectCount = objectCount,
             scriptTypeCount = scriptCount,
@@ -236,10 +252,48 @@ internal object UnityMetadataParser {
             sharedSubtreeCount = sharedSubtreeCount,
             scriptTypeReferences = scriptTypeReferences,
             externalReferences = externalReferences,
-            note = if (referenceTypeCount != null && referenceTypeCount > 0L)
-                "Прочитаны таблицы объектов, MonoScript-ссылок и внешних файлов; SerializeReference type entries ($referenceTypeCount) и TypeTree shared subtrees не анализировались."
-            else "Прочитаны основные таблицы metadata; TypeTree shared subtrees не анализировались."
+            scriptTypeBindings = scriptTypeBindings,
+            note = if (version >= 26L)
+                "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types; shared TypeTree subtree payloads пока не разбираются."
+            else "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
         )
+    }
+
+    private fun buildScriptTypeBindings(
+        serializedTypes: List<UnitySerializedTypeSummary>,
+        scriptReferences: List<UnityScriptTypeReference>,
+        externalReferences: List<UnityExternalReference>,
+        objectSamples: List<UnityObjectSummary>
+    ): List<UnityScriptTypeBinding> {
+        return serializedTypes.mapNotNull { type ->
+            if (type.scriptTypeIndex < 0) return@mapNotNull null
+            val reference = scriptReferences.getOrNull(type.scriptTypeIndex)
+            if (reference == null) {
+                return@mapNotNull UnityScriptTypeBinding(
+                    type.classId, type.scriptTypeIndex, type.scriptId,
+                    null, null, null, null, "script-reference-not-in-sample"
+                )
+            }
+            val localObject = if (reference.fileId == 0) {
+                objectSamples.firstOrNull { it.pathId == reference.pathId }
+            } else null
+            val externalPath = if (reference.fileId > 0) {
+                externalReferences.firstOrNull { it.fileId == reference.fileId }?.path
+            } else null
+            val resolution = when {
+                reference.fileId < 0 -> "invalid-file-id"
+                reference.fileId == 0 && localObject?.classId == 115 -> "local-monoscript-in-object-sample"
+                reference.fileId == 0 && localObject != null -> "local-target-other-class"
+                reference.fileId == 0 -> "local-target-not-in-object-sample"
+                externalPath != null -> "external-file-path-known"
+                else -> "external-file-not-in-sample"
+            }
+            UnityScriptTypeBinding(
+                type.classId, type.scriptTypeIndex, type.scriptId,
+                reference.fileId, reference.pathId, externalPath,
+                localObject?.classId, resolution
+            )
+        }
     }
 
     private data class ParsedTypeEntry(
