@@ -610,11 +610,20 @@ class GameScanner(private val activity: Activity) {
             appendLine("- $path: " + (assembly.name ?: "(assembly name unavailable)") +
                 (assembly.version?.let { "; version=" + it } ?: "") +
                 (assembly.moduleName?.let { "; module=" + it } ?: "") +
-                "; types=" + assembly.typeCount + "; refs=" + assembly.assemblyReferences.size +
+                "; types=" + assembly.typeCount + "; fields=" + assembly.fields.size +
+                "; methods=" + assembly.methods.size + "; refs=" + assembly.assemblyReferences.size +
                 "; status=" + assembly.status + (assembly.note?.let { "; " + it } ?: ""))
             assembly.types.take(100).forEach { type ->
                 val fullName = if (type.namespace.isBlank()) type.name else type.namespace + "." + type.name
                 appendLine("  - type " + fullName + " flags=0x" + type.flags.toString(16))
+            }
+            assembly.fields.take(100).forEach { field ->
+                appendLine("  - field " + field.name + " flags=0x" + field.flags.toString(16))
+            }
+            assembly.methods.take(100).forEach { method ->
+                appendLine("  - method " + method.name + " RVA=0x" +
+                    method.relativeVirtualAddress.toString(16) + " flags=0x" + method.flags.toString(16) +
+                    " impl=0x" + method.implementationFlags.toString(16))
             }
             assembly.assemblyReferences.forEach { reference ->
                 appendLine("  - AssemblyRef " + reference.name + ", Version=" +
@@ -790,7 +799,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 18)
+        root.put("schemaVersion", 19)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -814,6 +823,12 @@ class GameScanner(private val activity: Activity) {
                 .put("typeCount", assembly.typeCount)
                 .put("types", JSONArray(assembly.types.map { type -> JSONObject()
                     .put("name", type.name).put("namespace", type.namespace).put("flags", type.flags) }))
+                .put("fields", JSONArray(assembly.fields.map { field -> JSONObject()
+                    .put("name", field.name).put("flags", field.flags) }))
+                .put("methods", JSONArray(assembly.methods.map { method -> JSONObject()
+                    .put("name", method.name).put("flags", method.flags)
+                    .put("implementationFlags", method.implementationFlags)
+                    .put("relativeVirtualAddress", method.relativeVirtualAddress) }))
                 .put("assemblyReferences", JSONArray(assembly.assemblyReferences.map { ref -> JSONObject()
                     .put("name", ref.name)
                     .put("majorVersion", ref.majorVersion).put("minorVersion", ref.minorVersion)
