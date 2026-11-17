@@ -1,6 +1,22 @@
 package com.ramen.god
 
-internal data class UnityTypeTreeSummary(val classId: Int, val nodeCount: Long, val rootType: String?, val rootName: String?, val fieldNames: List<String>)
+internal data class UnityTypeTreeNodeSummary(
+    val level: Int,
+    val typeName: String?,
+    val fieldName: String?,
+    val byteSize: Int,
+    val typeFlags: Int,
+    val metaFlags: Int
+)
+
+internal data class UnityTypeTreeSummary(
+    val classId: Int,
+    val nodeCount: Long,
+    val rootType: String?,
+    val rootName: String?,
+    val fieldNames: List<String>,
+    val nodes: List<UnityTypeTreeNodeSummary> = emptyList()
+)
 
 internal data class UnitySerializedTypeSummary(
     val classId: Int,
@@ -78,6 +94,7 @@ internal object UnityMetadataParser {
     private const val MAX_SERIALIZED_TYPE_SAMPLES = 500
     private const val MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES = 200
     private const val MAX_TYPE_TREE_FIELDS = 20
+    private const val MAX_TYPE_TREE_NODE_SAMPLES = 128
     private const val MAX_TYPE_TREE_BYTES = 4 * 1024 * 1024
     private const val TYPE_TREE_NODE_SIZE = 32L
 
@@ -487,16 +504,22 @@ internal object UnityMetadataParser {
         var rootType: String? = null
         var rootName: String? = null
         val fields = ArrayList<String>()
+        val nodeSamples = ArrayList<UnityTypeTreeNodeSummary>(minOf(nodeCount, MAX_TYPE_TREE_NODE_SAMPLES.toLong()).toInt())
         repeat(nodeCount.toInt()) { index ->
             if (nodes.readI16() == null) return null
             val level = nodes.readU8() ?: return null
-            if (nodes.readU8() == null) return null
+            val typeFlags = nodes.readU8() ?: return null
             val typeOffset = nodes.readU32() ?: return null
             val nameOffset = nodes.readU32() ?: return null
-            if (nodes.readI32() == null || nodes.readI32() == null || nodes.readI32() == null ||
-                nodes.readU64() == null) return null
+            val byteSize = nodes.readI32() ?: return null
+            if (nodes.readI32() == null) return null // node index
+            val metaFlags = nodes.readI32() ?: return null
+            if (nodes.readU64() == null) return null // reference type hash
             val typeName = readTreeString(stringBuffer, typeOffset)
             val fieldName = readTreeString(stringBuffer, nameOffset)
+            if (nodeSamples.size < MAX_TYPE_TREE_NODE_SAMPLES) {
+                nodeSamples.add(UnityTypeTreeNodeSummary(level, typeName, fieldName, byteSize, typeFlags, metaFlags))
+            }
             if (index == 0) {
                 rootType = typeName
                 rootName = fieldName
@@ -505,7 +528,7 @@ internal object UnityMetadataParser {
                 fields.add(fieldName)
             }
         }
-        return UnityTypeTreeSummary(classId, nodeCount, rootType, rootName, fields)
+        return UnityTypeTreeSummary(classId, nodeCount, rootType, rootName, fields, nodeSamples)
     }
 
     private fun readTreeString(buffer: ByteArray, rawOffset: Long): String? {
