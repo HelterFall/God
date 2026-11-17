@@ -211,7 +211,8 @@ class GameScanner(private val activity: Activity) {
                     resolution = "local-monoscript-decoded"
                 )
             }
-            val note = listOfNotNull(metadata.note, result.note).joinToString(" ").ifBlank { null }
+            val combinedNote = listOfNotNull(metadata.note, result.note).joinToString(" ")
+            val note = combinedNote.takeIf { it.isNotBlank() }
             metadata.copy(
                 monoScripts = result.scripts,
                 scriptTypeBindings = updatedBindings,
