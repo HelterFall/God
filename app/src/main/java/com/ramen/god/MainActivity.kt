@@ -145,7 +145,7 @@ class MainActivity : Activity() {
                 ) { count, path ->
                     if (count % 128 == 0) {
                         runOnUiThread {
-                            if (!scanCancelled) status.text = "Просмотрено записей: $count\\nПоследний путь: $path"
+                            if (!scanCancelled) status.text = "Просмотрено записей: $count\nПоследний путь: $path"
                         }
                     }
                 }
