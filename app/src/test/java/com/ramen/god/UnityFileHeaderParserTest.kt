@@ -89,10 +89,10 @@ class UnityFileHeaderParserTest {
     private fun serializedV22(): ByteArray {
         val bytes = ByteArray(64)
         put32be(bytes, 8, 22)
-        bytes[16] = 0
-        put32be(bytes, 20, 2048)
+        put64be(bytes, 16, 2048L)
         put64be(bytes, 24, 5_000_000_000L)
         put64be(bytes, 32, 4096L)
+        bytes[40] = 0
         return bytes
     }
 
