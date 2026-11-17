@@ -176,6 +176,7 @@ internal object UnityMetadataParser {
             externalReferenceCount = externalCount,
             objectSamples = objectSamples,
             typeTrees = typeTrees,
+            serializedTypes = serializedTypes,
             scriptTypeReferences = scriptTypeReferences,
             externalReferences = externalReferences,
             note = if (referenceTypeCount != null && referenceTypeCount > 0L)
