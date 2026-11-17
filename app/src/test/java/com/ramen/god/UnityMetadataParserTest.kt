@@ -148,7 +148,9 @@ class UnityMetadataParserTest {
     private fun put16(bytes: ByteArray, offset: Int, value: Int, little: Boolean) {
         bytes[offset + if (little) 0 else 1] = value.toByte()
         bytes[offset + if (little) 1 else 0] = (value ushr 8).toByte()
-    }\n\n    private fun put64(bytes: ByteArray, offset: Int, value: Long, little: Boolean) {
+    }
+
+    private fun put64(bytes: ByteArray, offset: Int, value: Long, little: Boolean) {
         for (i in 0 until 8) {
             val shift = if (little) i * 8 else (7 - i) * 8
             bytes[offset + i] = (value ushr shift).toByte()
