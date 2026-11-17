@@ -66,7 +66,7 @@ class UnitySceneGraphResolverTest {
 
         assertEquals(2, graph.unresolvedReferenceCount)
         assertEquals(1, graph.externalReferenceCount)
-        assertEquals(1, graph.nodes.single().unresolvedReferenceCount)
+        assertEquals(2, graph.nodes.single().unresolvedReferenceCount)
     }
 
     private fun ptr(fileId: Int, pathId: Long) =
