@@ -46,10 +46,12 @@ internal object UnityFileHeaderParser {
         }
 
         if (prefix.size < MODERN_HEADER_SIZE) return null
-        val endian = endianName(prefix[16].toInt() and 0xff) ?: return null
-        val metadataSize = u32be(prefix, 20)
+        // Modern 48-byte header: legacy placeholder (0..15), then three UInt64
+        // fields (metadata size, file size, data offset), then endian at byte 40.
+        val metadataSize = i64be(prefix, 16) ?: return null
         val fileSize = i64be(prefix, 24) ?: return null
         val dataOffset = i64be(prefix, 32) ?: return null
+        val endian = endianName(prefix[40].toInt() and 0xff) ?: return null
         if (metadataSize == 0L || fileSize <= 0L || dataOffset < MODERN_HEADER_SIZE.toLong()) return null
         return validSerialized(version, fileSize, metadataSize, dataOffset, endian, MODERN_HEADER_SIZE, actualFileSize)
     }
