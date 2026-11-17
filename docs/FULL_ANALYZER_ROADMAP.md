@@ -119,7 +119,7 @@ Suggested analyzer contract:
 - Native dependency graph, missing plugin report, and import/export details.
 
 ### Phase 3 — Managed code intelligence
-- [x] First CLR metadata inventory: Assembly identity/version, Module name, TypeDef names/namespaces and AssemblyRef dependencies from bounded ECMA-335 metadata tables.
+- [x] First CLR metadata inventory: Assembly identity/version, Module name, TypeDef names/namespaces, Field names/flags, Method names/flags/RVA and AssemblyRef dependencies from bounded ECMA-335 metadata tables.
 - [x] Link parsed MonoBehaviour MonoScript identities to exact managed assembly + namespace + TypeDef names; keep ambiguous assembly matches and truncated type samples explicit.
 - [ ] Expand to fields, methods, attributes, nested type relationships and dependency graph.
 - P/Invoke inventory and IL call-site scan.
