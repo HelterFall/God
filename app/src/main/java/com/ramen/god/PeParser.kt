@@ -1,6 +1,15 @@
 package com.ramen.god
 
-internal data class PeInfo(\n    val machine: String,\n    val managed: Boolean,\n    val imports: List<String>,\n    val note: String? = null,\n    val clrMetadataOffset: Int? = null,\n    val clrMetadataSize: Long? = null,\n    val clrRuntimeVersion: String? = null,\n    val clrFlags: Long? = null\n)
+internal data class PeInfo(
+    val machine: String,
+    val managed: Boolean,
+    val imports: List<String>,
+    val note: String? = null,
+    val clrMetadataOffset: Int? = null,
+    val clrMetadataSize: Long? = null,
+    val clrRuntimeVersion: String? = null,
+    val clrFlags: Long? = null
+)
 
 internal object PeParser {
     private data class Section(val virtualSize: Long, val virtualAddress: Long, val rawSize: Long, val rawPointer: Long)
