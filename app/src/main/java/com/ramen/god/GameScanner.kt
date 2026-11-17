@@ -675,7 +675,9 @@ class GameScanner(private val activity: Activity) {
                 "; status=" + assembly.status + (assembly.note?.let { "; " + it } ?: ""))
             assembly.types.take(100).forEach { type ->
                 val fullName = if (type.namespace.isBlank()) type.name else type.namespace + "." + type.name
-                appendLine("  - type " + fullName + " flags=0x" + type.flags.toString(16))
+                appendLine("  - type " + fullName + " flags=0x" + type.flags.toString(16) +
+                    (type.fieldNames.joinToString(prefix = if (type.fieldNames.isEmpty()) "" else " fields=[", postfix = if (type.fieldNames.isEmpty()) "" else "]")) +
+                    (type.methodNames.joinToString(prefix = if (type.methodNames.isEmpty()) "" else " methods=[", postfix = if (type.methodNames.isEmpty()) "" else "]")))
             }
             assembly.fields.take(100).forEach { field ->
                 appendLine("  - field " + field.name + " flags=0x" + field.flags.toString(16))
@@ -862,7 +864,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 20)
+        root.put("schemaVersion", 21)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -892,7 +894,9 @@ class GameScanner(private val activity: Activity) {
                 .put("flags", assembly.flags ?: JSONObject.NULL)
                 .put("typeCount", assembly.typeCount)
                 .put("types", JSONArray(assembly.types.map { type -> JSONObject()
-                    .put("name", type.name).put("namespace", type.namespace).put("flags", type.flags) }))
+                    .put("name", type.name).put("namespace", type.namespace).put("flags", type.flags)
+                    .put("fields", JSONArray(type.fieldNames))
+                    .put("methods", JSONArray(type.methodNames)) }))
                 .put("fields", JSONArray(assembly.fields.map { field -> JSONObject()
                     .put("name", field.name).put("flags", field.flags) }))
                 .put("methods", JSONArray(assembly.methods.map { method -> JSONObject()
