@@ -17,6 +17,7 @@ class GameScanner(private val activity: Activity) {
     private val entries = mutableListOf<ScanEntry>()
     private val warnings = mutableListOf<String>()
     private val peResults = linkedMapOf<String, PeInfo>()
+    private val clrResults = linkedMapOf<String, ClrAssemblySummary>()
     private val unityHeaders = linkedMapOf<String, UnityFileHeader>()
     private val unityMetadata = linkedMapOf<String, UnityMetadataSummary>()
     private var totalBytes = 0L
@@ -26,6 +27,7 @@ class GameScanner(private val activity: Activity) {
         private const val MAX_DEPTH = 40
         private const val MAX_PE_FILES = 150
         private const val MAX_PE_READ = 1024 * 1024
+        private const val MAX_CLR_PE_READ = 4 * 1024 * 1024
         private const val MAX_UNITY_HEADER_FILES = 500
         private const val MAX_UNITY_HEADER_READ = 256
         private const val MAX_UNITY_METADATA_FILES = 40
@@ -43,6 +45,7 @@ class GameScanner(private val activity: Activity) {
         entries.clear()
         warnings.clear()
         peResults.clear()
+        clrResults.clear()
         unityHeaders.clear()
         unityMetadata.clear()
         totalBytes = 0L
@@ -509,8 +512,23 @@ class GameScanner(private val activity: Activity) {
 
     private fun readPeInfo(entry: ScanEntry): PeInfo? {
         return try {
-            val data = readPrefix(entry.uri, MAX_PE_READ) ?: return null
-            PeParser.parse(data)
+            var data = readPrefix(entry.uri, MAX_PE_READ) ?: return null
+            var info = PeParser.parse(data) ?: return null
+            val metadataEnd = info.clrMetadataOffset?.toLong()?.plus(info.clrMetadataSize ?: 0L)
+            if (info.managed && metadataEnd != null && metadataEnd > data.size.toLong()) {
+                val expanded = readPrefix(entry.uri, MAX_CLR_PE_READ)
+                if (expanded != null) {
+                    data = expanded
+                    info = PeParser.parse(data) ?: info
+                }
+            }
+            if (info.managed) {
+                ClrMetadataParser.parse(
+                    data, info.clrMetadataOffset, info.clrMetadataSize,
+                    info.clrRuntimeVersion, info.clrFlags
+                )?.let { clrResults[entry.path] = it }
+            }
+            info
         } catch (e: Exception) {
             warnings.add("PE-анализ не выполнен для " + entry.path + ": " + e.message)
             null
@@ -581,6 +599,26 @@ class GameScanner(private val activity: Activity) {
             appendLine("- " + path + ": " + info.machine + "; " + kind + "; imports=" + info.imports.size +
                 (info.note?.let { "; " + it } ?: ""))
             info.imports.forEach { appendLine("  - " + it) }
+        }
+        appendLine()
+        appendLine("## CLR managed assembly metadata")
+        if (clrResults.isEmpty()) appendLine("- CLR metadata не удалось прочитать в проверенных managed PE-файлах")
+        clrResults.forEach { (path, assembly) ->
+            appendLine("- $path: " + (assembly.name ?: "(assembly name unavailable)") +
+                (assembly.version?.let { "; version=" + it } ?: "") +
+                (assembly.moduleName?.let { "; module=" + it } ?: "") +
+                "; types=" + assembly.typeCount + "; refs=" + assembly.assemblyReferences.size +
+                "; status=" + assembly.status + (assembly.note?.let { "; " + it } ?: ""))
+            assembly.types.take(100).forEach { type ->
+                val fullName = if (type.namespace.isBlank()) type.name else type.namespace + "." + type.name
+                appendLine("  - type " + fullName + " flags=0x" + type.flags.toString(16))
+            }
+            assembly.assemblyReferences.forEach { reference ->
+                appendLine("  - AssemblyRef " + reference.name + ", Version=" +
+                    reference.majorVersion + "." + reference.minorVersion + "." +
+                    reference.buildNumber + "." + reference.revisionNumber +
+                    (reference.culture.takeIf { it.isNotBlank() }?.let { ", Culture=" + it } ?: ""))
+            }
         }
         appendLine()
         appendLine("## Unity serialized files and bundles")
@@ -727,7 +765,7 @@ class GameScanner(private val activity: Activity) {
         appendLine("## Notes")
         appendLine("- Исходные файлы читаются на месте через SAF: не копируются, не изменяются и не запускаются.")
         appendLine("- Mono/IL2CPP классифицируется по структуре и является эвристикой.")
-        appendLine("- CLR-флаг PE помогает отличить managed assembly от native PE, но не анализирует все managed references.")
+        appendLine("- CLR metadata inventory читает Assembly, TypeDef и AssemblyRef; метод-тела IL, атрибуты и P/Invoke-сигнатуры пока не анализируются.")
         appendLine("- Таблица импортов показывает статические импорты PE; динамические LoadLibrary и P/Invoke полностью не покрываются.")
         appendLine("- Поиск версии Unity эвристический, результат желательно сверять по нескольким источникам.")
     }
@@ -739,7 +777,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 16)
+        root.put("schemaVersion", 17)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -752,6 +790,24 @@ class GameScanner(private val activity: Activity) {
         root.put("nativePeBinaries", JSONArray(nativeBinaries))
         root.put("nativeImports", JSONArray(importSummary.map {
             JSONObject().put("dll", it.key).put("referencedByCount", it.value)
+        }))
+        root.put("managedAssemblyMetadata", JSONArray(clrResults.map { (path, assembly) ->
+            JSONObject().put("path", path)
+                .put("name", assembly.name ?: JSONObject.NULL)
+                .put("version", assembly.version ?: JSONObject.NULL)
+                .put("moduleName", assembly.moduleName ?: JSONObject.NULL)
+                .put("runtimeVersion", assembly.runtimeVersion ?: JSONObject.NULL)
+                .put("flags", assembly.flags ?: JSONObject.NULL)
+                .put("typeCount", assembly.typeCount)
+                .put("types", JSONArray(assembly.types.map { type -> JSONObject()
+                    .put("name", type.name).put("namespace", type.namespace).put("flags", type.flags) }))
+                .put("assemblyReferences", JSONArray(assembly.assemblyReferences.map { ref -> JSONObject()
+                    .put("name", ref.name)
+                    .put("majorVersion", ref.majorVersion).put("minorVersion", ref.minorVersion)
+                    .put("buildNumber", ref.buildNumber).put("revisionNumber", ref.revisionNumber)
+                    .put("culture", ref.culture) }))
+                .put("status", assembly.status)
+                .put("note", assembly.note ?: JSONObject.NULL)
         }))
         root.put("unityMetadata", JSONArray(unityMetadata.map { (path, metadata) ->
             JSONObject().put("path", path)
