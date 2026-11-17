@@ -31,7 +31,7 @@ class ClrSignatureParserTest {
     @Test
     fun parsesGenericMethodVariable() {
         val result = ClrSignatureParser.parseMethod(byteArrayOf(0x10, 0x01, 0x00, 0x01, 0x13, 0x00))
-        assertEquals("!0", result?.returnType)
+        assertEquals("!!0", result?.returnType)
     }
 
     @Test
