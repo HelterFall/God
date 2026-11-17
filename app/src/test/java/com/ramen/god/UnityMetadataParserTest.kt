@@ -84,7 +84,7 @@ class UnityMetadataParserTest {
         put32(bytes, p, 1, true); p += 4 // type count
         put32(bytes, p, 1, true); p += 4 // class ID
         bytes[p++] = 0 // stripped
-        bytes[p++] = 0xff.toByte(); bytes[p++] = 0xff.toByte() // script index -1
+        put16(bytes, p, 2, true); p += 2 // non-negative script index does not imply an extra script ID
         p += 16 // old type hash
         put32(bytes, p, 1, true); p += 4 // object count
         put64(bytes, p, 7L, true); p += 8 // file ID
@@ -92,7 +92,8 @@ class UnityMetadataParserTest {
         put32(bytes, p, 24, true); p += 4 // byte size
         put32(bytes, p, 0, true); p += 4 // type index
         put32(bytes, p, 0, true); p += 4 // script type count
-        put32(bytes, p, 0, true) // external references count
+        put32(bytes, p, 0, true); p += 4 // external references count
+        put32(bytes, p, 0, true) // SerializeReference type count
 
         val result = UnityMetadataParser.parse(bytes, header)
         requireNotNull(result)
@@ -136,7 +137,8 @@ class UnityMetadataParserTest {
         put32(bytes, p, 0, true); p += 4 // type dependencies
         put32(bytes, p, 0, true); p += 4 // object count
         put32(bytes, p, 0, true); p += 4 // script count
-        put32(bytes, p, 0, true) // external references
+        put32(bytes, p, 0, true); p += 4 // external references
+        put32(bytes, p, 0, true) // SerializeReference type count
 
         val result = UnityMetadataParser.parse(bytes, header)
         requireNotNull(result)
@@ -189,6 +191,60 @@ class UnityMetadataParserTest {
         requireNotNull(result)
         assertEquals("MonoBehaviour", result.typeTrees.single().rootType)
         assertEquals("Base", result.typeTrees.single().rootName)
+    }
+
+    @Test
+    fun readsMonoScriptReferenceAndExternalFilePath() {
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val bytes = ByteArray(256)
+        val version = "2022.3.10f1".toByteArray()
+        version.copyInto(bytes, 48)
+        var p = 48 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0
+        put32(bytes, p, 0, true); p += 4 // types
+        put32(bytes, p, 0, true); p += 4 // objects
+        put32(bytes, p, 1, true); p += 4 // script references
+        put32(bytes, p, 1, true); p += 4 // fileID = first external file
+        p = (p + 3) and -4
+        put64(bytes, p, 77L, true); p += 8 // pathID
+        put32(bytes, p, 1, true); p += 4 // external references
+        bytes[p++] = 0 // empty temporary field
+        p += 16 // GUID
+        put32(bytes, p, 0, true); p += 4 // reference type
+        val externalPath = "sharedassets0.assets".toByteArray()
+        externalPath.copyInto(bytes, p); p += externalPath.size
+        bytes[p++] = 0
+        put32(bytes, p, 0, true) // SerializeReference types
+
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        assertEquals(1L, result.scriptTypeCount)
+        assertEquals(UnityScriptTypeReference(1, 77L), result.scriptTypeReferences.single())
+        assertEquals(UnityExternalReference(1, "sharedassets0.assets", 0), result.externalReferences.single())
+    }
+
+    @Test
+    fun rejectsObjectDataOutsideSerializedFileDataSection() {
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val bytes = ByteArray(192)
+        val version = "2022.3.10f1".toByteArray()
+        version.copyInto(bytes, 48)
+        var p = 48 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0
+        put32(bytes, p, 0, true); p += 4 // types
+        put32(bytes, p, 1, true); p += 4 // objects
+        p = (p + 3) and -4
+        put64(bytes, p, 1L, true); p += 8
+        put64(bytes, p, 4000L, true); p += 8 // outside fileSize - dataOffset
+        put32(bytes, p, 32, true); p += 4
+        put32(bytes, p, 0, true); p += 4
+
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        assertTrue(result.note?.contains("за пределы data section") == true)
+        assertTrue(result.objectSamples.isEmpty())
     }
 
     private fun put16(bytes: ByteArray, offset: Int, value: Int, little: Boolean) {
