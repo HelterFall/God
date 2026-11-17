@@ -473,7 +473,8 @@ class GameScanner(private val activity: Activity) {
             val result = input.use { stream ->
                 UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
             }
-            metadata.copy(decodedObjects = result.objects, sceneDecodeNote = result.note)
+            val graph = UnitySceneGraphResolver.resolve(result.objects)
+            metadata.copy(decodedObjects = result.objects, sceneGraph = graph, sceneDecodeNote = result.note)
         } catch (e: Exception) {
             metadata.copy(sceneDecodeNote = "Scene object payload не прочитан: " +
                 (e.message ?: e.javaClass.simpleName))
@@ -637,6 +638,23 @@ class GameScanner(private val activity: Activity) {
         }
         if (decodedSceneCount == 0 && unityMetadata.isEmpty()) appendLine("- Декодированные scene objects не найдены")
         appendLine()
+        appendLine("## Resolved Unity scene hierarchy")
+        unityMetadata.forEach { (path, metadata) ->
+            metadata.sceneGraph?.let { graph ->
+                appendLine("- $path: GameObjects=${graph.nodes.size}; unresolved PPtr=${graph.unresolvedReferenceCount}; external PPtr=${graph.externalReferenceCount}")
+                graph.nodes.forEach { node ->
+                    appendLine("  - GameObject pathID=${node.gameObjectPathId}" +
+                        (node.name?.let { " name=\"$it\"" } ?: "") +
+                        (node.isActive?.let { " active=$it" } ?: "") +
+                        (node.transformPathId?.let { " Transform=$it" } ?: "") +
+                        (node.parentGameObjectPathId?.let { " parent=$it" } ?: "") +
+                        (node.childGameObjectPathIds.take(32).joinToString(prefix = if (node.childGameObjectPathIds.isEmpty()) "" else " children=", separator = ",") { it.toString() }) +
+                        (node.componentPathIds.take(32).joinToString(prefix = if (node.componentPathIds.isEmpty()) "" else " components=", separator = ",") { it.toString() }) +
+                        (if (node.unresolvedReferenceCount > 0) " unresolved=${node.unresolvedReferenceCount}" else ""))
+                }
+            }
+        }
+        appendLine()
         appendLine("## Directory tree")
         val shown = entries.take(MAX_TREE_LINES)
         shown.forEach { entry ->
@@ -749,6 +767,18 @@ class GameScanner(private val activity: Activity) {
                     .put("children", JSONArray(obj.children.map { ref -> JSONObject().put("fileId", ref.fileId).put("pathId", ref.pathId) }))
                     .put("components", JSONArray(obj.components.map { ref -> JSONObject().put("fileId", ref.fileId).put("pathId", ref.pathId) }))
                     .put("script", obj.script?.let { JSONObject().put("fileId", it.fileId).put("pathId", it.pathId) } ?: JSONObject.NULL) }))
+                .put("sceneGraph", metadata.sceneGraph?.let { graph -> JSONObject()
+                    .put("unresolvedReferenceCount", graph.unresolvedReferenceCount)
+                    .put("externalReferenceCount", graph.externalReferenceCount)
+                    .put("nodes", JSONArray(graph.nodes.map { node -> JSONObject()
+                        .put("gameObjectPathId", node.gameObjectPathId)
+                        .put("name", node.name ?: JSONObject.NULL)
+                        .put("isActive", node.isActive ?: JSONObject.NULL)
+                        .put("transformPathId", node.transformPathId ?: JSONObject.NULL)
+                        .put("parentGameObjectPathId", node.parentGameObjectPathId ?: JSONObject.NULL)
+                        .put("childGameObjectPathIds", JSONArray(node.childGameObjectPathIds))
+                        .put("componentPathIds", JSONArray(node.componentPathIds))
+                        .put("unresolvedReferenceCount", node.unresolvedReferenceCount) })) } ?: JSONObject.NULL)
                 .put("sceneDecodeNote", metadata.sceneDecodeNote ?: JSONObject.NULL)
                 .put("note", metadata.note ?: JSONObject.NULL)
         }))
