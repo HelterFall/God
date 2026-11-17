@@ -17,7 +17,7 @@ Android-приложение для анализа Windows Unity-игр непо
 - Чтение metadata SerializedFile v19–v26: версия Unity, target platform, флаг TypeTree, число типов, до 500 записей объектов (PathID, смещение, размер и ClassID), а также числа и ограниченные выборки MonoScript-ссылок (fileID/pathID), внешних файлов (fileID/path) и первых 500 serialized type-записей (ClassID, scriptTypeIndex, scriptID), число SerializeReference-типов и до 200 их записей с className/namespace/assemblyName (если формат v21+). Для v26 считывается число shared TypeTree subtrees. Проверяет границы object data ranges перед принятием записей.
 - Отчёт по версии формата, размерам, data offset и endianness; UnityFS пока определяется только по заголовку.
 - Список игровых сборок и UnityEngine modules.
-- Экспорт Markdown и JSON.
+- Экспорт Markdown и JSON (JSON schemaVersion 8).
 - Отображение прогресса при обходе папок.
 - Возможность остановить длительный анализ; незавершённый отчёт не экспортируется.
 
