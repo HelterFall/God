@@ -2,6 +2,8 @@ package com.ramen.god
 
 internal data class UnityTypeTreeSummary(val classId: Int, val nodeCount: Long, val rootType: String?, val rootName: String?, val fieldNames: List<String>)
 
+internal data class UnitySerializedTypeSummary(val classId: Int, val scriptTypeIndex: Int, val scriptId: String?)
+
 internal data class UnityObjectSummary(val pathId: Long, val byteStart: Long, val byteSize: Long, val typeIndex: Int, val classId: Int?)
 
 internal data class UnityScriptTypeReference(val fileId: Int, val pathId: Long)
@@ -19,6 +21,7 @@ internal data class UnityMetadataSummary(
     val externalReferenceCount: Long? = null,
     val objectSamples: List<UnityObjectSummary> = emptyList(),
     val typeTrees: List<UnityTypeTreeSummary> = emptyList(),
+    val serializedTypes: List<UnitySerializedTypeSummary> = emptyList(),
     val scriptTypeReferences: List<UnityScriptTypeReference> = emptyList(),
     val externalReferences: List<UnityExternalReference> = emptyList(),
     val note: String? = null
@@ -36,6 +39,7 @@ internal object UnityMetadataParser {
     private const val MAX_EXTERNAL_REFERENCE_SAMPLES = 200
     private const val MAX_TYPE_TREE_NODES = 100_000L
     private const val MAX_TYPE_TREE_SAMPLES = 100
+    private const val MAX_SERIALIZED_TYPE_SAMPLES = 500
     private const val MAX_TYPE_TREE_FIELDS = 20
     private const val MAX_TYPE_TREE_BYTES = 4 * 1024 * 1024
     private const val TYPE_TREE_NODE_SIZE = 32L
@@ -69,11 +73,15 @@ internal object UnityMetadataParser {
 
         val typeClassIds = ArrayList<Int>(typeCount.toInt())
         val typeTrees = ArrayList<UnityTypeTreeSummary>()
+        val serializedTypes = ArrayList<UnitySerializedTypeSummary>(minOf(typeCount, MAX_SERIALIZED_TYPE_SAMPLES.toLong()).toInt())
         repeat(typeCount.toInt()) {
             val typeEntry = readTypeEntry(cursor, version, typeTreeEnabled)
                 ?: return partial.copy(note = "Таблица типов обрезана или содержит неподдерживаемые размеры; object count не прочитан.")
-            typeClassIds.add(typeEntry.first)
-            typeEntry.second?.let { tree -> if (typeTrees.size < MAX_TYPE_TREE_SAMPLES) typeTrees.add(tree) }
+            typeClassIds.add(typeEntry.classId)
+            if (serializedTypes.size < MAX_SERIALIZED_TYPE_SAMPLES) {
+                serializedTypes.add(UnitySerializedTypeSummary(typeEntry.classId, typeEntry.scriptTypeIndex, typeEntry.scriptId))
+            }
+            typeEntry.typeTree?.let { tree -> if (typeTrees.size < MAX_TYPE_TREE_SAMPLES) typeTrees.add(tree) }
         }
 
         val objectCount = cursor.readU32()
@@ -176,20 +184,30 @@ internal object UnityMetadataParser {
         )
     }
 
-    private fun readTypeEntry(cursor: Cursor, version: Long, typeTreeEnabled: Boolean): Pair<Int, UnityTypeTreeSummary?>? {
+    private data class ParsedTypeEntry(
+        val classId: Int,
+        val scriptTypeIndex: Int,
+        val scriptId: String?,
+        val typeTree: UnityTypeTreeSummary?
+    )
+
+    private fun readTypeEntry(cursor: Cursor, version: Long, typeTreeEnabled: Boolean): ParsedTypeEntry? {
         val classId = cursor.readI32() ?: return null
         if (version >= 16L && cursor.readU8() == null) return null
         val scriptTypeIndex = if (version >= 17L) cursor.readI16() ?: return null else -1
+        var scriptId: String? = null
         // For modern SerializedFiles (v16+), the extra 16-byte script ID is
         // present for MonoBehaviour class ID 114, not for every non-negative
         // scriptTypeIndex. Older negative class IDs use the legacy condition.
         if ((version < 16L && classId < 0) || (version >= 16L && classId == 114)) {
-            if (!cursor.skip(16)) return null
+            val scriptIdBytes = cursor.readBytes(16) ?: return null
+            scriptId = scriptIdBytes.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
         }
         if (!cursor.skip(16)) return null // old type hash
-        if (!typeTreeEnabled) return classId to null
 
-        val tree: UnityTypeTreeSummary? = if (version >= 23L) {
+        val tree: UnityTypeTreeSummary? = if (!typeTreeEnabled) {
+            null
+        } else if (version >= 23L) {
             if (!cursor.skip(16)) return null // TypeTree content hash
             val treeSize = cursor.readU32() ?: return null
             if (treeSize > MAX_TYPE_TREE_BYTES.toLong()) return null
@@ -216,7 +234,7 @@ internal object UnityMetadataParser {
             val dependencyCount = cursor.readU32() ?: return null
             if (dependencyCount > MAX_AUX_COUNT || !cursor.skip(dependencyCount * 4L)) return null
         }
-        return classId to tree
+        return ParsedTypeEntry(classId, scriptTypeIndex, scriptId, tree)
     }
 
     private fun parseTypeTreeBlob(bytes: ByteArray, little: Boolean, classId: Int): UnityTypeTreeSummary? {
