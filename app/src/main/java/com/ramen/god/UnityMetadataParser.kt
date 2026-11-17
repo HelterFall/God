@@ -27,6 +27,7 @@ internal data class UnityScriptTypeBinding(
     val localObjectClassId: Int?,
     val objectByteStart: Long?,
     val objectByteSize: Long?,
+    val matchedExternalFilePath: String? = null,
     val monoScriptName: String? = null,
     val className: String? = null,
     val namespace: String? = null,
