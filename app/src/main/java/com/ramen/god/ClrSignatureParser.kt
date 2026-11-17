@@ -99,8 +99,8 @@ internal object ClrSignatureParser {
             0x0e -> "String"
             0x0f -> (readType(reader, true, depth + 1) ?: return null) + "*"
             0x10 -> (readType(reader, false, depth + 1) ?: return null) + "&"
-            0x11 -> "valuetype " + typeToken(reader)
-            0x12 -> "class " + typeToken(reader)
+            0x11 -> "valuetype " + (typeToken(reader) ?: return null)
+            0x12 -> "class " + (typeToken(reader) ?: return null)
             0x13 -> "!" + (reader.compressedUInt() ?: return null)
             0x14 -> {
                 val item = readType(reader, false, depth + 1) ?: return null
@@ -109,13 +109,13 @@ internal object ClrSignatureParser {
                 repeat(sizes.toInt()) { if (reader.compressedUInt() == null) return null }
                 val lowerBounds = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK.toLong() } ?: return null
                 repeat(lowerBounds.toInt()) { if (reader.compressedSigned() == null) return null }
-                item + "[" + if (rank == 0L) "" else ",".repeat((rank - 1).toInt()) + "]"
+                item + "[" + (if (rank == 0L) "" else ",".repeat((rank - 1).toInt())) + "]"
             }
             0x15 -> {
                 val kind = reader.u8() ?: return null
                 if (kind != 0x11 && kind != 0x12) return null
                 val name = if (kind == 0x11) "valuetype " else "class "
-                val token = typeToken(reader)
+                val token = typeToken(reader) ?: return null
                 val count = reader.compressedUInt()?.takeIf { it <= MAX_GENERIC_ARGUMENTS.toLong() } ?: return null
                 val args = ArrayList<String>(count.toInt())
                 repeat(count.toInt()) { args.add(readType(reader, false, depth + 1) ?: return null) }
@@ -135,14 +135,15 @@ internal object ClrSignatureParser {
         }
     }
 
-    private fun typeToken(reader: Reader): String {
-        val coded = reader.compressedUInt() ?: return "?"
+    private fun typeToken(reader: Reader): String? {
+        val coded = reader.compressedUInt() ?: return null
         val row = coded shr 2
+        if (row == 0L) return null
         val table = when ((coded and 0x03).toInt()) {
             0 -> "TypeDef"
             1 -> "TypeRef"
             2 -> "TypeSpec"
-            else -> "InvalidTypeToken"
+            else -> return null
         }
         return "$table#$row"
     }
