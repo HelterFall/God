@@ -18,7 +18,8 @@ internal data class UnityTypeTreeSummary(
     val nodes: List<UnityTypeTreeNodeSummary> = emptyList(),
     /** Full bounded node graph retained only for core scene object classes. */
     val decoderNodes: List<UnityTypeTreeNodeSummary> = emptyList(),
-    val completeForDecoding: Boolean = false
+    val completeForDecoding: Boolean = false,
+    val typeIndex: Int? = null
 )
 
 internal data class UnitySerializedTypeSummary(
@@ -96,6 +97,7 @@ internal object UnityMetadataParser {
     private const val MAX_EXTERNAL_REFERENCE_SAMPLES = 200
     private const val MAX_TYPE_TREE_NODES = 100_000L
     private const val MAX_TYPE_TREE_SAMPLES = 100
+    private const val MAX_MONOBEHAVIOUR_DECODER_TREES = 12
     private const val MAX_SERIALIZED_TYPE_SAMPLES = 500
     private const val MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES = 200
     private const val MAX_TYPE_TREE_FIELDS = 20
@@ -183,16 +185,29 @@ internal object UnityMetadataParser {
         val typeClassIds = ArrayList<Int>(typeCount.toInt())
         val typeTrees = ArrayList<UnityTypeTreeSummary>()
         val serializedTypes = ArrayList<UnitySerializedTypeSummary>(minOf(typeCount, MAX_SERIALIZED_TYPE_SAMPLES.toLong()).toInt())
-        repeat(typeCount.toInt()) {
+        repeat(typeCount.toInt()) { typeIndex ->
             val typeEntry = readTypeEntry(cursor, version, typeTreeEnabled)
                 ?: return partial.copy(note = "Таблица типов обрезана или содержит неподдерживаемые размеры; object count не прочитан.")
             typeClassIds.add(typeEntry.classId)
             if (serializedTypes.size < MAX_SERIALIZED_TYPE_SAMPLES) {
                 serializedTypes.add(UnitySerializedTypeSummary(typeEntry.classId, typeEntry.scriptTypeIndex, typeEntry.scriptId))
             }
-            typeEntry.typeTree?.let { tree ->
-                val isCoreSceneType = tree.classId == 1 || tree.classId == 4 || tree.classId == 114
-                if (isCoreSceneType || typeTrees.size < MAX_TYPE_TREE_SAMPLES) typeTrees.add(tree)
+            typeEntry.typeTree?.let { parsedTree ->
+                val tree = parsedTree.copy(typeIndex = typeIndex)
+                val retainedMonoBehaviourTrees = typeTrees.count {
+                    it.classId == 114 && it.completeForDecoding
+                }
+                val keepCompleteTree = tree.completeForDecoding && when (tree.classId) {
+                    1 -> typeTrees.none { it.classId == 1 && it.completeForDecoding }
+                    4 -> typeTrees.none { it.classId == 4 && it.completeForDecoding }
+                    114 -> retainedMonoBehaviourTrees < MAX_MONOBEHAVIOUR_DECODER_TREES
+                    else -> false
+                }
+                if (keepCompleteTree) {
+                    typeTrees.add(tree)
+                } else if (typeTrees.size < MAX_TYPE_TREE_SAMPLES) {
+                    typeTrees.add(tree.copy(decoderNodes = emptyList(), completeForDecoding = false))
+                }
             }
         }
 
