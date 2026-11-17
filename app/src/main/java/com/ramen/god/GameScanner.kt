@@ -847,7 +847,7 @@ class GameScanner(private val activity: Activity) {
     }
 
     private fun buildJson(
-        rootName: String, backend: String, unityVersion: String?, gameAssemblies: List<ScanEntry>,
+        rootName: String, backend: String, unityVersion: UnityVersionResult, gameAssemblies: List<ScanEntry>,
         unityModules: List<ScanEntry>, managedBinaries: Set<String>, nativeBinaries: Set<String>,
         importSummary: List<Map.Entry<String, Int>>, unityHeaders: Map<String, UnityFileHeader>,
         unityMetadata: Map<String, UnityMetadataSummary>
