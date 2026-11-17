@@ -21,7 +21,7 @@ Android-приложение для анализа Windows Unity-игр непо
 ## Структура исходного кода
 - `MainActivity.kt` — Android UI, выбор папки через SAF и экспорт.
 - `GameScanner.kt` — обход дерева игры, эвристики Unity/Mono/IL2CPP и формирование отчётов.
-- `GameScanner.kt` также содержит PE-парсер; на следующем этапе он будет выделен в независимый модуль с тестами.
+- `PeParser.kt` — независимый PE-парсер: архитектура, CLR-флаг и статические импорты.
 
 ## Получение APK
 GitHub Actions собирает debug APK при каждом push в main. Открой вкладку Actions, выбери последний успешный запуск Android APK и скачай artifact God-debug-apk. В ZIP находится app-debug.apk.
