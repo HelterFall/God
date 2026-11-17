@@ -19,7 +19,7 @@ internal object UnityManagedTypeResolver {
     ): List<UnityManagedTypeResolution> {
         val results = mutableListOf<UnityManagedTypeResolution>()
         unityMetadata.forEach { (sourcePath, metadata) ->
-            metadata.monoBehaviourScriptBindings.forEach { binding ->
+            metadata.monoBehaviourScriptBindings.forEach bindingLoop@ { binding ->
                 val className = binding.className?.takeIf { it.isNotBlank() }
                 val namespace = binding.namespace.orEmpty()
                 val assemblyName = normalizeAssemblyName(binding.assemblyName)
@@ -28,7 +28,7 @@ internal object UnityManagedTypeResolver {
                         sourcePath, binding.sourcePathId, className, binding.namespace,
                         binding.assemblyName, null, null, "mono-script-class-unavailable"
                     ))
-                    return@forEach
+                    return@bindingLoop
                 }
 
                 val candidates = managedAssemblies.filter { (_, summary) ->
@@ -76,6 +76,6 @@ internal object UnityManagedTypeResolver {
 
     private fun normalizeAssemblyName(value: String?): String? {
         val trimmed = value?.trim()?.takeIf { it.isNotEmpty() } ?: return null
-        return trimmed.removeSuffix(".dll").removeSuffix(".DLL").lowercase()
+        return trimmed.lowercase(java.util.Locale.ROOT).removeSuffix(".dll")
     }
 }
