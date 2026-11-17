@@ -132,7 +132,7 @@ Suggested analyzer contract:
 - [x] Read up to 8 MiB of metadata prefix for the first 40 SerializedFile candidates; other candidates retain bounded header-only reads.
 - [x] Count all object records grouped by ClassID and preserve up to 10 example PathIDs per class, including GameObject (1), Transform (4), MonoBehaviour (114), and MonoScript (115).
 - [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); resolve the 109 base CommonString entries plus five later Unity 2022+/6 names; unknown offsets remain unresolved.
-- [x] Preserve up to 128 detailed TypeTree nodes per summarized type (level, type/name strings, byteSize and flags) for reporting; keep complete TypeTrees for GameObject, Transform and MonoBehaviour only when at most 4096 nodes.
+- [x] Preserve up to 128 detailed TypeTree nodes per summarized type (level, type/name strings, byteSize and flags) for reporting; keep complete TypeTrees for GameObject/Transform and up to 12 MonoBehaviour serialized type entries (matched by typeIndex), only when each tree has at most 4096 nodes.
 - [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.
 - [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.
 - [x] Read SerializeReference type entries for v20–v26; preserve className, namespace and assemblyName for v21+.
