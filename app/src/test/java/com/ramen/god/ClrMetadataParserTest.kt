@@ -23,6 +23,8 @@ class ClrMetadataParserTest {
         assertEquals(1, result.typeCount)
         assertEquals("PlayerController", result.types.single().name)
         assertEquals("Game", result.types.single().namespace)
+        assertEquals(listOf("health"), result.types.single().fieldNames)
+        assertEquals(listOf("TakeDamage"), result.types.single().methodNames)
         assertEquals("health", result.fields.single().name)
         assertEquals(6, result.fields.single().flags)
         assertEquals("TakeDamage", result.methods.single().name)
