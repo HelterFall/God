@@ -7,7 +7,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Locale
-import java.util.regex.Pattern
 
 private data class ScanEntry(val path: String, val name: String, val directory: Boolean, val size: Long, val uri: Uri)
 data class ScanResult(val markdown: String, val json: String)
@@ -77,7 +76,6 @@ class GameScanner(private val activity: Activity) {
             else -> "Не определён по структуре"
         }
 
-        val unityVersion = findUnityVersion(files)
         val peCandidates = files.filter { it.name.endsWith(".exe", true) || it.name.endsWith(".dll", true) }
         if (peCandidates.size > MAX_PE_FILES) warnings.add("PE-анализ ограничен первыми " + MAX_PE_FILES + " EXE/DLL.")
         peCandidates.take(MAX_PE_FILES).forEach { entry ->
@@ -109,6 +107,7 @@ class GameScanner(private val activity: Activity) {
         resolveExternalScenePointers(files)
         resolveMonoBehaviourScriptBindings(files)
         managedTypeResolutions.addAll(UnityManagedTypeResolver.resolve(unityMetadata, clrResults))
+        val unityVersion = collectUnityVersion(files)
 
         val managedBinaries = peResults.filterValues { it.managed }.keys
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
@@ -171,16 +170,56 @@ class GameScanner(private val activity: Activity) {
             lower == "globalgamemanagers" || lower.startsWith("level")
     }
 
-    private fun findUnityVersion(files: List<ScanEntry>): String? {
-        val candidate = files.firstOrNull { it.name.equals("globalgamemanagers", true) } ?: return null
-        return try {
-            val bytes = readPrefix(candidate.uri, MAX_GGM_READ) ?: return null
-            val matcher = Pattern.compile("20\\d{2}\\.\\d+\\.\\d+[abfp]\\d+").matcher(String(bytes, Charsets.ISO_8859_1))
-            if (matcher.find()) matcher.group() else null
-        } catch (e: Exception) {
-            warnings.add("Не удалось прочитать globalgamemanagers: " + e.message)
-            null
+    private fun collectUnityVersion(files: List<ScanEntry>): UnityVersionResult {
+        val evidence = mutableListOf<UnityVersionEvidence>()
+
+        unityMetadata.forEach { (path, metadata) ->
+            val value = metadata.unityVersion ?: return@forEach
+            val isRootFile = path.substringAfterLast('/').equals("globalgamemanagers", true)
+            UnityVersionResolver.extractVersions(value).forEach { version ->
+                evidence.add(UnityVersionEvidence(
+                    version,
+                    if (isRootFile) "globalgamemanagers-metadata" else "serializedfile-metadata",
+                    path,
+                    if (isRootFile) "high" else "medium"
+                ))
+            }
         }
+
+        unityHeaders.forEach { (path, header) ->
+            if (header.kind == "UnityFS bundle") {
+                header.engineVersion?.let { engineVersion ->
+                    UnityVersionResolver.extractVersions(engineVersion).forEach { version ->
+                        evidence.add(UnityVersionEvidence(
+                            version, "unityfs-engine-version", path, "medium"
+                        ))
+                    }
+                }
+            }
+        }
+
+        // Text fallback is used only when the root SerializedFile metadata
+        // did not provide an exact version string.
+        if (evidence.none { it.source == "globalgamemanagers-metadata" }) {
+            files.filter {
+                it.name.equals("globalgamemanagers", true) ||
+                    it.name.equals("globalgamemanagers.assets", true)
+            }.take(2).forEach { entry ->
+                try {
+                    val bytes = readPrefix(entry.uri, MAX_GGM_READ) ?: return@forEach
+                    val text = String(bytes, Charsets.ISO_8859_1)
+                    UnityVersionResolver.extractVersions(text).take(8).forEach { version ->
+                        evidence.add(UnityVersionEvidence(
+                            version, "globalgamemanagers-raw", entry.path, "medium"
+                        ))
+                    }
+                } catch (e: Exception) {
+                    warnings.add("Не удалось прочитать " + entry.path + " для поиска версии Unity: " + e.message)
+                }
+            }
+        }
+
+        return UnityVersionResolver.resolve(evidence)
     }
 
     private data class ExternalMonoScriptRequest(
@@ -555,7 +594,7 @@ class GameScanner(private val activity: Activity) {
     }
 
     private fun buildMarkdown(
-        rootName: String, backend: String, unityVersion: String?, gameAssemblies: List<ScanEntry>,
+        rootName: String, backend: String, unityVersion: UnityVersionResult, gameAssemblies: List<ScanEntry>,
         unityModules: List<ScanEntry>, monoFolder: Boolean, managedDir: Boolean,
         hasGameAssembly: Boolean, hasMetadata: Boolean, hasIl2CppDir: Boolean, hasUnityPlayer: Boolean,
         managedBinaries: Set<String>, nativeBinaries: Set<String>, importSummary: List<Map.Entry<String, Int>>,
@@ -566,7 +605,9 @@ class GameScanner(private val activity: Activity) {
         appendLine("- Root: " + rootName)
         appendLine("- Generated: " + java.time.Instant.now())
         appendLine("- Backend assessment: " + backend)
-        appendLine("- Unity version: " + (unityVersion ?: "не обнаружена"))
+        appendLine("- Unity version: " + (unityVersion.version ?: if (unityVersion.status.startsWith("conflicting")) "конфликтующие признаки" else "не обнаружена"))
+        appendLine("- Unity version confidence: " + (unityVersion.confidence ?: "не определена"))
+        appendLine("- Unity version status: " + unityVersion.status)
         appendLine("- Indexed entries: " + entries.size)
         appendLine("- Total size: " + formatBytes(totalBytes))
         appendLine("- UnityPlayer.dll: " + yesNo(hasUnityPlayer))
@@ -574,6 +615,16 @@ class GameScanner(private val activity: Activity) {
         appendLine("- Managed directory: " + yesNo(managedDir))
         appendLine("- GameAssembly.dll: " + yesNo(hasGameAssembly))
         appendLine("- il2cpp_data + global-metadata.dat: " + yesNo(hasIl2CppDir && hasMetadata))
+        appendLine()
+        appendLine("## Unity version evidence")
+        if (unityVersion.evidence.isEmpty()) appendLine("- Подтверждённые строки версии не найдены")
+        unityVersion.evidence.take(40).forEach { item ->
+            appendLine("- " + item.version + " — " + item.source + "; confidence=" +
+                item.confidence + "; file=" + item.path)
+        }
+        if (unityVersion.evidence.size > 40) {
+            appendLine("- Evidence list limited; omitted " + (unityVersion.evidence.size - 40) + " entries.")
+        }
         appendLine()
         appendLine("## Game assemblies")
         if (gameAssemblies.isEmpty()) appendLine("- Не найдены")
@@ -652,6 +703,8 @@ class GameScanner(private val activity: Activity) {
                 (header.metadataSize?.let { "; metadata=" + it } ?: "") +
                 (header.dataOffset?.let { "; dataOffset=" + it } ?: "") +
                 (header.endianness?.let { "; " + it } ?: "") +
+                (header.playerVersion?.let { "; playerVersion=" + it } ?: "") +
+                (header.engineVersion?.let { "; engineVersion=" + it } ?: "") +
                 (header.note?.let { "; " + it } ?: ""))
         }
         appendLine()
@@ -789,7 +842,8 @@ class GameScanner(private val activity: Activity) {
         appendLine("- Mono/IL2CPP классифицируется по структуре и является эвристикой.")
         appendLine("- CLR metadata inventory читает Assembly, TypeDef и AssemblyRef; метод-тела IL, атрибуты и P/Invoke-сигнатуры пока не анализируются.")
         appendLine("- Таблица импортов показывает статические импорты PE; динамические LoadLibrary и P/Invoke полностью не покрываются.")
-        appendLine("- Поиск версии Unity эвристический, результат желательно сверять по нескольким источникам.")
+        appendLine("- Версия Unity определяется по globalgamemanagers SerializedFile metadata, UnityFS engine version или ограниченному текстовому поиску; playerVersion не считается точной версией движка.")
+        appendLine("- Если основные источники противоречат друг другу, unityVersion остаётся null, а evidence сохраняется в отчёте.")
     }
 
     private fun buildJson(
@@ -799,11 +853,18 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 19)
+        root.put("schemaVersion", 20)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
-        root.put("unityVersion", unityVersion ?: JSONObject.NULL)
+        root.put("unityVersion", unityVersion.version ?: JSONObject.NULL)
+        root.put("unityVersionStatus", unityVersion.status)
+        root.put("unityVersionConfidence", unityVersion.confidence ?: JSONObject.NULL)
+        root.put("unityVersionEvidence", JSONArray(unityVersion.evidence.map { item -> JSONObject()
+            .put("version", item.version)
+            .put("source", item.source)
+            .put("path", item.path)
+            .put("confidence", item.confidence) }))
         root.put("entryCount", entries.size)
         root.put("totalFileBytes", totalBytes)
         root.put("gameAssemblies", JSONArray(gameAssemblies.map { JSONObject().put("path", it.path).put("size", it.size) }))
@@ -954,6 +1015,8 @@ class GameScanner(private val activity: Activity) {
                 .put("metadataSize", header.metadataSize ?: JSONObject.NULL)
                 .put("dataOffset", header.dataOffset ?: JSONObject.NULL)
                 .put("endianness", header.endianness ?: JSONObject.NULL)
+                .put("playerVersion", header.playerVersion ?: JSONObject.NULL)
+                .put("engineVersion", header.engineVersion ?: JSONObject.NULL)
                 .put("headerSize", header.headerSize)
                 .put("note", header.note ?: JSONObject.NULL)
         }))
