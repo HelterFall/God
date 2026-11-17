@@ -86,6 +86,7 @@ class UnityMetadataParserTest {
         bytes[p++] = 0 // stripped
         put16(bytes, p, 2, true); p += 2 // non-negative script index does not imply an extra script ID
         p += 16 // old type hash
+        put32(bytes, p, 0, true); p += 4 // type dependencies (v21+)
         put32(bytes, p, 1, true); p += 4 // object count
         put64(bytes, p, 7L, true); p += 8 // file ID
         put64(bytes, p, 0L, true); p += 8 // byte start
@@ -192,6 +193,35 @@ class UnityMetadataParserTest {
         requireNotNull(result)
         assertEquals("MonoBehaviour", result.typeTrees.single().rootType)
         assertEquals("Base", result.typeTrees.single().rootName)
+    }
+
+    @Test
+    fun preservesMonoBehaviourScriptIdAndTypeIndexWithoutTypeTree() {
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val bytes = ByteArray(192)
+        val version = "2022.3.10f1".toByteArray()
+        version.copyInto(bytes, 48)
+        var p = 48 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0 // TypeTree disabled
+        put32(bytes, p, 1, true); p += 4 // types
+        put32(bytes, p, 114, true); p += 4 // MonoBehaviour
+        bytes[p++] = 0 // not stripped
+        put16(bytes, p, 0, true); p += 2 // scriptTypeIndex
+        val scriptId = ByteArray(16) { it.toByte() }
+        scriptId.copyInto(bytes, p); p += scriptId.size
+        p += 16 // old type hash
+        put32(bytes, p, 0, true); p += 4 // type dependencies
+        put32(bytes, p, 0, true); p += 4 // objects
+        put32(bytes, p, 0, true); p += 4 // script references
+        put32(bytes, p, 0, true); p += 4 // external references
+        put32(bytes, p, 0, true) // SerializeReference types
+
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        assertEquals(114, result.serializedTypes.single().classId)
+        assertEquals(0, result.serializedTypes.single().scriptTypeIndex)
+        assertEquals("000102030405060708090a0b0c0d0e0f", result.serializedTypes.single().scriptId)
     }
 
     @Test
