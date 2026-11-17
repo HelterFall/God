@@ -121,7 +121,9 @@ Suggested analyzer contract:
 ### Phase 3 — Managed code intelligence
 - [x] First CLR metadata inventory: Assembly identity/version, Module name, TypeDef names/namespaces, Field names/flags, Method names/flags/RVA and AssemblyRef dependencies from bounded ECMA-335 metadata tables.
 - [x] Link parsed MonoBehaviour MonoScript identities to exact managed assembly + namespace + TypeDef names; keep ambiguous assembly matches and truncated type samples explicit.
-- [x] Bounded field/method name inventory with flags and method RVA, including declaring-type ownership through TypeDef FieldList/MethodList indices; signatures, attributes, nested types and dependency graph remain pending.
+- [x] Bounded field/method inventory with flags, method RVA and declaring-type ownership through TypeDef FieldList/MethodList indices.
+- [x] Decode common Field and MethodDef signatures from the bounded Blob heap: primitive types, arrays, pointers, by-ref, generic variables, method return types, parameter types and calling convention; unsupported signatures remain labelled.
+- [ ] Decode custom attributes, nested types and a richer managed dependency graph.
 - P/Invoke inventory and IL call-site scan.
 - Android packaging strategy for parser dependencies and offline use.
 
