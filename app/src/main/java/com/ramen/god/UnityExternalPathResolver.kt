@@ -18,7 +18,7 @@ internal object UnityExternalPathResolver {
         pathOf: (T) -> String,
         nameOf: (T) -> String
     ): UnityExternalPathMatch<T> {
-        var normalized = externalPath.trim().replace('\\\\', '/')
+        var normalized = externalPath.trim().replace('\\', '/')
         val archiveMarker = normalized.indexOf("archive:/", ignoreCase = true)
         if (archiveMarker >= 0) {
             normalized = normalized.substring(archiveMarker + "archive:/".length)
@@ -27,7 +27,7 @@ internal object UnityExternalPathResolver {
         if (normalized.isBlank()) return UnityExternalPathMatch(null, false)
 
         val pathMatches = candidates.filter { item ->
-            val candidate = pathOf(item).replace('\\\\', '/').trimStart('/').lowercase(Locale.ROOT)
+            val candidate = pathOf(item).replace('\\', '/').trimStart('/').lowercase(Locale.ROOT)
             normalized == candidate || normalized.endsWith("/" + candidate)
         }
         if (pathMatches.size == 1) return UnityExternalPathMatch(pathMatches.single(), false)
