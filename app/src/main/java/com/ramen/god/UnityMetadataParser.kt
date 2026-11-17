@@ -2,7 +2,14 @@ package com.ramen.god
 
 internal data class UnityTypeTreeSummary(val classId: Int, val nodeCount: Long, val rootType: String?, val rootName: String?, val fieldNames: List<String>)
 
-internal data class UnitySerializedTypeSummary(val classId: Int, val scriptTypeIndex: Int, val scriptId: String?)
+internal data class UnitySerializedTypeSummary(
+    val classId: Int,
+    val scriptTypeIndex: Int,
+    val scriptId: String?,
+    val className: String? = null,
+    val namespace: String? = null,
+    val assemblyName: String? = null
+)
 
 internal data class UnityObjectSummary(val pathId: Long, val byteStart: Long, val byteSize: Long, val typeIndex: Int, val classId: Int?)
 
@@ -22,6 +29,9 @@ internal data class UnityMetadataSummary(
     val objectSamples: List<UnityObjectSummary> = emptyList(),
     val typeTrees: List<UnityTypeTreeSummary> = emptyList(),
     val serializedTypes: List<UnitySerializedTypeSummary> = emptyList(),
+    val serializedReferenceTypeCount: Long? = null,
+    val serializedReferenceTypes: List<UnitySerializedTypeSummary> = emptyList(),
+    val sharedSubtreeCount: Long? = null,
     val scriptTypeReferences: List<UnityScriptTypeReference> = emptyList(),
     val externalReferences: List<UnityExternalReference> = emptyList(),
     val note: String? = null
@@ -40,6 +50,7 @@ internal object UnityMetadataParser {
     private const val MAX_TYPE_TREE_NODES = 100_000L
     private const val MAX_TYPE_TREE_SAMPLES = 100
     private const val MAX_SERIALIZED_TYPE_SAMPLES = 500
+    private const val MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES = 200
     private const val MAX_TYPE_TREE_FIELDS = 20
     private const val MAX_TYPE_TREE_BYTES = 4 * 1024 * 1024
     private const val TYPE_TREE_NODE_SIZE = 32L
@@ -169,6 +180,49 @@ internal object UnityMetadataParser {
                 externalReferenceCount = externalCount, objectSamples = objectSamples,
                 scriptTypeReferences = scriptTypeReferences, externalReferences = externalReferences,
                 note = "Не удалось прочитать число SerializeReference-типов.") else null
+        if (referenceTypeCount != null && referenceTypeCount > MAX_AUX_COUNT) {
+            return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
+                externalReferenceCount = externalCount, objectSamples = objectSamples,
+                scriptTypeReferences = scriptTypeReferences, externalReferences = externalReferences,
+                serializedReferenceTypeCount = referenceTypeCount,
+                note = "Число SerializeReference-типов превышает безопасный лимит.")
+        }
+        val serializedReferenceTypes = ArrayList<UnitySerializedTypeSummary>(
+            minOf(referenceTypeCount ?: 0L, MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES.toLong()).toInt()
+        )
+        if (referenceTypeCount != null) {
+            repeat(referenceTypeCount.toInt()) {
+                val refType = readTypeEntry(cursor, version, typeTreeEnabled, isReferenceType = true)
+                    ?: return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
+                        externalReferenceCount = externalCount, objectSamples = objectSamples,
+                        scriptTypeReferences = scriptTypeReferences, externalReferences = externalReferences,
+                        serializedReferenceTypeCount = referenceTypeCount,
+                        serializedReferenceTypes = serializedReferenceTypes,
+                        note = "Таблица SerializeReference type entries обрезана или повреждена.")
+                if (serializedReferenceTypes.size < MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES) {
+                    serializedReferenceTypes.add(UnitySerializedTypeSummary(
+                        refType.classId, refType.scriptTypeIndex, refType.scriptId,
+                        refType.className, refType.namespace, refType.assemblyName
+                    ))
+                }
+            }
+        }
+        val sharedSubtreeCount = if (version >= 26L) cursor.readU32()
+            ?: return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
+                externalReferenceCount = externalCount, objectSamples = objectSamples,
+                scriptTypeReferences = scriptTypeReferences, externalReferences = externalReferences,
+                serializedReferenceTypeCount = referenceTypeCount,
+                serializedReferenceTypes = serializedReferenceTypes,
+                note = "Не удалось прочитать число shared TypeTree subtrees.") else null
+        if (sharedSubtreeCount != null && sharedSubtreeCount > MAX_AUX_COUNT) {
+            return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
+                externalReferenceCount = externalCount, objectSamples = objectSamples,
+                scriptTypeReferences = scriptTypeReferences, externalReferences = externalReferences,
+                serializedReferenceTypeCount = referenceTypeCount,
+                serializedReferenceTypes = serializedReferenceTypes,
+                sharedSubtreeCount = sharedSubtreeCount,
+                note = "Число shared TypeTree subtrees превышает безопасный лимит.")
+        }
 
         return partial.copy(
             objectCount = objectCount,
@@ -177,6 +231,9 @@ internal object UnityMetadataParser {
             objectSamples = objectSamples,
             typeTrees = typeTrees,
             serializedTypes = serializedTypes,
+            serializedReferenceTypeCount = referenceTypeCount,
+            serializedReferenceTypes = serializedReferenceTypes,
+            sharedSubtreeCount = sharedSubtreeCount,
             scriptTypeReferences = scriptTypeReferences,
             externalReferences = externalReferences,
             note = if (referenceTypeCount != null && referenceTypeCount > 0L)
@@ -189,10 +246,18 @@ internal object UnityMetadataParser {
         val classId: Int,
         val scriptTypeIndex: Int,
         val scriptId: String?,
-        val typeTree: UnityTypeTreeSummary?
+        val typeTree: UnityTypeTreeSummary?,
+        val className: String? = null,
+        val namespace: String? = null,
+        val assemblyName: String? = null
     )
 
-    private fun readTypeEntry(cursor: Cursor, version: Long, typeTreeEnabled: Boolean): ParsedTypeEntry? {
+    private fun readTypeEntry(
+        cursor: Cursor,
+        version: Long,
+        typeTreeEnabled: Boolean,
+        isReferenceType: Boolean = false
+    ): ParsedTypeEntry? {
         val classId = cursor.readI32() ?: return null
         if (version >= 16L && cursor.readU8() == null) return null
         val scriptTypeIndex = if (version >= 17L) cursor.readI16() ?: return null else -1
@@ -200,7 +265,8 @@ internal object UnityMetadataParser {
         // For modern SerializedFiles (v16+), the extra 16-byte script ID is
         // present for MonoBehaviour class ID 114, not for every non-negative
         // scriptTypeIndex. Older negative class IDs use the legacy condition.
-        if ((version < 16L && classId < 0) || (version >= 16L && classId == 114)) {
+        if ((isReferenceType && scriptTypeIndex >= 0) ||
+            (version < 16L && classId < 0) || (version >= 16L && classId == 114)) {
             val scriptIdBytes = cursor.readBytes(16) ?: return null
             scriptId = scriptIdBytes.joinToString("") { (it.toInt() and 0xff).toString(16).padStart(2, '0') }
         }
@@ -231,11 +297,20 @@ internal object UnityMetadataParser {
             parseTypeTreeNodes(nodeBytes, strings, nodeCount, cursor.isLittleEndian(), classId) ?: return null
         }
 
+        var className: String? = null
+        var namespace: String? = null
+        var assemblyName: String? = null
         if (version >= 21L) {
-            val dependencyCount = cursor.readU32() ?: return null
-            if (dependencyCount > MAX_AUX_COUNT || !cursor.skip(dependencyCount * 4L)) return null
+            if (isReferenceType) {
+                className = cursor.readCString(4096) ?: return null
+                namespace = cursor.readCString(4096) ?: return null
+                assemblyName = cursor.readCString(4096) ?: return null
+            } else {
+                val dependencyCount = cursor.readU32() ?: return null
+                if (dependencyCount > MAX_AUX_COUNT || !cursor.skip(dependencyCount * 4L)) return null
+            }
         }
-        return ParsedTypeEntry(classId, scriptTypeIndex, scriptId, tree)
+        return ParsedTypeEntry(classId, scriptTypeIndex, scriptId, tree, className, namespace, assemblyName)
     }
 
     private fun parseTypeTreeBlob(bytes: ByteArray, little: Boolean, classId: Int): UnityTypeTreeSummary? {
