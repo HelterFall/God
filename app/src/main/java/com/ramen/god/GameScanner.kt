@@ -83,7 +83,14 @@ class GameScanner(private val activity: Activity) {
             readPeInfo(entry)?.let { peResults[entry.path] = it }
         }
 
-        val unityCandidates = files.filter { isUnityHeaderCandidate(it.name) }
+        val unityCandidates = files.filter { isUnityHeaderCandidate(it.name) }.sortedBy { entry ->
+            when {
+                entry.name.equals("globalgamemanagers", true) -> 0
+                entry.name.equals("globalgamemanagers.assets", true) -> 1
+                entry.name.startsWith("level", true) -> 2
+                else -> 3
+            }
+        }
         if (unityCandidates.size > MAX_UNITY_HEADER_FILES) {
             warnings.add("Проверка Unity-заголовков ограничена первыми " + MAX_UNITY_HEADER_FILES + " файлами-кандидатами.")
         }
@@ -175,7 +182,9 @@ class GameScanner(private val activity: Activity) {
 
         unityMetadata.forEach { (path, metadata) ->
             val value = metadata.unityVersion ?: return@forEach
-            val isRootFile = path.substringAfterLast('/').equals("globalgamemanagers", true)
+            val fileName = path.substringAfterLast('/')
+            val isRootFile = fileName.equals("globalgamemanagers", true) ||
+                fileName.equals("globalgamemanagers.assets", true)
             UnityVersionResolver.extractVersions(value).forEach { version ->
                 evidence.add(UnityVersionEvidence(
                     version,
