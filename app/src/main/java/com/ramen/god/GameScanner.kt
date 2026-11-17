@@ -99,6 +99,8 @@ class GameScanner(private val activity: Activity) {
             }
         }
 
+        resolveExternalMonoScriptRecords(files)
+
         val managedBinaries = peResults.filterValues { it.managed }.keys
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
         val importSummary = peResults.values.flatMap { it.imports }
@@ -169,6 +171,187 @@ class GameScanner(private val activity: Activity) {
         } catch (e: Exception) {
             warnings.add("Не удалось прочитать globalgamemanagers: " + e.message)
             null
+        }
+    }
+
+    private data class ExternalMonoScriptRequest(
+        val ownerPath: String,
+        val bindingIndex: Int,
+        val targetEntry: ScanEntry,
+        val targetHeader: UnityFileHeader,
+        val target: MonoScriptObjectTarget
+    )
+
+    private fun resolveExternalMonoScriptRecords(files: List<ScanEntry>) {
+        val updatedBindings = unityMetadata.mapValues { it.value.scriptTypeBindings.toMutableList() }.toMutableMap()
+        val changedOwners = mutableSetOf<String>()
+        val requests = mutableListOf<ExternalMonoScriptRequest>()
+
+        unityMetadata.forEach { (ownerPath, metadata) ->
+            metadata.scriptTypeBindings.forEachIndexed { index, binding ->
+                val fileId = binding.fileId ?: return@forEachIndexed
+                if (fileId <= 0 || binding.pathId == null || binding.externalPath.isNullOrBlank()) {
+                    return@forEachIndexed
+                }
+                val match = resolveExternalFile(binding.externalPath, files)
+                val current = updatedBindings[ownerPath]?.getOrNull(index) ?: binding
+                if (match.entry == null) {
+                    val resolution = if (match.ambiguous) "external-file-name-ambiguous" else "external-file-not-matched"
+                    updatedBindings[ownerPath]?.set(index, current.copy(resolution = resolution))
+                    changedOwners.add(ownerPath)
+                    return@forEachIndexed
+                }
+
+                val targetEntry = match.entry
+                val targetMetadata = unityMetadata[targetEntry.path]
+                if (targetMetadata == null) {
+                    updatedBindings[ownerPath]?.set(index, current.copy(
+                        matchedExternalFilePath = targetEntry.path,
+                        resolution = "external-file-found-not-parsed"
+                    ))
+                    changedOwners.add(ownerPath)
+                    return@forEachIndexed
+                }
+                val targetObject = targetMetadata.monoScriptObjects.firstOrNull { it.pathId == binding.pathId }
+                if (targetObject == null) {
+                    updatedBindings[ownerPath]?.set(index, current.copy(
+                        matchedExternalFilePath = targetEntry.path,
+                        resolution = "external-monoscript-not-in-object-sample"
+                    ))
+                    changedOwners.add(ownerPath)
+                    return@forEachIndexed
+                }
+                val targetHeader = unityHeaders[targetEntry.path]
+                if (targetHeader == null || targetHeader.dataOffset == null || targetHeader.fileSize == null) {
+                    updatedBindings[ownerPath]?.set(index, current.copy(
+                        matchedExternalFilePath = targetEntry.path,
+                        resolution = "external-file-header-unavailable"
+                    ))
+                    changedOwners.add(ownerPath)
+                    return@forEachIndexed
+                }
+                updatedBindings[ownerPath]?.set(index, current.copy(
+                    matchedExternalFilePath = targetEntry.path,
+                    localObjectClassId = targetObject.classId,
+                    objectByteStart = targetObject.byteStart,
+                    objectByteSize = targetObject.byteSize,
+                    resolution = "external-monoscript-object-found"
+                ))
+                changedOwners.add(ownerPath)
+                requests.add(
+                    ExternalMonoScriptRequest(
+                        ownerPath,
+                        index,
+                        targetEntry,
+                        targetHeader,
+                        MonoScriptObjectTarget(targetObject.pathId, targetObject.byteStart, targetObject.byteSize)
+                    )
+                )
+            }
+        }
+
+        val extraScripts = mutableMapOf<String, MutableList<UnityMonoScriptSummary>>()
+        requests.groupBy { it.targetEntry.path }.forEach { (_, group) ->
+            val first = group.first()
+            val littleEndian = when (first.targetHeader.endianness) {
+                "Little Endian" -> true
+                "Big Endian" -> false
+                else -> null
+            }
+            if (littleEndian == null) {
+                group.forEach { request ->
+                    updatedBindings[request.ownerPath]?.set(
+                        request.bindingIndex,
+                        updatedBindings[request.ownerPath]!![request.bindingIndex].copy(resolution = "external-file-endianness-unknown")
+                    )
+                    changedOwners.add(request.ownerPath)
+                }
+                return@forEach
+            }
+            try {
+                val input = activity.contentResolver.openInputStream(first.targetEntry.uri)
+                if (input == null) {
+                    group.forEach { request ->
+                        val current = updatedBindings[request.ownerPath]!![request.bindingIndex]
+                        updatedBindings[request.ownerPath]!![request.bindingIndex] = current.copy(resolution = "external-file-unreadable")
+                        changedOwners.add(request.ownerPath)
+                    }
+                    return@forEach
+                }
+                val readResult = input.use { stream ->
+                    MonoScriptParser.readObjects(
+                        stream,
+                        first.targetHeader.dataOffset!!,
+                        first.targetHeader.fileSize!!,
+                        group.map { it.target },
+                        littleEndian
+                    )
+                }
+                val parsedByPath = readResult.scripts.associateBy { it.pathId }
+                group.forEach { request ->
+                    val current = updatedBindings[request.ownerPath]!![request.bindingIndex]
+                    val script = parsedByPath[request.target.pathId]
+                    if (script == null) {
+                        updatedBindings[request.ownerPath]!![request.bindingIndex] =
+                            current.copy(resolution = "external-monoscript-unreadable")
+                    } else {
+                        updatedBindings[request.ownerPath]!![request.bindingIndex] = current.copy(
+                            monoScriptName = script.name,
+                            className = script.className,
+                            namespace = script.namespace,
+                            assemblyName = script.assemblyName,
+                            executionOrder = script.executionOrder,
+                            resolution = "external-monoscript-decoded"
+                        )
+                        extraScripts.getOrPut(request.ownerPath) { mutableListOf() }
+                            .add(script.copy(sourceFilePath = request.targetEntry.path))
+                    }
+                    changedOwners.add(request.ownerPath)
+                }
+            } catch (e: Exception) {
+                group.forEach { request ->
+                    val current = updatedBindings[request.ownerPath]!![request.bindingIndex]
+                    updatedBindings[request.ownerPath]!![request.bindingIndex] =
+                        current.copy(resolution = "external-monoscript-read-failed")
+                    changedOwners.add(request.ownerPath)
+                }
+            }
+        }
+
+        changedOwners.forEach { ownerPath ->
+            val old = unityMetadata[ownerPath] ?: return@forEach
+            val bindings = updatedBindings[ownerPath] ?: old.scriptTypeBindings
+            val scripts = (old.monoScripts + extraScripts[ownerPath].orEmpty())
+                .distinctBy { it.sourceFilePath to it.pathId }
+            unityMetadata[ownerPath] = old.copy(
+                scriptTypeBindings = bindings,
+                monoScripts = scripts
+            )
+        }
+    }
+
+    private data class ExternalFileMatch(val entry: ScanEntry?, val ambiguous: Boolean)
+
+    private fun resolveExternalFile(externalPath: String, files: List<ScanEntry>): ExternalFileMatch {
+        var normalized = externalPath.trim().replace('\\', '/')
+        val archiveMarker = normalized.indexOf("archive:/", ignoreCase = true)
+        if (archiveMarker >= 0) normalized = normalized.substring(archiveMarker + "archive:/".length)
+        normalized = normalized.trimStart('/').lowercase(Locale.ROOT)
+        if (normalized.isBlank()) return ExternalFileMatch(null, false)
+
+        val pathMatches = files.filter { entry ->
+            val candidate = entry.path.replace('\\', '/').trimStart('/').lowercase(Locale.ROOT)
+            normalized == candidate || normalized.endsWith("/" + candidate)
+        }
+        if (pathMatches.size == 1) return ExternalFileMatch(pathMatches.single(), false)
+        if (pathMatches.size > 1) return ExternalFileMatch(null, true)
+
+        val baseName = normalized.substringAfterLast('/')
+        val nameMatches = files.filter { it.name.equals(baseName, ignoreCase = true) }
+        return when (nameMatches.size) {
+            1 -> ExternalFileMatch(nameMatches.single(), false)
+            in 2..Int.MAX_VALUE -> ExternalFileMatch(null, true)
+            else -> ExternalFileMatch(null, false)
         }
     }
 
