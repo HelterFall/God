@@ -103,11 +103,7 @@ internal object UnityMetadataParser {
             objectCount = objectCount,
             scriptTypeCount = scriptCount,
             externalReferenceCount = externalCount,
-            note = if (prefix.size < header.metadataSize?.plus(base)?.coerceAtMost(Int.MAX_VALUE.toLong()) ?: false) {
-                "Прочитаны основные таблицы metadata; последующие расширения (SerializeReference/TypeTree shared subtrees) не анализировались."
-            } else {
-                "Прочитаны основные таблицы metadata; расширения SerializeReference/TypeTree shared subtrees не анализировались."
-            }
+            note = "Прочитаны основные таблицы metadata; расширения SerializeReference/TypeTree shared subtrees не анализировались."
         )
     }
 
