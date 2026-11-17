@@ -128,7 +128,8 @@ Suggested analyzer contract:
 - [x] Read leading metadata fields for SerializedFile v19–v26: Unity version, target platform, TypeTree flag and type count.
 - [x] Safely skip bounded type entries and count objects, MonoScript references and external references.
 - [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
-- [ ] Parse individual object records and TypeTree nodes, then resolve MonoScript references to managed types.
+- [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26.
+- [ ] Parse TypeTree nodes and resolve MonoScript references to managed types.
 - [ ] Scene/GameObject/MonoBehaviour inventory.
 - [ ] MonoScript-to-managed-type resolution.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
