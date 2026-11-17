@@ -239,7 +239,7 @@ internal object ClrMetadataParser {
             39 -> 8L + 2L * s + implementation
             40 -> 8L + s + implementation
             41 -> 2L * ti(2)
-            42 -> 4L + typeOrMethod + s + b
+            42 -> 4L + typeOrMethod + s
             43 -> methodDefOrRef + b
             44 -> ti(42) + tdor
             else -> null
