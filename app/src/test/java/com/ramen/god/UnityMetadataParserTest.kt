@@ -290,7 +290,13 @@ class UnityMetadataParserTest {
         bytes[p++] = 0
         put32(bytes, p, 13, true); p += 4
         bytes[p++] = 0
-        put32(bytes, p, 0, true); p += 4 // types
+        put32(bytes, p, 1, true); p += 4 // one serialized type
+        put32(bytes, p, 114, true); p += 4 // MonoBehaviour
+        bytes[p++] = 0
+        put16(bytes, p, 0, true); p += 2 // scriptTypeIndex = 0
+        p += 16 // MonoBehaviour script ID
+        p += 16 // type hash
+        put32(bytes, p, 0, true); p += 4 // type dependencies
         put32(bytes, p, 0, true); p += 4 // objects
         put32(bytes, p, 1, true); p += 4 // script references
         put32(bytes, p, 1, true); p += 4 // fileID = first external file
@@ -309,6 +315,59 @@ class UnityMetadataParserTest {
         assertEquals(1L, result.scriptTypeCount)
         assertEquals(UnityScriptTypeReference(1, 77L), result.scriptTypeReferences.single())
         assertEquals(UnityExternalReference(1, "sharedassets0.assets", 0), result.externalReferences.single())
+        assertEquals("external-file-path-known", result.scriptTypeBindings.single().resolution)
+        assertEquals("sharedassets0.assets", result.scriptTypeBindings.single().externalPath)
+        assertEquals(77L, result.scriptTypeBindings.single().pathId)
+    }
+
+    @Test
+    fun linksMonoBehaviourScriptTypeToLocalMonoScriptObjectSample() {
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val bytes = ByteArray(256)
+        val version = "2022.3.10f1".toByteArray()
+        version.copyInto(bytes, 48)
+        var p = 48 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0 // TypeTree disabled
+        put32(bytes, p, 2, true); p += 4 // type count
+
+        // Type 0: MonoBehaviour with scriptTypeIndex 0 and an embedded script GUID.
+        put32(bytes, p, 114, true); p += 4
+        bytes[p++] = 0
+        put16(bytes, p, 0, true); p += 2
+        p += 16 // script ID
+        p += 16 // type hash
+        put32(bytes, p, 0, true); p += 4 // dependencies
+
+        // Type 1: MonoScript (ClassID 115), no script type.
+        put32(bytes, p, 115, true); p += 4
+        bytes[p++] = 0
+        put16(bytes, p, 0xffff, true); p += 2
+        p += 16 // type hash
+        put32(bytes, p, 0, true); p += 4 // dependencies
+
+        put32(bytes, p, 1, true); p += 4 // object count
+        p = (p + 3) and -4
+        put64(bytes, p, 777L, true); p += 8 // local MonoScript pathID
+        put64(bytes, p, 0L, true); p += 8 // byte start
+        put32(bytes, p, 16, true); p += 4 // byte size
+        put32(bytes, p, 1, true); p += 4 // type index -> class 115
+        put32(bytes, p, 1, true); p += 4 // script reference count
+        put32(bytes, p, 0, true); p += 4 // fileID 0 = same SerializedFile
+        p = (p + 3) and -4
+        put64(bytes, p, 777L, true); p += 8
+        put32(bytes, p, 0, true); p += 4 // external count
+        put32(bytes, p, 0, true) // SerializeReference types
+
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        val binding = result.scriptTypeBindings.single()
+        assertEquals(114, binding.classId)
+        assertEquals(0, binding.scriptTypeIndex)
+        assertEquals(0, binding.fileId)
+        assertEquals(777L, binding.pathId)
+        assertEquals(115, binding.localObjectClassId)
+        assertEquals("local-monoscript-in-object-sample", binding.resolution)
     }
 
     @Test
