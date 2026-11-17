@@ -102,6 +102,7 @@ class GameScanner(private val activity: Activity) {
 
         resolveExternalMonoScriptRecords(files)
         resolveExternalScenePointers(files)
+        resolveMonoBehaviourScriptBindings(files)
 
         val managedBinaries = peResults.filterValues { it.managed }.keys
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
@@ -380,6 +381,18 @@ class GameScanner(private val activity: Activity) {
         resolutions.forEach { (path, links) ->
             val old = unityMetadata[path] ?: return@forEach
             unityMetadata[path] = old.copy(externalPointerResolutions = links)
+        }
+    }
+
+    private fun resolveMonoBehaviourScriptBindings(files: List<ScanEntry>) {
+        val snapshot = unityMetadata.toMap()
+        val bindings = UnityMonoBehaviourScriptResolver.resolve(snapshot) { externalPath ->
+            val match = resolveExternalFile(externalPath, files)
+            if (match.ambiguous) null else match.entry?.path
+        }
+        bindings.forEach { (path, items) ->
+            val old = unityMetadata[path] ?: return@forEach
+            unityMetadata[path] = old.copy(monoBehaviourScriptBindings = items)
         }
     }
 
@@ -669,6 +682,17 @@ class GameScanner(private val activity: Activity) {
             }
         }
         appendLine()
+        appendLine("## MonoBehaviour script classes")
+        unityMetadata.forEach { (path, metadata) ->
+            metadata.monoBehaviourScriptBindings.forEach { binding ->
+                appendLine("- $path object=${binding.sourcePathId} m_Script=${binding.fileId}/${binding.scriptPathId}" +
+                    (binding.targetFilePath?.let { " file=" + it } ?: "") +
+                    (binding.className?.let { " class=" + (if (binding.namespace.isNullOrBlank()) it else binding.namespace + "." + it) } ?: "") +
+                    (binding.assemblyName?.let { " assembly=" + it } ?: "") +
+                    " status=${binding.status}")
+            }
+        }
+        appendLine()
         appendLine("## Resolved Unity scene hierarchy")
         unityMetadata.forEach { (path, metadata) ->
             metadata.sceneGraph?.let { graph ->
@@ -715,7 +739,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 15)
+        root.put("schemaVersion", 16)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -804,6 +828,16 @@ class GameScanner(private val activity: Activity) {
                     .put("targetFilePath", link.targetFilePath ?: JSONObject.NULL)
                     .put("targetClassId", link.targetClassId ?: JSONObject.NULL)
                     .put("targetName", link.targetName ?: JSONObject.NULL).put("status", link.status) }))
+                .put("monoBehaviourScriptBindings", JSONArray(metadata.monoBehaviourScriptBindings.map { binding -> JSONObject()
+                    .put("sourcePathId", binding.sourcePathId).put("fileId", binding.fileId)
+                    .put("scriptPathId", binding.scriptPathId)
+                    .put("targetFilePath", binding.targetFilePath ?: JSONObject.NULL)
+                    .put("monoScriptName", binding.monoScriptName ?: JSONObject.NULL)
+                    .put("className", binding.className ?: JSONObject.NULL)
+                    .put("namespace", binding.namespace ?: JSONObject.NULL)
+                    .put("assemblyName", binding.assemblyName ?: JSONObject.NULL)
+                    .put("executionOrder", binding.executionOrder ?: JSONObject.NULL)
+                    .put("status", binding.status) }))
                 .put("sceneGraph", metadata.sceneGraph?.let { graph -> JSONObject()
                     .put("unresolvedReferenceCount", graph.unresolvedReferenceCount)
                     .put("externalReferenceCount", graph.externalReferenceCount)
