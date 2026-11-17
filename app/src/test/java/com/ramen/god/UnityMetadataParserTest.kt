@@ -124,18 +124,26 @@ class UnityMetadataParserTest {
         bytes[p++] = 0
         bytes[p++] = 0xff.toByte(); bytes[p++] = 0xff.toByte()
         p += 16 // old type hash
-        put32(bytes, p, 1, true); p += 4 // TypeTree node count
-        val strings = ("GameObject" + 0.toChar() + "Base" + 0.toChar()).toByteArray()
-        put32(bytes, p, strings.size.toLong(), true); p += 4
-        put16(bytes, p, 1, true); p += 2 // node version
+        put32(bytes, p, 2, true); p += 4 // TypeTree node count
+        put32(bytes, p, 0, true); p += 4 // no local strings; use Unity CommonString offsets
+        // Root node: GameObject Base
+        put16(bytes, p, 1, true); p += 2
         bytes[p++] = 0; bytes[p++] = 0 // level and flags
-        put32(bytes, p, 0, true); p += 4 // type string offset
-        put32(bytes, p, 11, true); p += 4 // name string offset
+        put32(bytes, p, 0x800000ACL, true); p += 4 // common string: GameObject (172)
+        put32(bytes, p, 0x80000037L, true); p += 4 // common string: Base (55)
         put32(bytes, p, 0xffffffffL, true); p += 4
         put32(bytes, p, 0, true); p += 4
         put32(bytes, p, 0, true); p += 4
         p += 8 // reference type hash
-        strings.copyInto(bytes, p); p += strings.size
+        // Child node: int m_Name
+        put16(bytes, p, 1, true); p += 2
+        bytes[p++] = 1; bytes[p++] = 0 // level and flags
+        put32(bytes, p, 0x800000DEL, true); p += 4 // common string: int (222)
+        put32(bytes, p, 0x800001ABL, true); p += 4 // common string: m_Name (427)
+        put32(bytes, p, 4, true); p += 4 // byte size
+        put32(bytes, p, 0, true); p += 4
+        put32(bytes, p, 0, true); p += 4
+        p += 8 // reference type hash
         put32(bytes, p, 0, true); p += 4 // type dependencies
         put32(bytes, p, 0, true); p += 4 // object count
         put32(bytes, p, 0, true); p += 4 // script count
@@ -147,6 +155,7 @@ class UnityMetadataParserTest {
         assertEquals(1, result.typeTrees.size)
         assertEquals("GameObject", result.typeTrees[0].rootType)
         assertEquals("Base", result.typeTrees[0].rootName)
+        assertEquals(listOf("m_Name"), result.typeTrees[0].fieldNames)
     }
 
     @Test
