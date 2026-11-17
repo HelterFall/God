@@ -24,7 +24,7 @@ internal data class UnityScriptTypeBinding(
     val fileId: Int?,
     val pathId: Long?,
     val externalPath: String?,
-    val localObjectClassId: Int?,
+    val targetObjectClassId: Int?,
     val objectByteStart: Long?,
     val objectByteSize: Long?,
     val matchedExternalFilePath: String? = null,
@@ -292,7 +292,7 @@ internal object UnityMetadataParser {
                     fileId = null,
                     pathId = null,
                     externalPath = null,
-                    localObjectClassId = null,
+                    targetObjectClassId = null,
                     objectByteStart = null,
                     objectByteSize = null,
                     resolution = "script-reference-not-in-sample"
@@ -318,7 +318,7 @@ internal object UnityMetadataParser {
                 fileId = reference.fileId,
                 pathId = reference.pathId,
                 externalPath = externalPath,
-                localObjectClassId = localObject?.classId,
+                targetObjectClassId = localObject?.classId,
                 objectByteStart = localObject?.byteStart,
                 objectByteSize = localObject?.byteSize,
                 resolution = resolution
