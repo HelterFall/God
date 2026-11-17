@@ -209,7 +209,6 @@ class UnityMetadataParserTest {
         requireNotNull(result)
         assertEquals("RenderingLayerMask", result.typeTrees.single().rootType)
         assertEquals("m_Name", result.typeTrees.single().rootName)
-        assertEquals(1169, result.typeTrees.single().nodes.single().typeName?.let { 1169 })
         assertEquals("RenderingLayerMask", result.typeTrees.single().nodes.single().typeName)
     }
 
