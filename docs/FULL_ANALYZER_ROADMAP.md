@@ -60,7 +60,7 @@ Avoid holding the complete report in memory. Stream JSONL/TXT sections to output
 ### E. Unity serialized files and scenes
 - Detect serialized file versions and TypeTree availability.
 - Enumerate assets, object types, paths/IDs, MonoScript links, GameObjects, components, and scene relationships when decodable.
-- Resolve MonoBehaviour script references to managed class names.
+- Resolve MonoBehaviour script references to managed class names. (first pass: bind decoded `m_Script` pointers to available MonoScript payload records; broader managed DLL symbol resolution remains)
 - Resolve sampled external PPtrs through fileID → external path → target PathID; preserve ambiguous/missing/unparsed states.
 - Extract component enabled/active state only when the serialized fields are actually decoded.
 - Report missing TypeTrees, unsupported versions, and unresolved script IDs explicitly.
