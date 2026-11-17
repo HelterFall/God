@@ -11,13 +11,13 @@ Android-приложение для анализа Windows Unity-игр непо
 - Структурная классификация Mono / IL2CPP.
 - Поиск версии Unity в globalgamemanagers.
 - Разбор PE: x86, x86-64, ARM64.
-- Определение CLR-флага для различения managed .NET assemblies и native PE; ограниченное чтение CLR metadata: имя/версия сборки, Module, до 1000 TypeDef-типов и до 256 AssemblyRef.
+- Определение CLR-флага для различения managed .NET assemblies и native PE; ограниченное чтение CLR metadata: имя/версия сборки, Module, до 1000 TypeDef-типов и до 256 AssemblyRef; сопоставление MonoBehaviour MonoScript class/namespace/assembly с managed TypeDef при точном совпадении.
 - Чтение статической таблицы импортов PE и сводка DLL-зависимостей.
 - Распознавание заголовков Unity SerializedFile (включая 64-битный формат v22+) и UnityFS bundles без распаковки данных.
 - Чтение metadata SerializedFile v19–v26: версия Unity, target platform, флаг TypeTree, число типов, до 500 записей объектов (PathID, смещение, размер и ClassID) и точные счётчики объектов по ClassID по всей прочитанной таблице (включая GameObject, Transform, MonoBehaviour и MonoScript), а также числа и ограниченные выборки MonoScript-ссылок (fileID/pathID), внешних файлов (fileID/path) и первых 500 serialized type-записей (ClassID, scriptTypeIndex, scriptID), число SerializeReference-типов и до 200 их записей с className/namespace/assemblyName (если формат v21+). Связывает scriptTypeIndex с MonoScript fileID/pathID. Для локальных ссылок сохраняет до 1000 записей ClassID 115 и декодирует до 64 MonoScript-объектов (имя, executionOrder, className, namespace, assemblyName), если позиция не дальше 64 MiB от начала файла, а размер объекта не больше 64 KiB. Для внешних ссылок пытается сопоставить путь с файлом в выбранной папке по точному пути или уникальному имени; если целевой SerializedFile попал в ограниченный разбор и содержит нужный ClassID 115, декодирует внешний MonoScript теми же лимитами. Неоднозначные имена не угадываются. Для v26 считывается число shared TypeTree subtrees. Проверяет границы object data ranges перед принятием записей.
 - Отчёт по версии формата, размерам, data offset и endianness; UnityFS пока определяется только по заголовку.
 - Список игровых сборок и UnityEngine modules.
-- Экспорт Markdown и JSON (JSON schemaVersion 17).
+- Экспорт Markdown и JSON (JSON schemaVersion 18).
 - Отображение прогресса при обходе папок.
 - Возможность остановить длительный анализ; незавершённый отчёт не экспортируется.
 
@@ -26,6 +26,7 @@ Android-приложение для анализа Windows Unity-игр непо
 - `GameScanner.kt` — обход дерева игры, эвристики Unity/Mono/IL2CPP, связь MonoScript между файлами и формирование отчётов.
 - `PeParser.kt` — независимый PE-парсер: архитектура, CLR directory, адрес CLR metadata и статические импорты.
 - `ClrMetadataParser.kt` — ограниченный ECMA-335 reader: Assembly identity, Module, TypeDef имена и AssemblyRef.
+- `UnityManagedTypeResolver.kt` — связывает MonoScript class/namespace/assembly с managed TypeDef; неоднозначные и не попавшие в выборку типы отмечаются отдельно.
 - `UnityFileHeaderParser.kt` — ограниченный парсер заголовков SerializedFile и UnityFS.
 - `UnityMetadataParser.kt` — ограниченный разбор metadata, таблиц объектов, MonoScript/external references, serialized type identities и TypeTree-узлов для SerializedFile v19–v26.
 - `UnityMonoBehaviourScriptResolver.kt` — связывает `MonoBehaviour.m_Script` с прочитанными `MonoScript` payload и показывает class/namespace/assembly без догадок.
