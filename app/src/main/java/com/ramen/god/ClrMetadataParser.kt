@@ -185,7 +185,7 @@ internal object ClrMetadataParser {
         }
         val tdor = coded(2, 2, 1, 27)
         val hasConstant = coded(2, 4, 8, 23)
-        val hasCustom = coded(5, 6, 4, 1, 2, 8, 9, 10, 0, 14, 23, 20, 21, 26, 27, 32, 35, 38, 39, 40, 42, 44, 43)
+        val hasCustom = coded(5, 6, 4, 1, 2, 8, 9, 10, 0, 14, 23, 20, 17, 26, 27, 32, 35, 38, 39, 40, 42, 44, 43)
         val hasMarshal = coded(1, 4, 8)
         val hasSecurity = coded(2, 2, 6, 32)
         val memberRefParent = coded(3, 2, 1, 26, 6, 27)
