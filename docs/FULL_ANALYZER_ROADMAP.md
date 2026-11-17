@@ -177,9 +177,9 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 
 ## Immediate next implementation slice
 
-1. Validate the new SerializedFile/UnityFS header parser against real Unity samples and expand malformed-header tests.
-2. Add positional SAF reads so pre-v9 SerializedFiles can locate the endian marker without loading the file.
-3. Parse the first bounded metadata fields (Unity version, target platform, TypeTree flag, type/object counts) with strict count and offset limits.
-4. Add UnityFS block-table metadata parsing; keep payload decompression as a separate, explicitly bounded stage.
-5. Add TypeTree-driven decoding for MonoBehaviour, ScriptableObject and GameObject payloads; keep unresolved references explicit.
-6. Move report generation to streaming writers and stop retaining complete Markdown/JSON strings for large scans.
+1. Build a per-file PathID index for decoded objects and resolve local PPtr links into a GameObject–Transform–Component graph.
+2. Resolve external PPtr links through the external-file table and the existing unambiguous path resolver; preserve unresolved and ambiguous states.
+3. Bind each decoded MonoBehaviour `m_Script` pointer to its MonoScript object, then connect class/namespace/assembly identity to managed DLL metadata.
+4. Extend the bounded TypeTree interpreter to more variable-length field patterns and ScriptableObject payloads without guessing unknown layouts.
+5. Add real-file fixtures across Unity generations and publish a TypeTree/object-decoding compatibility matrix.
+6. Continue with UnityFS block-table metadata, positional SAF reads, and streaming report writers as separate bounded work items.
