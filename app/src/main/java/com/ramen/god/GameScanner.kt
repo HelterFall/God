@@ -269,6 +269,7 @@ class GameScanner(private val activity: Activity) {
                 (metadata.objectCount?.let { "; objectCount=" + it } ?: "") +
                 (metadata.scriptTypeCount?.let { "; MonoScriptRefs=" + it } ?: "") +
                 (metadata.externalReferenceCount?.let { "; externalRefs=" + it } ?: "") +
+                (metadata.objectSamples.take(20).joinToString(prefix = if (metadata.objectSamples.isEmpty()) "" else "; sampleObjects=", separator = ", ") { obj -> "pathId=${obj.pathId}:type=${obj.classId ?: obj.typeIndex}:size=${obj.byteSize}@${obj.byteStart}" }) +
                 (metadata.note?.let { "; " + it } ?: ""))
         }
         appendLine()
@@ -324,6 +325,7 @@ class GameScanner(private val activity: Activity) {
                 .put("objectCount", metadata.objectCount ?: JSONObject.NULL)
                 .put("scriptTypeCount", metadata.scriptTypeCount ?: JSONObject.NULL)
                 .put("externalReferenceCount", metadata.externalReferenceCount ?: JSONObject.NULL)
+                .put("objectSamples", JSONArray(metadata.objectSamples.map { obj -> JSONObject().put("pathId", obj.pathId).put("byteStart", obj.byteStart).put("byteSize", obj.byteSize).put("typeIndex", obj.typeIndex).put("classId", obj.classId ?: JSONObject.NULL) }))
                 .put("note", metadata.note ?: JSONObject.NULL)
         }))
         root.put("unityFileHeaders", JSONArray(unityHeaders.map { (path, header) ->
