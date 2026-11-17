@@ -4,6 +4,10 @@ internal data class UnityTypeTreeSummary(val classId: Int, val nodeCount: Long, 
 
 internal data class UnityObjectSummary(val pathId: Long, val byteStart: Long, val byteSize: Long, val typeIndex: Int, val classId: Int?)
 
+internal data class UnityScriptTypeReference(val fileId: Int, val pathId: Long)
+
+internal data class UnityExternalReference(val fileId: Int, val path: String, val type: Int)
+
 /** Bounded metadata summary for modern Unity SerializedFiles. */
 internal data class UnityMetadataSummary(
     val unityVersion: String?,
@@ -15,6 +19,8 @@ internal data class UnityMetadataSummary(
     val externalReferenceCount: Long? = null,
     val objectSamples: List<UnityObjectSummary> = emptyList(),
     val typeTrees: List<UnityTypeTreeSummary> = emptyList(),
+    val scriptTypeReferences: List<UnityScriptTypeReference> = emptyList(),
+    val externalReferences: List<UnityExternalReference> = emptyList(),
     val note: String? = null
 )
 
@@ -26,6 +32,8 @@ internal object UnityMetadataParser {
     private const val MAX_OBJECT_COUNT = 2_000_000L
     private const val MAX_AUX_COUNT = 500_000L
     private const val MAX_OBJECT_SAMPLES = 500
+    private const val MAX_SCRIPT_TYPE_SAMPLES = 500
+    private const val MAX_EXTERNAL_REFERENCE_SAMPLES = 200
     private const val MAX_TYPE_TREE_NODES = 100_000L
     private const val MAX_TYPE_TREE_SAMPLES = 100
     private const val MAX_TYPE_TREE_FIELDS = 20
@@ -75,6 +83,9 @@ internal object UnityMetadataParser {
         }
 
         val objectSamples = ArrayList<UnityObjectSummary>(minOf(objectCount, MAX_OBJECT_SAMPLES.toLong()).toInt())
+        val dataSectionSize = if (header.fileSize != null && header.dataOffset != null && header.fileSize >= header.dataOffset) {
+            header.fileSize - header.dataOffset
+        } else null
         repeat(objectCount.toInt()) {
             if (!cursor.align4()) {
                 return partial.copy(objectCount = objectCount, objectSamples = objectSamples, note = "Таблица объектов обрезана.")
@@ -86,6 +97,10 @@ internal object UnityMetadataParser {
             if (pathId == null || relativeStart == null || byteSize == null || typeIndex == null) {
                 return partial.copy(objectCount = objectCount, objectSamples = objectSamples, note = "Таблица объектов обрезана.")
             }
+            if (dataSectionSize != null && (relativeStart < 0L || byteSize > dataSectionSize || relativeStart > dataSectionSize - byteSize)) {
+                return partial.copy(objectCount = objectCount, objectSamples = objectSamples,
+                    note = "Запись объекта указывает за пределы data section; дальнейший разбор остановлен.")
+            }
             if (objectSamples.size < MAX_OBJECT_SAMPLES) {
                 objectSamples.add(UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, typeClassIds.getOrNull(typeIndex)))
             }
@@ -96,9 +111,20 @@ internal object UnityMetadataParser {
         if (scriptCount > MAX_AUX_COUNT) {
             return partial.copy(objectCount = objectCount, note = "Число ссылок MonoScript превышает безопасный лимит.")
         }
+        val scriptTypeReferences = ArrayList<UnityScriptTypeReference>(minOf(scriptCount, MAX_SCRIPT_TYPE_SAMPLES.toLong()).toInt())
         repeat(scriptCount.toInt()) {
-            if (cursor.readU32() == null || !cursor.align4() || cursor.readU64() == null) {
-                return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount, note = "Список MonoScript обрезан.")
+            val fileId = cursor.readI32()
+            if (fileId == null || !cursor.align4()) {
+                return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount, objectSamples = objectSamples,
+                    note = "Список MonoScript обрезан.")
+            }
+            val pathId = cursor.readU64()
+            if (pathId == null) {
+                return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount, objectSamples = objectSamples,
+                    note = "Список MonoScript обрезан.")
+            }
+            if (scriptTypeReferences.size < MAX_SCRIPT_TYPE_SAMPLES) {
+                scriptTypeReferences.add(UnityScriptTypeReference(fileId, pathId))
             }
         }
 
@@ -111,13 +137,30 @@ internal object UnityMetadataParser {
             return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
                 note = "Число внешних ссылок превышает безопасный лимит.")
         }
-        repeat(externalCount.toInt()) {
-            if (cursor.readCString(4096) == null || !cursor.skip(16) ||
-                cursor.readU32() == null || cursor.readCString(4096) == null) {
+        val externalReferences = ArrayList<UnityExternalReference>(minOf(externalCount, MAX_EXTERNAL_REFERENCE_SAMPLES.toLong()).toInt())
+        repeat(externalCount.toInt()) { index ->
+            if (cursor.readCString(4096) == null || !cursor.skip(16)) {
                 return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
-                    externalReferenceCount = externalCount, note = "Список внешних ссылок обрезан.")
+                    externalReferenceCount = externalCount, objectSamples = objectSamples,
+                    scriptTypeReferences = scriptTypeReferences, note = "Список внешних ссылок обрезан.")
+            }
+            val referenceType = cursor.readI32()
+            val path = cursor.readCString(4096)
+            if (referenceType == null || path == null) {
+                return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
+                    externalReferenceCount = externalCount, objectSamples = objectSamples,
+                    scriptTypeReferences = scriptTypeReferences, note = "Список внешних ссылок обрезан.")
+            }
+            if (externalReferences.size < MAX_EXTERNAL_REFERENCE_SAMPLES) {
+                externalReferences.add(UnityExternalReference(index + 1, path, referenceType))
             }
         }
+
+        val referenceTypeCount = if (version >= 20L) cursor.readU32()
+            ?: return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
+                externalReferenceCount = externalCount, objectSamples = objectSamples,
+                scriptTypeReferences = scriptTypeReferences, externalReferences = externalReferences,
+                note = "Не удалось прочитать число SerializeReference-типов.") else null
 
         return partial.copy(
             objectCount = objectCount,
@@ -125,7 +168,11 @@ internal object UnityMetadataParser {
             externalReferenceCount = externalCount,
             objectSamples = objectSamples,
             typeTrees = typeTrees,
-            note = "Прочитаны основные таблицы metadata; расширения SerializeReference/TypeTree shared subtrees не анализировались."
+            scriptTypeReferences = scriptTypeReferences,
+            externalReferences = externalReferences,
+            note = if (referenceTypeCount != null && referenceTypeCount > 0L)
+                "Прочитаны таблицы объектов, MonoScript-ссылок и внешних файлов; SerializeReference type entries ($referenceTypeCount) и TypeTree shared subtrees не анализировались."
+            else "Прочитаны основные таблицы metadata; TypeTree shared subtrees не анализировались."
         )
     }
 
@@ -133,7 +180,10 @@ internal object UnityMetadataParser {
         val classId = cursor.readI32() ?: return null
         if (version >= 16L && cursor.readU8() == null) return null
         val scriptTypeIndex = if (version >= 17L) cursor.readI16() ?: return null else -1
-        if (classId == -1 || classId == 114 || scriptTypeIndex >= 0) {
+        // For modern SerializedFiles (v16+), the extra 16-byte script ID is
+        // present for MonoBehaviour class ID 114, not for every non-negative
+        // scriptTypeIndex. Older negative class IDs use the legacy condition.
+        if ((version < 16L && classId < 0) || (version >= 16L && classId == 114)) {
             if (!cursor.skip(16)) return null
         }
         if (!cursor.skip(16)) return null // old type hash
