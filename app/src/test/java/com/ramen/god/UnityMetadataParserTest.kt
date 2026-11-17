@@ -84,7 +84,8 @@ class UnityMetadataParserTest {
         put32(bytes, p, 1, true); p += 4 // type count
         put32(bytes, p, 1, true); p += 4 // class ID
         bytes[p++] = 0 // stripped
-        put16(bytes, p, 2, true); p += 2 // non-negative script index does not imply an extra script ID
+        put16(bytes, p, 2, true); p += 2 // script type index
+        p += 16 // script ID is present when scriptTypeIndex >= 0
         p += 16 // old type hash
         put32(bytes, p, 0, true); p += 4 // type dependencies (v21+)
         put32(bytes, p, 1, true); p += 4 // object count
@@ -242,6 +243,7 @@ class UnityMetadataParserTest {
         put32(bytes, p, 0xffffffffL, true); p += 4 // ClassID -1
         bytes[p++] = 0 // not stripped
         put16(bytes, p, 0xffff, true); p += 2 // scriptTypeIndex -1
+        p += 16 // undefined persistent type still stores script ID
         p += 16 // old type hash
         val fields = listOf("PlayerData", "Game", "Assembly-CSharp")
         for (field in fields) {
