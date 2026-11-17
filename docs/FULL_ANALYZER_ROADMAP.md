@@ -143,7 +143,8 @@ Suggested analyzer contract:
 - [x] Decode bounded GameObject, Transform and MonoBehaviour payloads from complete bounded TypeTrees: GameObject name/active/components; Transform GameObject/parent/children; MonoBehaviour enabled/script PPtrs.
 - [x] Resolve external MonoScript targets when their path matches a selected file exactly or by a unique basename; decode only when that file's SerializedFile metadata and target ClassID 115 object are in the bounded sample. Ambiguous matches remain unresolved.
 - [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL metadata.
-- [ ] Resolve decoded PPtr references into a unified scene hierarchy and bind MonoBehaviour m_Script PPtrs to MonoScript/managed DLL identities.
+- [x] Resolve local decoded PPtr references into a bounded per-file GameObject–Transform–Component hierarchy; keep external and missing PathIDs explicitly unresolved.
+- [ ] Resolve external scene PPtr references across SerializedFiles and bind MonoBehaviour m_Script PPtrs to MonoScript/managed DLL identities.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
 
 ### Phase 5 — Resource and compatibility intelligence
@@ -177,9 +178,8 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 
 ## Immediate next implementation slice
 
-1. Build a per-file PathID index for decoded objects and resolve local PPtr links into a GameObject–Transform–Component graph.
-2. Resolve external PPtr links through the external-file table and the existing unambiguous path resolver; preserve unresolved and ambiguous states.
-3. Bind each decoded MonoBehaviour `m_Script` pointer to its MonoScript object, then connect class/namespace/assembly identity to managed DLL metadata.
-4. Extend the bounded TypeTree interpreter to more variable-length field patterns and ScriptableObject payloads without guessing unknown layouts.
-5. Add real-file fixtures across Unity generations and publish a TypeTree/object-decoding compatibility matrix.
-6. Continue with UnityFS block-table metadata, positional SAF reads, and streaming report writers as separate bounded work items.
+1. Resolve external scene PPtr links across SerializedFiles using fileID/external table entries and the existing unambiguous path resolver; preserve ambiguous and missing states.
+2. Bind decoded MonoBehaviour `m_Script` pointers to local/external MonoScript objects and connect class/namespace/assembly identity to managed DLL metadata.
+3. Extend the bounded TypeTree interpreter to more variable-length field patterns and ScriptableObject payloads without guessing unknown layouts.
+4. Add real-file fixtures across Unity generations and publish a TypeTree/object-decoding compatibility matrix.
+5. Continue with UnityFS block-table metadata, positional SAF reads, and streaming report writers as separate bounded work items.
