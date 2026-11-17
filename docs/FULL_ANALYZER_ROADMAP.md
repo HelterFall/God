@@ -119,7 +119,8 @@ Suggested analyzer contract:
 - Native dependency graph, missing plugin report, and import/export details.
 
 ### Phase 3 — Managed code intelligence
-- Assembly metadata and dependency graph.
+- [x] First CLR metadata inventory: Assembly identity/version, Module name, TypeDef names/namespaces and AssemblyRef dependencies from bounded ECMA-335 metadata tables.
+- [ ] Expand to fields, methods, attributes, nested type relationships and dependency graph.
 - P/Invoke inventory and IL call-site scan.
 - Android packaging strategy for parser dependencies and offline use.
 
@@ -143,7 +144,7 @@ Suggested analyzer contract:
 - [x] Basic GameObject/Transform/MonoBehaviour/MonoScript object inventory by ClassID.
 - [x] Decode bounded GameObject, Transform and MonoBehaviour payloads from complete bounded TypeTrees: GameObject name/active/components; Transform GameObject/parent/children; MonoBehaviour enabled/script PPtrs.
 - [x] Resolve external MonoScript targets when their path matches a selected file exactly or by a unique basename; decode only when that file's SerializedFile metadata and target ClassID 115 object are in the bounded sample. Ambiguous matches remain unresolved.
-- [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL metadata.
+- [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL TypeDef records.
 - [x] Resolve local decoded PPtr references into a bounded per-file GameObject–Transform–Component hierarchy; keep external and missing PathIDs explicitly unresolved.
 - [ ] Resolve external scene PPtr references across SerializedFiles and bind MonoBehaviour m_Script PPtrs to MonoScript/managed DLL identities.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
@@ -180,7 +181,7 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 ## Immediate next implementation slice
 
 1. Resolve external scene PPtr links across SerializedFiles using fileID/external table entries and the existing unambiguous path resolver; preserve ambiguous and missing states.
-2. Bind decoded MonoBehaviour `m_Script` pointers to local/external MonoScript objects and connect class/namespace/assembly identity to managed DLL metadata.
+2. Connect MonoScript class/namespace/assembly identities to the bounded TypeDef inventory in managed DLLs; preserve ambiguous or missing matches.
 3. Extend the bounded TypeTree interpreter to more variable-length field patterns and ScriptableObject payloads without guessing unknown layouts.
 4. Add real-file fixtures across Unity generations and publish a TypeTree/object-decoding compatibility matrix.
 5. Continue with UnityFS block-table metadata, positional SAF reads, and streaming report writers as separate bounded work items.
