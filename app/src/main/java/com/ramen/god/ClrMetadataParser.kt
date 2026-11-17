@@ -15,6 +15,15 @@ internal data class ClrAssemblyReferenceSummary(
     val culture: String
 )
 
+internal data class ClrFieldSummary(val name: String, val flags: Int)
+
+internal data class ClrMethodSummary(
+    val name: String,
+    val flags: Int,
+    val implementationFlags: Int,
+    val relativeVirtualAddress: Long
+)
+
 internal data class ClrAssemblySummary(
     val name: String?,
     val version: String?,
@@ -25,6 +34,8 @@ internal data class ClrAssemblySummary(
     val types: List<ClrTypeSummary>,
     val assemblyReferences: List<ClrAssemblyReferenceSummary>,
     val status: String,
+    val fields: List<ClrFieldSummary> = emptyList(),
+    val methods: List<ClrMethodSummary> = emptyList(),
     val note: String? = null
 )
 
@@ -38,6 +49,8 @@ internal object ClrMetadataParser {
     private const val MAX_STREAMS = 32
     private const val MAX_TYPES = 1000
     private const val MAX_ASSEMBLY_REFS = 256
+    private const val MAX_FIELDS = 2000
+    private const val MAX_METHODS = 2000
     private const val MAX_HEAP_STRING_BYTES = 4096
 
     private data class StreamInfo(val offset: Int, val size: Int)
@@ -115,11 +128,15 @@ internal object ClrMetadataParser {
         val referenceResult = readAssemblyReferences(
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd
         )
+        val fieldResult = readFields(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
+        val methodResult = readMethods(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
 
-        val notes = listOfNotNull(typeResult.second, referenceResult.second).distinct()
+        val notes = listOfNotNull(typeResult.second, referenceResult.second, fieldResult.second, methodResult.second).distinct()
         val status = when {
             typeResult.second == "type-table-unavailable" -> "partial-type-table-unavailable"
             referenceResult.second == "assembly-reference-table-unavailable" -> "partial-assembly-refs-unavailable"
+            fieldResult.second == "field-table-unavailable" -> "partial-field-table-unavailable"
+            methodResult.second == "method-table-unavailable" -> "partial-method-table-unavailable"
             else -> "parsed"
         }
         return ClrAssemblySummary(
@@ -132,6 +149,8 @@ internal object ClrMetadataParser {
             types = typeResult.first,
             assemblyReferences = referenceResult.first,
             status = status,
+            fields = fieldResult.first,
+            methods = methodResult.first,
             note = notes.joinToString("; ").ifBlank { null }
         )
     }
@@ -308,6 +327,63 @@ internal object ClrMetadataParser {
         return result to note
     }
 
+    private fun readFields(
+        bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
+        rows: LongArray, heapStart: Int, heapEnd: Int
+    ): Pair<List<ClrFieldSummary>, String?> {
+        if (rows[4] == 0L) return emptyList<ClrFieldSummary>() to null
+        val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
+        val blobWidth = if ((info.heapSizes and 4) != 0) 4 else 2
+        val rowSize = 2L + stringWidth + blobWidth
+        val start = base.toLong() + info.tableOffsets[4]
+        if (start > Int.MAX_VALUE || rowSize != info.tableSizes[4]) {
+            return emptyList<ClrFieldSummary>() to "field-table-unavailable"
+        }
+        val result = ArrayList<ClrFieldSummary>()
+        val count = minOf(rows[4], MAX_FIELDS.toLong()).toInt()
+        for (i in 0 until count) {
+            val row = start + i * rowSize
+            if (row + rowSize > bytes.size || row > Int.MAX_VALUE) break
+            val p = row.toInt()
+            val flags = readU16(bytes, p) ?: break
+            val nameIndex = readIndex(bytes, p + 2, stringWidth) ?: break
+            val name = readHeapString(bytes, heapStart, heapEnd, nameIndex) ?: continue
+            result.add(ClrFieldSummary(name, flags))
+        }
+        val note = if (rows[4] > MAX_FIELDS) "Поля ограничены первыми $MAX_FIELDS записями." else null
+        return result to note
+    }
+
+    private fun readMethods(
+        bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
+        rows: LongArray, heapStart: Int, heapEnd: Int
+    ): Pair<List<ClrMethodSummary>, String?> {
+        if (rows[6] == 0L) return emptyList<ClrMethodSummary>() to null
+        val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
+        val blobWidth = if ((info.heapSizes and 4) != 0) 4 else 2
+        val paramWidth = if (rows[8] < 65536L) 2 else 4
+        val rowSize = 8L + stringWidth + blobWidth + paramWidth
+        val start = base.toLong() + info.tableOffsets[6]
+        if (start > Int.MAX_VALUE || rowSize != info.tableSizes[6]) {
+            return emptyList<ClrMethodSummary>() to "method-table-unavailable"
+        }
+        val result = ArrayList<ClrMethodSummary>()
+        val count = minOf(rows[6], MAX_METHODS.toLong()).toInt()
+        for (i in 0 until count) {
+            val row = start + i * rowSize
+            if (row + rowSize > bytes.size || row > Int.MAX_VALUE) break
+            val p = row.toInt()
+            val rva = readU32(bytes, p) ?: break
+            val implFlags = readU16(bytes, p + 4) ?: break
+            val flags = readU16(bytes, p + 6) ?: break
+            val nameIndex = readIndex(bytes, p + 8, stringWidth) ?: break
+            val name = readHeapString(bytes, heapStart, heapEnd, nameIndex) ?: continue
+            result.add(ClrMethodSummary(name, flags, implFlags, rva))
+        }
+        val note = if (rows[6] > MAX_METHODS) "Методы ограничены первыми $MAX_METHODS записями." else null
+        return result to note
+    }
+
     private fun readAssemblyReferences(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
         rows: LongArray, heapStart: Int, heapEnd: Int
@@ -355,7 +431,7 @@ internal object ClrMetadataParser {
     }
 
     private fun emptySummary(runtime: String?, flags: Long?, status: String, note: String? = null) =
-        ClrAssemblySummary(null, null, null, runtime, flags, 0, emptyList(), emptyList(), status, note)
+        ClrAssemblySummary(null, null, null, runtime, flags, 0, emptyList(), emptyList(), status, note = note)
 
     private fun readIndex(bytes: ByteArray, offset: Int, width: Int): Long? =
         if (width == 2) readU16(bytes, offset)?.toLong() else readU32(bytes, offset)
