@@ -13,6 +13,8 @@ internal data class UnitySerializedTypeSummary(
 
 internal data class UnityObjectSummary(val pathId: Long, val byteStart: Long, val byteSize: Long, val typeIndex: Int, val classId: Int?)
 
+internal data class UnityObjectTypeSummary(val classId: Int, val count: Long, val samplePathIds: List<Long>)
+
 internal data class UnityScriptTypeReference(val fileId: Int, val pathId: Long)
 
 internal data class UnityExternalReference(val fileId: Int, val path: String, val type: Int)
@@ -46,6 +48,7 @@ internal data class UnityMetadataSummary(
     val scriptTypeCount: Long? = null,
     val externalReferenceCount: Long? = null,
     val objectSamples: List<UnityObjectSummary> = emptyList(),
+    val objectTypeCounts: List<UnityObjectTypeSummary> = emptyList(),
     val monoScriptObjects: List<UnityObjectSummary> = emptyList(),
     val monoScripts: List<UnityMonoScriptSummary> = emptyList(),
     val typeTrees: List<UnityTypeTreeSummary> = emptyList(),
@@ -126,6 +129,8 @@ internal object UnityMetadataParser {
 
         val objectSamples = ArrayList<UnityObjectSummary>(minOf(objectCount, MAX_OBJECT_SAMPLES.toLong()).toInt())
         val monoScriptObjects = ArrayList<UnityObjectSummary>()
+        val objectTypeCounts = linkedMapOf<Int, Long>()
+        val objectTypePathSamples = linkedMapOf<Int, MutableList<Long>>()
         val dataSectionSize = if (header.fileSize != null && header.dataOffset != null && header.fileSize >= header.dataOffset) {
             header.fileSize - header.dataOffset
         } else null
@@ -145,12 +150,21 @@ internal object UnityMetadataParser {
                     note = "Запись объекта указывает за пределы data section; дальнейший разбор остановлен.")
             }
             val classId = typeClassIds.getOrNull(typeIndex)
+            if (classId != null) {
+                objectTypeCounts[classId] = (objectTypeCounts[classId] ?: 0L) + 1L
+                val samples = objectTypePathSamples.getOrPut(classId) { mutableListOf() }
+                if (samples.size < 10) samples.add(pathId)
+            }
             val summary = UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, classId)
             if (objectSamples.size < MAX_OBJECT_SAMPLES) objectSamples.add(summary)
             if (classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES) {
                 monoScriptObjects.add(summary)
             }
         }
+
+        val objectTypeSummaries = objectTypeCounts.entries
+            .sortedByDescending { it.value }
+            .map { (classId, count) -> UnityObjectTypeSummary(classId, count, objectTypePathSamples[classId].orEmpty()) }
 
         val scriptCount = cursor.readU32()
             ?: return partial.copy(objectCount = objectCount, note = "Не удалось дочитать metadata до списка MonoScript.")
@@ -260,6 +274,7 @@ internal object UnityMetadataParser {
             scriptTypeCount = scriptCount,
             externalReferenceCount = externalCount,
             objectSamples = objectSamples,
+            objectTypeCounts = objectTypeSummaries,
             monoScriptObjects = monoScriptObjects,
             typeTrees = typeTrees,
             serializedTypes = serializedTypes,
