@@ -154,6 +154,13 @@ internal object UnityMetadataParser {
         private var position: Int,
         private val little: Boolean
     ) {
+        fun isLittleEndian(): Boolean = little
+
+        fun readBytes(count: Int): ByteArray? {
+            if (count < 0 || position < 0 || position.toLong() + count > bytes.size) return null
+            return bytes.copyOfRange(position, position + count).also { position += count }
+        }
+
         fun readU8(): Int? {
             if (position >= bytes.size) return null
             return bytes[position++].toInt() and 0xff
