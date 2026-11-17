@@ -85,6 +85,33 @@ class UnitySceneGraphResolverTest {
         assertEquals("external-file-path-unmatched-or-ambiguous", ambiguous.getValue("level.assets").single().status)
     }
 
+    @Test
+    fun bindsMonoBehaviourScriptPointerToParsedMonoScriptClass() {
+        val owner = UnityMetadataSummary(null, null, true, 0,
+            decodedObjects = listOf(UnityDecodedObjectSummary(11, 114, script = ptr(0, 90))))
+        val script = UnityMonoScriptSummary(90, "Player", 0, "PlayerController", "Game", "Assembly-CSharp", "scripts.assets")
+        val target = UnityMetadataSummary(null, null, true, 0, monoScripts = listOf(script))
+        val result = UnityMonoBehaviourScriptResolver.resolve(mapOf("scene.assets" to owner, "scripts.assets" to target)) { it }
+        val binding = result.getValue("scene.assets").single()
+        assertEquals("resolved-monoscript-class", binding.status)
+        assertEquals("PlayerController", binding.className)
+        assertEquals("Game", binding.namespace)
+        assertEquals("Assembly-CSharp", binding.assemblyName)
+    }
+
+    @Test
+    fun reportsUnparsedMonoScriptPayloadWithoutGuessingClassName() {
+        val owner = UnityMetadataSummary(null, null, true, 0,
+            externalReferences = listOf(UnityExternalReference(1, "scripts.assets", 0)),
+            decodedObjects = listOf(UnityDecodedObjectSummary(11, 114, script = ptr(1, 90))))
+        val target = UnityMetadataSummary(null, null, true, 0,
+            monoScriptObjects = listOf(UnityObjectSummary(90, 12, 40, 0, 115)))
+        val result = UnityMonoBehaviourScriptResolver.resolve(mapOf("scene.assets" to owner, "scripts.assets" to target)) { it }
+        assertEquals("monoscript-object-found-payload-unavailable",
+            result.getValue("scene.assets").single().status)
+        assertEquals(null, result.getValue("scene.assets").single().className)
+    }
+
     private fun ptr(fileId: Int, pathId: Long) =
         UnityObjectPointerSummary(fileId, pathId)
 }
