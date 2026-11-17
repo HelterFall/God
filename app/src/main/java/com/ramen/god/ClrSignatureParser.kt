@@ -105,7 +105,7 @@ internal object ClrSignatureParser {
             0x14 -> {
                 val item = readType(reader, false, depth + 1) ?: return null
                 val rank = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK.toLong() } ?: return null
-                val sizes = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK } ?: return null
+                val sizes = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK.toLong() } ?: return null
                 repeat(sizes.toInt()) { if (reader.compressedUInt() == null) return null }
                 val lowerBounds = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK } ?: return null
                 repeat(lowerBounds.toInt()) { if (reader.compressedSigned() == null) return null }
