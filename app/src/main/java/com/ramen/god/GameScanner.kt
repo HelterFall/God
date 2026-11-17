@@ -506,6 +506,16 @@ class GameScanner(private val activity: Activity) {
                 (metadata.typeTreeEnabled?.let { "; TypeTree=" + if (it) "enabled" else "disabled" } ?: "") +
                 (metadata.typeCount?.let { "; typeCount=" + it } ?: "") +
                 (metadata.objectCount?.let { "; objectCount=" + it } ?: "") +
+                (metadata.objectTypeCounts.take(20).joinToString(prefix = if (metadata.objectTypeCounts.isEmpty()) "" else "; objectTypes=", separator = ", ") { item ->
+                    val label = when (item.classId) {
+                        1 -> "GameObject"
+                        4 -> "Transform"
+                        114 -> "MonoBehaviour"
+                        115 -> "MonoScript"
+                        else -> "ClassID=${item.classId}"
+                    }
+                    "$label:${item.count}"
+                }) +
                 (metadata.scriptTypeCount?.let { "; MonoScriptRefs=" + it } ?: "") +
                 (metadata.externalReferenceCount?.let { "; externalRefs=" + it } ?: "") +
                 (metadata.serializedReferenceTypeCount?.let { "; SerializeReferenceTypes=" + it } ?: "") +
@@ -557,7 +567,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 11)
+        root.put("schemaVersion", 12)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -578,6 +588,10 @@ class GameScanner(private val activity: Activity) {
                 .put("typeTreeEnabled", metadata.typeTreeEnabled ?: JSONObject.NULL)
                 .put("typeCount", metadata.typeCount ?: JSONObject.NULL)
                 .put("objectCount", metadata.objectCount ?: JSONObject.NULL)
+                .put("objectTypeCounts", JSONArray(metadata.objectTypeCounts.map { item -> JSONObject()
+                    .put("classId", item.classId)
+                    .put("count", item.count)
+                    .put("samplePathIds", JSONArray(item.samplePathIds)) }))
                 .put("scriptTypeCount", metadata.scriptTypeCount ?: JSONObject.NULL)
                 .put("externalReferenceCount", metadata.externalReferenceCount ?: JSONObject.NULL)
                 .put("serializedReferenceTypeCount", metadata.serializedReferenceTypeCount ?: JSONObject.NULL)
