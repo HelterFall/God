@@ -185,7 +185,8 @@ class UnityMetadataParserTest {
         put32(bytes, p, 0, true); p += 4 // dependencies
         put32(bytes, p, 0, true); p += 4 // object count
         put32(bytes, p, 0, true); p += 4 // script count
-        put32(bytes, p, 0, true) // external references
+        put32(bytes, p, 0, true); p += 4 // external references
+        put32(bytes, p, 0, true) // SerializeReference type count
 
         val result = UnityMetadataParser.parse(bytes, header)
         requireNotNull(result)
