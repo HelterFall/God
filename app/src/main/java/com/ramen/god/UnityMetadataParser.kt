@@ -39,6 +39,12 @@ internal data class UnityScriptTypeReference(val fileId: Int, val pathId: Long)
 
 internal data class UnityExternalReference(val fileId: Int, val path: String, val type: Int)
 
+internal data class UnityMonoBehaviourScriptBinding(
+    val sourcePathId: Long, val fileId: Int, val scriptPathId: Long,
+    val targetFilePath: String?, val monoScriptName: String?, val className: String?,
+    val namespace: String?, val assemblyName: String?, val executionOrder: Int?, val status: String
+)
+
 internal data class UnityExternalPointerResolution(
     val sourcePathId: Long, val field: String, val fileId: Int, val pathId: Long,
     val targetFilePath: String?, val targetClassId: Int?, val targetName: String?, val status: String
@@ -87,6 +93,7 @@ internal data class UnityMetadataSummary(
     val decodedObjects: List<UnityDecodedObjectSummary> = emptyList(),
     val sceneGraph: UnitySceneGraphResult? = null,
     val externalPointerResolutions: List<UnityExternalPointerResolution> = emptyList(),
+    val monoBehaviourScriptBindings: List<UnityMonoBehaviourScriptBinding> = emptyList(),
     val sceneDecodeNote: String? = null,
     val note: String? = null
 )
