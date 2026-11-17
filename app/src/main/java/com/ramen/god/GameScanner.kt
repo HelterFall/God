@@ -326,7 +326,15 @@ class GameScanner(private val activity: Activity) {
                 (metadata.serializedReferenceTypeCount?.let { "; SerializeReferenceTypes=" + it } ?: "") +
                 (metadata.sharedSubtreeCount?.let { "; sharedTypeTreeSubtrees=" + it } ?: "") +
                 (metadata.serializedTypes.filter { it.scriptTypeIndex >= 0 }.take(10).joinToString(prefix = if (metadata.serializedTypes.none { it.scriptTypeIndex >= 0 }) "" else "; scriptedTypes=", separator = ", ") { "ClassID=${it.classId}:scriptIndex=${it.scriptTypeIndex}:scriptID=${it.scriptId ?: "?"}" }) +
-                (metadata.scriptTypeBindings.take(10).joinToString(prefix = if (metadata.scriptTypeBindings.isEmpty()) "" else "; scriptBindings=", separator = ", ") { "ClassID=${it.classId}[index=${it.scriptTypeIndex}]->fileID=${it.fileId ?: "?"}/pathID=${it.pathId ?: "?"}:${it.resolution}${it.externalPath?.let { path -> "($path)" } ?: ""}" }) +
+                (metadata.scriptTypeBindings.take(10).joinToString(prefix = if (metadata.scriptTypeBindings.isEmpty()) "" else "; scriptBindings=", separator = ", ") { binding ->
+                    val classLabel = binding.className?.let { name ->
+                        (binding.namespace?.takeIf { ns -> ns.isNotBlank() }?.plus(".") ?: "") + name
+                    }
+                    "ClassID=${binding.classId}[index=${binding.scriptTypeIndex}]->fileID=${binding.fileId ?: "?"}/pathID=${binding.pathId ?: "?"}:${binding.resolution}" +
+                        (classLabel?.let { " class=$it" } ?: "") +
+                        (binding.assemblyName?.let { " assembly=$it" } ?: "") +
+                        (binding.externalPath?.let { " ($it)" } ?: "")
+                }) +
                 (metadata.scriptTypeReferences.take(10).joinToString(prefix = if (metadata.scriptTypeReferences.isEmpty()) "" else "; scriptTypeRefs=", separator = ", ") { "fileID=${it.fileId}:pathID=${it.pathId}" }) +
                 (metadata.externalReferences.take(10).joinToString(prefix = if (metadata.externalReferences.isEmpty()) "" else "; externalFiles=", separator = ", ") { "fileID=${it.fileId}:${it.path}" }) +
                 (metadata.typeTrees.take(10).joinToString(prefix = if (metadata.typeTrees.isEmpty()) "" else "; typeTrees=", separator = " | ") { tree -> "ClassID=${tree.classId}:${tree.rootType ?: "?"} ${tree.rootName ?: ""} fields=${tree.fieldNames.joinToString(",")}" }) +
@@ -363,7 +371,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 9)
+        root.put("schemaVersion", 10)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -391,7 +399,27 @@ class GameScanner(private val activity: Activity) {
                 .put("sharedSubtreeCount", metadata.sharedSubtreeCount ?: JSONObject.NULL)
                 .put("serializedTypes", JSONArray(metadata.serializedTypes.map { type -> JSONObject().put("classId", type.classId).put("scriptTypeIndex", type.scriptTypeIndex).put("scriptId", type.scriptId ?: JSONObject.NULL) }))
                 .put("scriptTypeReferences", JSONArray(metadata.scriptTypeReferences.map { ref -> JSONObject().put("fileId", ref.fileId).put("pathId", ref.pathId) }))
-                .put("scriptTypeBindings", JSONArray(metadata.scriptTypeBindings.map { binding -> JSONObject().put("classId", binding.classId).put("scriptTypeIndex", binding.scriptTypeIndex).put("scriptId", binding.scriptId ?: JSONObject.NULL).put("fileId", binding.fileId ?: JSONObject.NULL).put("pathId", binding.pathId ?: JSONObject.NULL).put("externalPath", binding.externalPath ?: JSONObject.NULL).put("localObjectClassId", binding.localObjectClassId ?: JSONObject.NULL).put("resolution", binding.resolution) }))
+                .put("scriptTypeBindings", JSONArray(metadata.scriptTypeBindings.map { binding -> JSONObject()
+                    .put("classId", binding.classId)
+                    .put("scriptTypeIndex", binding.scriptTypeIndex)
+                    .put("scriptId", binding.scriptId ?: JSONObject.NULL)
+                    .put("fileId", binding.fileId ?: JSONObject.NULL)
+                    .put("pathId", binding.pathId ?: JSONObject.NULL)
+                    .put("externalPath", binding.externalPath ?: JSONObject.NULL)
+                    .put("localObjectClassId", binding.localObjectClassId ?: JSONObject.NULL)
+                    .put("monoScriptName", binding.monoScriptName ?: JSONObject.NULL)
+                    .put("className", binding.className ?: JSONObject.NULL)
+                    .put("namespace", binding.namespace ?: JSONObject.NULL)
+                    .put("assemblyName", binding.assemblyName ?: JSONObject.NULL)
+                    .put("executionOrder", binding.executionOrder ?: JSONObject.NULL)
+                    .put("resolution", binding.resolution) }))
+                .put("monoScripts", JSONArray(metadata.monoScripts.map { script -> JSONObject()
+                    .put("pathId", script.pathId)
+                    .put("name", script.name)
+                    .put("executionOrder", script.executionOrder)
+                    .put("className", script.className)
+                    .put("namespace", script.namespace)
+                    .put("assemblyName", script.assemblyName) }))
                 .put("externalReferences", JSONArray(metadata.externalReferences.map { ref -> JSONObject().put("fileId", ref.fileId).put("path", ref.path).put("type", ref.type) }))
                 .put("typeTrees", JSONArray(metadata.typeTrees.map { tree -> JSONObject().put("classId", tree.classId).put("nodeCount", tree.nodeCount).put("rootType", tree.rootType ?: JSONObject.NULL).put("rootName", tree.rootName ?: JSONObject.NULL).put("fieldNames", JSONArray(tree.fieldNames)) }))
                 .put("objectSamples", JSONArray(metadata.objectSamples.map { obj -> JSONObject().put("pathId", obj.pathId).put("byteStart", obj.byteStart).put("byteSize", obj.byteSize).put("typeIndex", obj.typeIndex).put("classId", obj.classId ?: JSONObject.NULL) }))
