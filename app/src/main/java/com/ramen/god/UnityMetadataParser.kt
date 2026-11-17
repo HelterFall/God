@@ -78,6 +78,8 @@ internal data class UnityMetadataSummary(
     val scriptTypeReferences: List<UnityScriptTypeReference> = emptyList(),
     val externalReferences: List<UnityExternalReference> = emptyList(),
     val scriptTypeBindings: List<UnityScriptTypeBinding> = emptyList(),
+    val decodedObjects: List<UnityDecodedObjectSummary> = emptyList(),
+    val sceneDecodeNote: String? = null,
     val note: String? = null
 )
 
