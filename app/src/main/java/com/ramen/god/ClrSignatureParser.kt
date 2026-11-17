@@ -104,7 +104,7 @@ internal object ClrSignatureParser {
             0x13 -> "!" + (reader.compressedUInt() ?: return null)
             0x14 -> {
                 val item = readType(reader, false, depth + 1) ?: return null
-                val rank = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK } ?: return null
+                val rank = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK.toLong() } ?: return null
                 val sizes = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK } ?: return null
                 repeat(sizes.toInt()) { if (reader.compressedUInt() == null) return null }
                 val lowerBounds = reader.compressedUInt()?.takeIf { it <= MAX_ARRAY_RANK } ?: return null
@@ -116,7 +116,7 @@ internal object ClrSignatureParser {
                 if (kind != 0x11 && kind != 0x12) return null
                 val name = if (kind == 0x11) "valuetype " else "class "
                 val token = typeToken(reader)
-                val count = reader.compressedUInt()?.takeIf { it <= MAX_GENERIC_ARGUMENTS } ?: return null
+                val count = reader.compressedUInt()?.takeIf { it <= MAX_GENERIC_ARGUMENTS.toLong() } ?: return null
                 val args = ArrayList<String>(count.toInt())
                 repeat(count.toInt()) { args.add(readType(reader, false, depth + 1) ?: return null) }
                 name + token + args.joinToString(prefix = "<", postfix = ">")
