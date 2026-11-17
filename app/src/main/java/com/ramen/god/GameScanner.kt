@@ -269,6 +269,7 @@ class GameScanner(private val activity: Activity) {
                 (metadata.objectCount?.let { "; objectCount=" + it } ?: "") +
                 (metadata.scriptTypeCount?.let { "; MonoScriptRefs=" + it } ?: "") +
                 (metadata.externalReferenceCount?.let { "; externalRefs=" + it } ?: "") +
+                (metadata.serializedTypes.filter { it.scriptTypeIndex >= 0 }.take(10).joinToString(prefix = if (metadata.serializedTypes.none { it.scriptTypeIndex >= 0 }) "" else "; scriptedTypes=", separator = ", ") { "ClassID=${it.classId}:scriptIndex=${it.scriptTypeIndex}:scriptID=${it.scriptId ?: "?"}" }) +
                 (metadata.scriptTypeReferences.take(10).joinToString(prefix = if (metadata.scriptTypeReferences.isEmpty()) "" else "; scriptTypeRefs=", separator = ", ") { "fileID=${it.fileId}:pathID=${it.pathId}" }) +
                 (metadata.externalReferences.take(10).joinToString(prefix = if (metadata.externalReferences.isEmpty()) "" else "; externalFiles=", separator = ", ") { "fileID=${it.fileId}:${it.path}" }) +
                 (metadata.typeTrees.take(10).joinToString(prefix = if (metadata.typeTrees.isEmpty()) "" else "; typeTrees=", separator = " | ") { tree -> "ClassID=${tree.classId}:${tree.rootType ?: "?"} ${tree.rootName ?: ""} fields=${tree.fieldNames.joinToString(",")}" }) +
@@ -328,6 +329,7 @@ class GameScanner(private val activity: Activity) {
                 .put("objectCount", metadata.objectCount ?: JSONObject.NULL)
                 .put("scriptTypeCount", metadata.scriptTypeCount ?: JSONObject.NULL)
                 .put("externalReferenceCount", metadata.externalReferenceCount ?: JSONObject.NULL)
+                .put("serializedTypes", JSONArray(metadata.serializedTypes.map { type -> JSONObject().put("classId", type.classId).put("scriptTypeIndex", type.scriptTypeIndex).put("scriptId", type.scriptId ?: JSONObject.NULL) }))
                 .put("scriptTypeReferences", JSONArray(metadata.scriptTypeReferences.map { ref -> JSONObject().put("fileId", ref.fileId).put("pathId", ref.pathId) }))
                 .put("externalReferences", JSONArray(metadata.externalReferences.map { ref -> JSONObject().put("fileId", ref.fileId).put("path", ref.path).put("type", ref.type) }))
                 .put("typeTrees", JSONArray(metadata.typeTrees.map { tree -> JSONObject().put("classId", tree.classId).put("nodeCount", tree.nodeCount).put("rootType", tree.rootType ?: JSONObject.NULL).put("rootName", tree.rootName ?: JSONObject.NULL).put("fieldNames", JSONArray(tree.fieldNames)) }))
