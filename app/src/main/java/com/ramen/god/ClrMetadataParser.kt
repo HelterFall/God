@@ -17,14 +17,25 @@ internal data class ClrAssemblyReferenceSummary(
     val culture: String
 )
 
-internal data class ClrFieldSummary(val name: String, val flags: Int, val tableIndex: Int = 0)
+internal data class ClrFieldSummary(
+    val name: String,
+    val flags: Int,
+    val tableIndex: Int = 0,
+    val signatureType: String? = null,
+    val signatureStatus: String = "not-read"
+)
 
 internal data class ClrMethodSummary(
     val name: String,
     val flags: Int,
     val implementationFlags: Int,
     val relativeVirtualAddress: Long,
-    val tableIndex: Int = 0
+    val tableIndex: Int = 0,
+    val returnType: String? = null,
+    val parameterTypes: List<String> = emptyList(),
+    val signatureDisplay: String? = null,
+    val callingConvention: String? = null,
+    val signatureStatus: String = "not-read"
 )
 
 internal data class ClrAssemblySummary(
@@ -122,6 +133,9 @@ internal object ClrMetadataParser {
         val tableRows = tablesInfo.rows
         val stringHeapStart = base + strings.offset
         val stringHeapEnd = stringHeapStart + strings.size
+        val blobHeap = streams["#Blob"]
+        val blobHeapStart = blobHeap?.let { base + it.offset }
+        val blobHeapEnd = blobHeap?.let { base + it.offset + it.size }
 
         val moduleName = readFirstModuleName(
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd
@@ -130,8 +144,14 @@ internal object ClrMetadataParser {
         val referenceResult = readAssemblyReferences(
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd
         )
-        val fieldResult = readFields(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
-        val methodResult = readMethods(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
+        val fieldResult = readFields(
+            bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd,
+            blobHeapStart, blobHeapEnd
+        )
+        val methodResult = readMethods(
+            bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd,
+            blobHeapStart, blobHeapEnd
+        )
         val typeResult = readTypes(
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd,
             fieldResult.first, methodResult.first
@@ -389,7 +409,8 @@ internal object ClrMetadataParser {
 
     private fun readFields(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
-        rows: LongArray, heapStart: Int, heapEnd: Int
+        rows: LongArray, heapStart: Int, heapEnd: Int,
+        blobHeapStart: Int?, blobHeapEnd: Int?
     ): Pair<List<ClrFieldSummary>, String?> {
         if (rows[4] == 0L) return emptyList<ClrFieldSummary>() to null
         val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
@@ -407,8 +428,19 @@ internal object ClrMetadataParser {
             val p = row.toInt()
             val flags = readU16(bytes, p) ?: break
             val nameIndex = readIndex(bytes, p + 2, stringWidth) ?: break
+            val blobIndex = readIndex(bytes, p + 2 + stringWidth, blobWidth) ?: break
             val name = readHeapString(bytes, heapStart, heapEnd, nameIndex) ?: continue
-            result.add(ClrFieldSummary(name, flags, i + 1))
+            val blob = if (blobHeapStart != null && blobHeapEnd != null) {
+                readHeapBlob(bytes, blobHeapStart, blobHeapEnd, blobIndex)
+            } else null
+            val signature = blob?.let { ClrSignatureParser.parseField(it) }
+            val signatureStatus = when {
+                blobHeapStart == null -> "blob-heap-unavailable"
+                blob == null -> "signature-blob-unavailable"
+                signature == null -> "unsupported-signature"
+                else -> "parsed"
+            }
+            result.add(ClrFieldSummary(name, flags, i + 1, signature?.fieldType, signatureStatus))
         }
         val note = if (rows[4] > MAX_FIELDS) "Поля ограничены первыми $MAX_FIELDS записями." else null
         return result to note
@@ -416,7 +448,8 @@ internal object ClrMetadataParser {
 
     private fun readMethods(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
-        rows: LongArray, heapStart: Int, heapEnd: Int
+        rows: LongArray, heapStart: Int, heapEnd: Int,
+        blobHeapStart: Int?, blobHeapEnd: Int?
     ): Pair<List<ClrMethodSummary>, String?> {
         if (rows[6] == 0L) return emptyList<ClrMethodSummary>() to null
         val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
@@ -437,8 +470,26 @@ internal object ClrMetadataParser {
             val implFlags = readU16(bytes, p + 4) ?: break
             val flags = readU16(bytes, p + 6) ?: break
             val nameIndex = readIndex(bytes, p + 8, stringWidth) ?: break
+            val blobIndex = readIndex(bytes, p + 8 + stringWidth, blobWidth) ?: break
             val name = readHeapString(bytes, heapStart, heapEnd, nameIndex) ?: continue
-            result.add(ClrMethodSummary(name, flags, implFlags, rva, i + 1))
+            val blob = if (blobHeapStart != null && blobHeapEnd != null) {
+                readHeapBlob(bytes, blobHeapStart, blobHeapEnd, blobIndex)
+            } else null
+            val signature = blob?.let { ClrSignatureParser.parseMethod(it) }
+            val signatureStatus = when {
+                blobHeapStart == null -> "blob-heap-unavailable"
+                blob == null -> "signature-blob-unavailable"
+                signature == null -> "unsupported-signature"
+                else -> "parsed"
+            }
+            result.add(ClrMethodSummary(
+                name, flags, implFlags, rva, i + 1,
+                signature?.returnType,
+                signature?.parameterTypes ?: emptyList(),
+                signature?.display(name),
+                signature?.callingConvention,
+                signatureStatus
+            ))
         }
         val note = if (rows[6] > MAX_METHODS) "Методы ограничены первыми $MAX_METHODS записями." else null
         return result to note
@@ -475,6 +526,36 @@ internal object ClrMetadataParser {
         }
         val note = if (rows[35] > MAX_ASSEMBLY_REFS) "AssemblyRef ограничены первыми $MAX_ASSEMBLY_REFS записями." else null
         return result to note
+    }
+
+    private fun readHeapBlob(bytes: ByteArray, start: Int, end: Int, index: Long): ByteArray? {
+        if (index <= 0L || index > Int.MAX_VALUE || start < 0 || end < start || end > bytes.size) return null
+        val lengthInfo = readCompressedUInt(bytes, start.toLong() + index, end) ?: return null
+        val length = lengthInfo.first
+        val contentStart = lengthInfo.second
+        if (length < 0L || length > 4096L || contentStart + length > end.toLong()) return null
+        return bytes.copyOfRange(contentStart.toInt(), (contentStart + length).toInt())
+    }
+
+    private fun readCompressedUInt(bytes: ByteArray, offset: Long, end: Int): Pair<Long, Long>? {
+        if (offset < 0L || offset >= end.toLong() || offset > Int.MAX_VALUE) return null
+        val first = bytes[offset.toInt()].toInt() and 0xff
+        return when {
+            (first and 0x80) == 0 -> first.toLong() to (offset + 1L)
+            (first and 0xc0) == 0x80 -> {
+                if (offset + 2L > end) return null
+                (((first and 0x3f) shl 8) or (bytes[(offset + 1L).toInt()].toInt() and 0xff)).toLong() to (offset + 2L)
+            }
+            (first and 0xe0) == 0xc0 -> {
+                if (offset + 4L > end) return null
+                val value = ((first and 0x1f).toLong() shl 24) or
+                    ((bytes[(offset + 1L).toInt()].toLong() and 0xff) shl 16) or
+                    ((bytes[(offset + 2L).toInt()].toLong() and 0xff) shl 8) or
+                    (bytes[(offset + 3L).toLong()].toLong() and 0xff)
+                value to (offset + 4L)
+            }
+            else -> null
+        }
     }
 
     private fun Long?.orZero(): Long = this ?: 0L
