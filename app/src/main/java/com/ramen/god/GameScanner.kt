@@ -452,12 +452,12 @@ class GameScanner(private val activity: Activity) {
             "Big Endian" -> false
             else -> return metadata.copy(sceneDecodeNote = "Неизвестен порядок байтов; payload объектов не прочитан.")
         }
-        val typeTrees = metadata.typeTrees.associateBy { it.classId }
         val targets = metadata.objectSamples.mapNotNull { objectInfo ->
             val classId = objectInfo.classId ?: return@mapNotNull null
             if (classId != 1 && classId != 4 && classId != 114) return@mapNotNull null
-            val tree = typeTrees[classId] ?: return@mapNotNull null
-            if (!tree.completeForDecoding) return@mapNotNull null
+            val tree = metadata.typeTrees.firstOrNull {
+                it.typeIndex == objectInfo.typeIndex && it.classId == classId && it.completeForDecoding
+            } ?: return@mapNotNull null
             UnityObjectDecodeTarget(objectInfo, tree)
         }
         if (targets.isEmpty()) {
@@ -724,6 +724,7 @@ class GameScanner(private val activity: Activity) {
                 .put("externalReferences", JSONArray(metadata.externalReferences.map { ref -> JSONObject().put("fileId", ref.fileId).put("path", ref.path).put("type", ref.type) }))
                 .put("typeTrees", JSONArray(metadata.typeTrees.map { tree -> JSONObject()
                     .put("classId", tree.classId)
+                    .put("typeIndex", tree.typeIndex ?: JSONObject.NULL)
                     .put("nodeCount", tree.nodeCount)
                     .put("rootType", tree.rootType ?: JSONObject.NULL)
                     .put("rootName", tree.rootName ?: JSONObject.NULL)
