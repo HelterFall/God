@@ -69,6 +69,22 @@ class UnitySceneGraphResolverTest {
         assertEquals(2, graph.nodes.single().unresolvedReferenceCount)
     }
 
+    @Test
+    fun resolvesExternalPointersOnlyThroughUniqueFileIdAndPathId() {
+        val owner = UnityMetadataSummary(null, null, true, 0,
+            externalReferences = listOf(UnityExternalReference(1, "shared.assets", 0)),
+            decodedObjects = listOf(UnityDecodedObjectSummary(10, 114, script = ptr(1, 77))))
+        val target = UnityMetadataSummary(null, null, true, 0,
+            decodedObjects = listOf(UnityDecodedObjectSummary(77, 115, name = "PlayerLogic")))
+        val result = UnityExternalPointerResolver.resolve(mapOf("level.assets" to owner, "shared.assets" to target)) { it }
+        val link = result.getValue("level.assets").single()
+        assertEquals("resolved-decoded-object", link.status)
+        assertEquals(115, link.targetClassId)
+        assertEquals("PlayerLogic", link.targetName)
+        val ambiguous = UnityExternalPointerResolver.resolve(mapOf("level.assets" to owner, "shared.assets" to target)) { null }
+        assertEquals("external-file-path-unmatched-or-ambiguous", ambiguous.getValue("level.assets").single().status)
+    }
+
     private fun ptr(fileId: Int, pathId: Long) =
         UnityObjectPointerSummary(fileId, pathId)
 }
