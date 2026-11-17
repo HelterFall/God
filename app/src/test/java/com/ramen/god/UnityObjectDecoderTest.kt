@@ -1,9 +1,7 @@
 package com.ramen.god
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
@@ -30,7 +28,7 @@ class UnityObjectDecoderTest {
             writeLong(42L)
         }
 
-        val result = UnityObjectDecoder.decodePayload(payload, 100L, 1, tree, true)
+        val result = UnityObjectDecoder.decodePayload(payload, 100L, 1, tree, false)
 
         assertEquals("Hero", result?.name)
         assertEquals(true, result?.isActive)
@@ -66,7 +64,7 @@ class UnityObjectDecoderTest {
             writeLong(12L)
         }
 
-        val result = UnityObjectDecoder.decodePayload(payload, 20L, 4, tree, true)
+        val result = UnityObjectDecoder.decodePayload(payload, 20L, 4, tree, false)
 
         assertEquals(UnityObjectPointerSummary(0, 10L), result?.gameObject)
         assertEquals(UnityObjectPointerSummary(0, 5L), result?.father)
@@ -84,7 +82,7 @@ class UnityObjectDecoderTest {
         ))
         val incomplete = complete.copy(completeForDecoding = false, decoderNodes = emptyList())
 
-        val result = UnityObjectDecoder.decodePayload(byteArrayOf(1), 1L, 1, incomplete, true)
+        val result = UnityObjectDecoder.decodePayload(byteArrayOf(1), 1L, 1, incomplete, false)
 
         assertNull(result)
     }
@@ -100,7 +98,7 @@ class UnityObjectDecoderTest {
         ))
         val payload = payload { writeInt(1025) }
 
-        val result = UnityObjectDecoder.decodePayload(payload, 1L, 1, tree, true)
+        val result = UnityObjectDecoder.decodePayload(payload, 1L, 1, tree, false)
 
         assertNull(result)
     }
