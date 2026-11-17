@@ -25,6 +25,8 @@ internal data class UnityScriptTypeBinding(
     val pathId: Long?,
     val externalPath: String?,
     val localObjectClassId: Int?,
+    val objectByteStart: Long?,
+    val objectByteSize: Long?,
     val resolution: String
 )
 
@@ -38,6 +40,7 @@ internal data class UnityMetadataSummary(
     val scriptTypeCount: Long? = null,
     val externalReferenceCount: Long? = null,
     val objectSamples: List<UnityObjectSummary> = emptyList(),
+    val monoScriptObjects: List<UnityObjectSummary> = emptyList(),
     val typeTrees: List<UnityTypeTreeSummary> = emptyList(),
     val serializedTypes: List<UnitySerializedTypeSummary> = emptyList(),
     val serializedReferenceTypeCount: Long? = null,
@@ -57,6 +60,7 @@ internal object UnityMetadataParser {
     private const val MAX_OBJECT_COUNT = 2_000_000L
     private const val MAX_AUX_COUNT = 500_000L
     private const val MAX_OBJECT_SAMPLES = 500
+    private const val MAX_MONOSCRIPT_OBJECT_SAMPLES = 1000
     private const val MAX_SCRIPT_TYPE_SAMPLES = 500
     private const val MAX_EXTERNAL_REFERENCE_SAMPLES = 200
     private const val MAX_TYPE_TREE_NODES = 100_000L
@@ -114,6 +118,7 @@ internal object UnityMetadataParser {
         }
 
         val objectSamples = ArrayList<UnityObjectSummary>(minOf(objectCount, MAX_OBJECT_SAMPLES.toLong()).toInt())
+        val monoScriptObjects = ArrayList<UnityObjectSummary>()
         val dataSectionSize = if (header.fileSize != null && header.dataOffset != null && header.fileSize >= header.dataOffset) {
             header.fileSize - header.dataOffset
         } else null
@@ -132,8 +137,11 @@ internal object UnityMetadataParser {
                 return partial.copy(objectCount = objectCount, objectSamples = objectSamples,
                     note = "Запись объекта указывает за пределы data section; дальнейший разбор остановлен.")
             }
-            if (objectSamples.size < MAX_OBJECT_SAMPLES) {
-                objectSamples.add(UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, typeClassIds.getOrNull(typeIndex)))
+            val classId = typeClassIds.getOrNull(typeIndex)
+            val summary = UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, classId)
+            if (objectSamples.size < MAX_OBJECT_SAMPLES) objectSamples.add(summary)
+            if (classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES) {
+                monoScriptObjects.add(summary)
             }
         }
 
@@ -237,7 +245,7 @@ internal object UnityMetadataParser {
         }
 
         val scriptTypeBindings = buildScriptTypeBindings(
-            serializedTypes, scriptTypeReferences, externalReferences, objectSamples
+            serializedTypes, scriptTypeReferences, externalReferences, monoScriptObjects
         )
 
         return partial.copy(
@@ -245,6 +253,7 @@ internal object UnityMetadataParser {
             scriptTypeCount = scriptCount,
             externalReferenceCount = externalCount,
             objectSamples = objectSamples,
+            monoScriptObjects = monoScriptObjects,
             typeTrees = typeTrees,
             serializedTypes = serializedTypes,
             serializedReferenceTypeCount = referenceTypeCount,
@@ -263,7 +272,7 @@ internal object UnityMetadataParser {
         serializedTypes: List<UnitySerializedTypeSummary>,
         scriptReferences: List<UnityScriptTypeReference>,
         externalReferences: List<UnityExternalReference>,
-        objectSamples: List<UnityObjectSummary>
+        monoScriptObjects: List<UnityObjectSummary>
     ): List<UnityScriptTypeBinding> {
         return serializedTypes.mapNotNull { type ->
             if (type.scriptTypeIndex < 0) return@mapNotNull null
@@ -271,27 +280,26 @@ internal object UnityMetadataParser {
             if (reference == null) {
                 return@mapNotNull UnityScriptTypeBinding(
                     type.classId, type.scriptTypeIndex, type.scriptId,
-                    null, null, null, null, "script-reference-not-in-sample"
+                    null, null, null, null, null, null, "script-reference-not-in-sample"
                 )
             }
             val localObject = if (reference.fileId == 0) {
-                objectSamples.firstOrNull { it.pathId == reference.pathId }
+                monoScriptObjects.firstOrNull { it.pathId == reference.pathId }
             } else null
             val externalPath = if (reference.fileId > 0) {
                 externalReferences.firstOrNull { it.fileId == reference.fileId }?.path
             } else null
             val resolution = when {
                 reference.fileId < 0 -> "invalid-file-id"
-                reference.fileId == 0 && localObject?.classId == 115 -> "local-monoscript-in-object-sample"
-                reference.fileId == 0 && localObject != null -> "local-target-other-class"
-                reference.fileId == 0 -> "local-target-not-in-object-sample"
+                reference.fileId == 0 && localObject != null -> "local-monoscript-object-found"
+                reference.fileId == 0 -> "local-target-not-in-monoscript-sample"
                 externalPath != null -> "external-file-path-known"
                 else -> "external-file-not-in-sample"
             }
             UnityScriptTypeBinding(
                 type.classId, type.scriptTypeIndex, type.scriptId,
                 reference.fileId, reference.pathId, externalPath,
-                localObject?.classId, resolution
+                localObject?.classId, localObject?.byteStart, localObject?.byteSize, resolution
             )
         }
     }
