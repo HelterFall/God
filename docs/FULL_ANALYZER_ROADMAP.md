@@ -126,8 +126,9 @@ Suggested analyzer contract:
 - [x] Bounded header recognition for SerializedFile versions 9–21 and modern 64-bit v22+ layout.
 - [x] UnityFS signature/header recognition (container contents are not yet unpacked).
 - [x] Read leading metadata fields for SerializedFile v19–v26: Unity version, target platform, TypeTree flag and type count.
+- [x] Safely skip bounded type entries and count objects, MonoScript references and external references.
 - [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
-- [ ] Safely skip variable-length type entries and read object/script/external-reference counts.
+- [ ] Parse individual object records and TypeTree nodes, then resolve MonoScript references to managed types.
 - [ ] Scene/GameObject/MonoBehaviour inventory.
 - [ ] MonoScript-to-managed-type resolution.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
