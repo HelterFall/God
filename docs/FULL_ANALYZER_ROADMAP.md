@@ -130,9 +130,11 @@ Suggested analyzer contract:
 - [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
 - [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26; validate every object range against the data section.
 - [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); common-string offsets remain unresolved.
-- [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.\n- [ ] Resolve MonoScript references to managed types.
+- [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.
+- [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.\n- [ ] Resolve MonoScript references to managed types.
 - [ ] Scene/GameObject/MonoBehaviour inventory.
 - [ ] Decode MonoScript objects and resolve fileID/pathID references to managed assembly, namespace, and class names.
+- [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL metadata.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
 
 ### Phase 5 — Resource and compatibility intelligence
