@@ -97,7 +97,7 @@ class ClrMetadataParserTest {
             u16(6); u16(fieldName); u16(1)
 
             // MethodDef row: TakeDamage
-            u32(0x1234); u16(0); u16(0x16); u16(methodName); u16(3); u16(1)
+            u32(0x1234); u16(0); u16(0x16); u16(methodName); u16(4); u16(1)
 
             // Assembly row: Assembly-CSharp, Version=1.2.3.4
             u32(0); u16(1); u16(2); u16(3); u16(4); u32(0)
@@ -116,7 +116,7 @@ class ClrMetadataParserTest {
             u16(0); u16(3)
         }.toByteArray()
 
-        val blobHeap = byteArrayOf(0, 1, 0x06, 0x08, 4, 0x20, 1, 1, 0x08)
+        val blobHeap = byteArrayOf(0, 2, 0x06, 0x08, 4, 0x20, 1, 1, 0x08)
         fun paddedStreamHeaderLength(name: String): Int = 8 + (((name.length + 1 + 3) / 4) * 4)
         val headerLength = paddedStreamHeaderLength("#~") + paddedStreamHeaderLength("#Strings") +
             paddedStreamHeaderLength("#Blob")
