@@ -174,7 +174,7 @@ class UnityMetadataParserTest {
         bytes[p++] = 0xff.toByte(); bytes[p++] = 0xff.toByte()
         p += 16 // old type hash
         p += 16 // TypeTree content hash
-        val strings = ("MonoBehaviour" + 0.toChar() + "Base" + 0.toChar()).toByteArray()
+        val strings = ByteArray(0) // built-in CommonString offsets
         val blob = ByteArray(4 + 4 + 4 + 4 + 32 + strings.size + 4)
         "mhtt".toByteArray().copyInto(blob, 0)
         put32(blob, 4, 1, true) // TypeTree blob version
@@ -183,8 +183,8 @@ class UnityMetadataParserTest {
         var n = 16
         put16(blob, n, 1, true); n += 2
         blob[n++] = 0; blob[n++] = 0
-        put32(blob, n, 0, true); n += 4
-        put32(blob, n, 14, true); n += 4
+        put32(blob, n, 0x80000491L, true); n += 4 // Unity 2022+ RenderingLayerMask (1169)
+        put32(blob, n, 0x800001ABL, true); n += 4 // m_Name (427)
         put32(blob, n, 0xffffffffL, true); n += 4
         put32(blob, n, 0, true); n += 4
         put32(blob, n, 0, true); n += 4
@@ -201,8 +201,8 @@ class UnityMetadataParserTest {
 
         val result = UnityMetadataParser.parse(bytes, header)
         requireNotNull(result)
-        assertEquals("MonoBehaviour", result.typeTrees.single().rootType)
-        assertEquals("Base", result.typeTrees.single().rootName)
+        assertEquals("RenderingLayerMask", result.typeTrees.single().rootType)
+        assertEquals("m_Name", result.typeTrees.single().rootName)
     }
 
     @Test
