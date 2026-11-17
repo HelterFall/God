@@ -69,6 +69,46 @@ class UnityMetadataParserTest {
         assertNull(UnityMetadataParser.parse(bytes, header))
     }
 
+
+    @Test
+    fun readsObjectScriptAndExternalReferenceCountsWhenTypeTreeIsDisabled() {
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val bytes = ByteArray(160)
+        val start = 48
+        val version = "2022.3.10f1".toByteArray()
+        version.copyInto(bytes, start)
+        var p = start + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0 // TypeTree disabled
+        put32(bytes, p, 1, true); p += 4 // type count
+        put32(bytes, p, 1, true); p += 4 // class ID
+        bytes[p++] = 0 // stripped
+        bytes[p++] = 0xff.toByte(); bytes[p++] = 0xff.toByte() // script index -1
+        p += 16 // old type hash
+        put32(bytes, p, 1, true); p += 4 // object count
+        put64(bytes, p, 7L, true); p += 8 // file ID
+        put64(bytes, p, 0L, true); p += 8 // byte start
+        put32(bytes, p, 24, true); p += 4 // byte size
+        put32(bytes, p, 0, true); p += 4 // type index
+        put32(bytes, p, 0, true); p += 4 // script type count
+        put32(bytes, p, 0, true) // external references count
+
+        val result = UnityMetadataParser.parse(bytes, header)
+        requireNotNull(result)
+        assertEquals(1L, result.typeCount)
+        assertEquals(1L, result.objectCount)
+        assertEquals(0L, result.scriptTypeCount)
+        assertEquals(0L, result.externalReferenceCount)
+    }
+
+    private fun put64(bytes: ByteArray, offset: Int, value: Long, little: Boolean) {
+        for (i in 0 until 8) {
+            val shift = if (little) i * 8 else (7 - i) * 8
+            bytes[offset + i] = (value ushr shift).toByte()
+        }
+    }
+
     private fun put32(bytes: ByteArray, offset: Int, value: Long, little: Boolean) {
         for (i in 0 until 4) {
             val shift = if (little) i * 8 else (3 - i) * 8
