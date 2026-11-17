@@ -21,5 +21,6 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
     implementation("androidx.documentfile:documentfile:1.0.1")
 }
