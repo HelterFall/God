@@ -1,6 +1,6 @@
 package com.ramen.god
 
-internal data class PeInfo(val machine: String, val managed: Boolean, val imports: List<String>, val note: String? = null)
+internal data class PeInfo(\n    val machine: String,\n    val managed: Boolean,\n    val imports: List<String>,\n    val note: String? = null,\n    val clrMetadataOffset: Int? = null,\n    val clrMetadataSize: Long? = null,\n    val clrRuntimeVersion: String? = null,\n    val clrFlags: Long? = null\n)
 
 internal object PeParser {
     private data class Section(val virtualSize: Long, val virtualAddress: Long, val rawSize: Long, val rawPointer: Long)
@@ -34,6 +34,7 @@ internal object PeParser {
 
         val importRva = u32(bytes, directory + 8)
         val clrRva = u32(bytes, directory + 14 * 8)
+        val clrDirectorySize = u32(bytes, directory + 14 * 8 + 4)
         val sectionsStart = optional + optionalSize
         val sections = mutableListOf<Section>()
         for (index in 0 until minOf(sectionCount, 96)) {
@@ -47,7 +48,23 @@ internal object PeParser {
 
         val imports = if (importRva == 0L) emptyList() else parseImports(bytes, importRva, sections)
         val note = if (importRva != 0L && imports.isEmpty()) "import table outside read window or undecodable" else null
-        return PeInfo(machine, clrRva != 0L, imports, note)
+        var metadataOffset: Int? = null
+        var metadataSize: Long? = null
+        var runtimeVersion: String? = null
+        var clrFlags: Long? = null
+        if (clrRva != 0L && clrDirectorySize >= 16L) {
+            val clrOffset = rvaToOffset(clrRva, sections)
+            if (clrOffset != null && has(bytes, clrOffset, 16)) {
+                val runtimeMajor = u16(bytes, clrOffset + 4)
+                val runtimeMinor = u16(bytes, clrOffset + 6)
+                runtimeVersion = "$runtimeMajor.$runtimeMinor"
+                val metadataRva = u32(bytes, clrOffset + 8)
+                metadataSize = u32(bytes, clrOffset + 12)
+                metadataOffset = rvaToOffset(metadataRva, sections)
+                if (has(bytes, clrOffset, 20)) clrFlags = u32(bytes, clrOffset + 16)
+            }
+        }
+        return PeInfo(machine, clrRva != 0L, imports, note, metadataOffset, metadataSize, runtimeVersion, clrFlags)
     }
 
     private fun parseImports(bytes: ByteArray, rva: Long, sections: List<Section>): List<String> {
