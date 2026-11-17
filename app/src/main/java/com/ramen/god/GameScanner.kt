@@ -402,37 +402,81 @@ class GameScanner(private val activity: Activity) {
                 MonoScriptObjectTarget(binding.pathId, binding.objectByteStart, binding.objectByteSize)
             }
         }.distinctBy { it.pathId }
-        if (targets.isEmpty()) return metadata
 
-        return try {
-            val input = activity.contentResolver.openInputStream(entry.uri) ?: return metadata
-            val result = input.use { stream ->
-                MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
-            }
-            val scripts = result.scripts.map { it.copy(sourceFilePath = entry.path) }
-            val byPathId = scripts.associateBy { it.pathId }
-            val updatedBindings = metadata.scriptTypeBindings.map { binding ->
-                val script = if (binding.fileId == 0) byPathId[binding.pathId] else null
-                if (script == null) binding else binding.copy(
-                    monoScriptName = script.name,
-                    className = script.className,
-                    namespace = script.namespace,
-                    assemblyName = script.assemblyName,
-                    executionOrder = script.executionOrder,
-                    resolution = "local-monoscript-decoded"
+        var updated = metadata
+        if (targets.isNotEmpty()) {
+            updated = try {
+                val input = activity.contentResolver.openInputStream(entry.uri)
+                    ?: return readUnitySceneRecords(entry, header, metadata)
+                val result = input.use { stream ->
+                    MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
+                }
+                val scripts = result.scripts.map { it.copy(sourceFilePath = entry.path) }
+                val byPathId = scripts.associateBy { it.pathId }
+                val updatedBindings = metadata.scriptTypeBindings.map { binding ->
+                    val script = if (binding.fileId == 0) byPathId[binding.pathId] else null
+                    if (script == null) binding else binding.copy(
+                        monoScriptName = script.name,
+                        className = script.className,
+                        namespace = script.namespace,
+                        assemblyName = script.assemblyName,
+                        executionOrder = script.executionOrder,
+                        resolution = "local-monoscript-decoded"
+                    )
+                }
+                val combinedNote = listOfNotNull(metadata.note, result.note).joinToString(" ")
+                metadata.copy(
+                    monoScripts = scripts,
+                    scriptTypeBindings = updatedBindings,
+                    note = combinedNote.takeIf { it.isNotBlank() }
                 )
+            } catch (e: Exception) {
+                val readNote = "MonoScript payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
+                metadata.copy(note = listOfNotNull(metadata.note, readNote).joinToString(" "))
             }
-            val combinedNote = listOfNotNull(metadata.note, result.note).joinToString(" ")
-            val note = combinedNote.takeIf { it.isNotBlank() }
-            metadata.copy(
-                monoScripts = scripts,
-                scriptTypeBindings = updatedBindings,
-                note = note
-            )
+        }
+        return readUnitySceneRecords(entry, header, updated)
+    }
+
+    private fun readUnitySceneRecords(
+        entry: ScanEntry,
+        header: UnityFileHeader,
+        metadata: UnityMetadataSummary
+    ): UnityMetadataSummary {
+        val dataOffset = header.dataOffset ?: return metadata.copy(
+            sceneDecodeNote = "Неизвестен dataOffset; payload объектов не прочитан."
+        )
+        val fileSize = header.fileSize ?: entry.size
+        val littleEndian = when (header.endianness) {
+            "Little Endian" -> true
+            "Big Endian" -> false
+            else -> return metadata.copy(sceneDecodeNote = "Неизвестен порядок байтов; payload объектов не прочитан.")
+        }
+        val typeTrees = metadata.typeTrees.associateBy { it.classId }
+        val targets = metadata.objectSamples.mapNotNull { objectInfo ->
+            val classId = objectInfo.classId ?: return@mapNotNull null
+            if (classId != 1 && classId != 4 && classId != 114) return@mapNotNull null
+            val tree = typeTrees[classId] ?: return@mapNotNull null
+            if (!tree.completeForDecoding) return@mapNotNull null
+            UnityObjectDecodeTarget(objectInfo, tree)
+        }
+        if (targets.isEmpty()) {
+            val reason = when {
+                metadata.typeTreeEnabled != true -> "TypeTree отключён или отсутствует."
+                else -> "В ограниченной выборке нет полного TypeTree для GameObject, Transform или MonoBehaviour."
+            }
+            return metadata.copy(sceneDecodeNote = reason)
+        }
+        return try {
+            val input = activity.contentResolver.openInputStream(entry.uri)
+                ?: return metadata.copy(sceneDecodeNote = "Не удалось открыть файл для чтения scene objects.")
+            val result = input.use { stream ->
+                UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
+            }
+            metadata.copy(decodedObjects = result.objects, sceneDecodeNote = result.note)
         } catch (e: Exception) {
-            val readNote = "MonoScript payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
-            val note = listOfNotNull(metadata.note, readNote).joinToString(" ")
-            metadata.copy(note = note)
+            metadata.copy(sceneDecodeNote = "Scene object payload не прочитан: " +
+                (e.message ?: e.javaClass.simpleName))
         }
     }
 
@@ -565,6 +609,34 @@ class GameScanner(private val activity: Activity) {
                 (metadata.note?.let { "; " + it } ?: ""))
         }
         appendLine()
+        appendLine("## Decoded Unity scene objects")
+        var decodedSceneCount = 0
+        unityMetadata.forEach { (path, metadata) ->
+            metadata.decodedObjects.take(128).forEach { obj ->
+                decodedSceneCount++
+                val pointer = { ref: UnityObjectPointerSummary? ->
+                    ref?.let { "fileID=${it.fileId}/pathID=${it.pathId}" } ?: "?"
+                }
+                val label = when (obj.classId) {
+                    1 -> "GameObject"
+                    4 -> "Transform"
+                    114 -> "MonoBehaviour"
+                    else -> "ClassID=${obj.classId}"
+                }
+                appendLine("- $path: $label pathID=${obj.pathId}" +
+                    (obj.name?.let { " name=\"$it\"" } ?: "") +
+                    (obj.isActive?.let { " active=$it" } ?: "") +
+                    (obj.isEnabled?.let { " enabled=$it" } ?: "") +
+                    (obj.gameObject?.let { " gameObject=${pointer(it)}" } ?: "") +
+                    (obj.father?.let { " father=${pointer(it)}" } ?: "") +
+                    (obj.children.take(12).joinToString(prefix = if (obj.children.isEmpty()) "" else " children=", separator = ",") { "${it.fileId}:${it.pathId}" }) +
+                    (obj.components.take(12).joinToString(prefix = if (obj.components.isEmpty()) "" else " components=", separator = ",") { "${it.fileId}:${it.pathId}" }) +
+                    (obj.script?.let { " script=${pointer(it)}" } ?: ""))
+            }
+            metadata.sceneDecodeNote?.let { appendLine("- $path: decode status: $it") }
+        }
+        if (decodedSceneCount == 0 && unityMetadata.isEmpty()) appendLine("- Декодированные scene objects не найдены")
+        appendLine()
         appendLine("## Directory tree")
         val shown = entries.take(MAX_TREE_LINES)
         shown.forEach { entry ->
@@ -594,7 +666,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 13)
+        root.put("schemaVersion", 14)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -656,6 +728,7 @@ class GameScanner(private val activity: Activity) {
                     .put("rootType", tree.rootType ?: JSONObject.NULL)
                     .put("rootName", tree.rootName ?: JSONObject.NULL)
                     .put("fieldNames", JSONArray(tree.fieldNames))
+                    .put("completeForDecoding", tree.completeForDecoding)
                     .put("nodes", JSONArray(tree.nodes.map { node -> JSONObject()
                         .put("level", node.level)
                         .put("type", node.typeName ?: JSONObject.NULL)
@@ -664,6 +737,18 @@ class GameScanner(private val activity: Activity) {
                         .put("typeFlags", node.typeFlags)
                         .put("metaFlags", node.metaFlags) })) }))
                 .put("objectSamples", JSONArray(metadata.objectSamples.map { obj -> JSONObject().put("pathId", obj.pathId).put("byteStart", obj.byteStart).put("byteSize", obj.byteSize).put("typeIndex", obj.typeIndex).put("classId", obj.classId ?: JSONObject.NULL) }))
+                .put("decodedObjects", JSONArray(metadata.decodedObjects.map { obj -> JSONObject()
+                    .put("pathId", obj.pathId)
+                    .put("classId", obj.classId)
+                    .put("name", obj.name ?: JSONObject.NULL)
+                    .put("isActive", obj.isActive ?: JSONObject.NULL)
+                    .put("isEnabled", obj.isEnabled ?: JSONObject.NULL)
+                    .put("gameObject", obj.gameObject?.let { JSONObject().put("fileId", it.fileId).put("pathId", it.pathId) } ?: JSONObject.NULL)
+                    .put("father", obj.father?.let { JSONObject().put("fileId", it.fileId).put("pathId", it.pathId) } ?: JSONObject.NULL)
+                    .put("children", JSONArray(obj.children.map { ref -> JSONObject().put("fileId", ref.fileId).put("pathId", ref.pathId) }))
+                    .put("components", JSONArray(obj.components.map { ref -> JSONObject().put("fileId", ref.fileId).put("pathId", ref.pathId) }))
+                    .put("script", obj.script?.let { JSONObject().put("fileId", it.fileId).put("pathId", it.pathId) } ?: JSONObject.NULL) }))
+                .put("sceneDecodeNote", metadata.sceneDecodeNote ?: JSONObject.NULL)
                 .put("note", metadata.note ?: JSONObject.NULL)
         }))
         root.put("unityFileHeaders", JSONArray(unityHeaders.map { (path, header) ->
