@@ -123,10 +123,13 @@ Suggested analyzer contract:
 - Android packaging strategy for parser dependencies and offline use.
 
 ### Phase 4 — Unity scenes and serialized assets
-- Unity serialized-file parser integration.
-- Scene/GameObject/MonoBehaviour inventory.
-- MonoScript-to-managed-type resolution.
-- TypeTree/version compatibility matrix and graceful partial results.
+- [x] Initial bounded header recognition for SerializedFile versions 9–21 and 22+.
+- [x] Initial UnityFS bundle signature/header recognition (container contents are not yet unpacked).
+- [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
+- [ ] Parse SerializedFile metadata: Unity version, target platform, TypeTree mode, type/object counts.
+- [ ] Scene/GameObject/MonoBehaviour inventory.
+- [ ] MonoScript-to-managed-type resolution.
+- [ ] TypeTree/version compatibility matrix and graceful partial results.
 
 ### Phase 5 — Resource and compatibility intelligence
 - Asset metadata and sidecar grouping.
@@ -159,8 +162,8 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 
 ## Immediate next implementation slice
 
-1. Extract scan models, file reader, and report writer from `MainActivity.kt`.
-2. Add progress and cancellation.
-3. Make the inventory output complete and stream it to disk instead of retaining all report text in memory.
-4. Preserve schema compatibility by keeping the existing JSON fields and incrementing the schema version only when new structures are added.
-5. Add tests for large files, SAF read failures, cancellation, and report validity.
+1. Validate the new SerializedFile/UnityFS header parser against real Unity samples and expand malformed-header tests.
+2. Add positional SAF reads so pre-v9 SerializedFiles can locate the endian marker without loading the file.
+3. Parse the first bounded metadata fields (Unity version, target platform, TypeTree flag, type/object counts) with strict count and offset limits.
+4. Add UnityFS block-table metadata parsing; keep payload decompression as a separate, explicitly bounded stage.
+5. Move report generation to streaming writers and stop retaining complete Markdown/JSON strings for large scans.
