@@ -123,10 +123,11 @@ Suggested analyzer contract:
 - Android packaging strategy for parser dependencies and offline use.
 
 ### Phase 4 — Unity scenes and serialized assets
-- [x] Initial bounded header recognition for SerializedFile versions 9–21 and 22+.
-- [x] Initial UnityFS bundle signature/header recognition (container contents are not yet unpacked).
+- [x] Bounded header recognition for SerializedFile versions 9–21 and modern 64-bit v22+ layout.
+- [x] UnityFS signature/header recognition (container contents are not yet unpacked).
+- [x] Read leading metadata fields for SerializedFile v19–v26: Unity version, target platform, TypeTree flag and type count.
 - [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
-- [ ] Parse SerializedFile metadata: Unity version, target platform, TypeTree mode, type/object counts.
+- [ ] Safely skip variable-length type entries and read object/script/external-reference counts.
 - [ ] Scene/GameObject/MonoBehaviour inventory.
 - [ ] MonoScript-to-managed-type resolution.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
