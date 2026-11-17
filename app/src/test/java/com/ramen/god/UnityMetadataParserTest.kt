@@ -145,6 +145,52 @@ class UnityMetadataParserTest {
         assertEquals("Base", result.typeTrees[0].rootName)
     }
 
+    @Test
+    fun extractsModernTypeTreeInfoBlob() {
+        val header = UnityFileHeader("SerializedFile", 23, 4096, 256, 512, "Little Endian", 48)
+        val bytes = ByteArray(320)
+        val version = "2023.1.0f1".toByteArray()
+        version.copyInto(bytes, 48)
+        var p = 48 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 1
+        put32(bytes, p, 1, true); p += 4
+        put32(bytes, p, 1, true); p += 4
+        bytes[p++] = 0
+        bytes[p++] = 0xff.toByte(); bytes[p++] = 0xff.toByte()
+        p += 16 // old type hash
+        p += 16 // TypeTree content hash
+        val strings = ("MonoBehaviour" + 0.toChar() + "Base" + 0.toChar()).toByteArray()
+        val blob = ByteArray(4 + 4 + 4 + 4 + 32 + strings.size + 4)
+        "mhtt".toByteArray().copyInto(blob, 0)
+        put32(blob, 4, 1, true) // TypeTree blob version
+        put32(blob, 8, 1, true) // node count
+        put32(blob, 12, strings.size.toLong(), true)
+        var n = 16
+        put16(blob, n, 1, true); n += 2
+        blob[n++] = 0; blob[n++] = 0
+        put32(blob, n, 0, true); n += 4
+        put32(blob, n, 14, true); n += 4
+        put32(blob, n, 0xffffffffL, true); n += 4
+        put32(blob, n, 0, true); n += 4
+        put32(blob, n, 0, true); n += 4
+        n += 8
+        strings.copyInto(blob, n); n += strings.size
+        put32(blob, n, 0, true) // ref hash count
+        put32(bytes, p, blob.size.toLong(), true); p += 4
+        blob.copyInto(bytes, p); p += blob.size
+        put32(bytes, p, 0, true); p += 4 // dependencies
+        put32(bytes, p, 0, true); p += 4 // object count
+        put32(bytes, p, 0, true); p += 4 // script count
+        put32(bytes, p, 0, true) // external references
+
+        val result = UnityMetadataParser.parse(bytes, header)
+        requireNotNull(result)
+        assertEquals("MonoBehaviour", result.typeTrees.single().rootType)
+        assertEquals("Base", result.typeTrees.single().rootName)
+    }
+
     private fun put16(bytes: ByteArray, offset: Int, value: Int, little: Boolean) {
         bytes[offset + if (little) 0 else 1] = value.toByte()
         bytes[offset + if (little) 1 else 0] = (value ushr 8).toByte()
