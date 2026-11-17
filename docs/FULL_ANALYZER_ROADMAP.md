@@ -131,7 +131,9 @@ Suggested analyzer contract:
 - [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26; validate every object range against the data section.
 - [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); common-string offsets remain unresolved.
 - [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.
-- [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.\n- [ ] Resolve MonoScript references to managed types.
+- [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.
+- [x] Read SerializeReference type entries for v20–v26; preserve className, namespace and assemblyName for v21+.
+- [x] Read the v26 shared TypeTree subtree count; subtree payload resolution is still pending.\n- [ ] Resolve MonoScript references to managed types.
 - [ ] Scene/GameObject/MonoBehaviour inventory.
 - [ ] Decode MonoScript objects and resolve fileID/pathID references to managed assembly, namespace, and class names.
 - [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL metadata.
