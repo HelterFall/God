@@ -160,8 +160,8 @@ internal object ClrMetadataParser {
         }
         val tableOffsets = LongArray(64)
         val tableSizes = LongArray(64)
-        var position = c.position.toLong()
-        val streamLimit = streamEndLong - start
+        var position = c.position.toLong() - base.toLong()
+        val streamLimit = streamEndLong - base.toLong()
         for (table in 0 until 64) {
             if (rows[table] == 0L) continue
             val rowSize = rowSize(table, rows, heapSizes) ?: return null
