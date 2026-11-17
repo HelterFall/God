@@ -382,7 +382,8 @@ class GameScanner(private val activity: Activity) {
             val result = input.use { stream ->
                 MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
             }
-            val byPathId = result.scripts.associateBy { it.pathId }
+            val scripts = result.scripts.map { it.copy(sourceFilePath = entry.path) }
+            val byPathId = scripts.associateBy { it.pathId }
             val updatedBindings = metadata.scriptTypeBindings.map { binding ->
                 val script = if (binding.fileId == 0) byPathId[binding.pathId] else null
                 if (script == null) binding else binding.copy(
@@ -397,7 +398,7 @@ class GameScanner(private val activity: Activity) {
             val combinedNote = listOfNotNull(metadata.note, result.note).joinToString(" ")
             val note = combinedNote.takeIf { it.isNotBlank() }
             metadata.copy(
-                monoScripts = result.scripts,
+                monoScripts = scripts,
                 scriptTypeBindings = updatedBindings,
                 note = note
             )
@@ -517,6 +518,7 @@ class GameScanner(private val activity: Activity) {
                     "ClassID=${binding.classId}[index=${binding.scriptTypeIndex}]->fileID=${binding.fileId ?: "?"}/pathID=${binding.pathId ?: "?"}:${binding.resolution}" +
                         (classLabel?.let { " class=$it" } ?: "") +
                         (binding.assemblyName?.let { " assembly=$it" } ?: "") +
+                        (binding.matchedExternalFilePath?.let { " source=$it" } ?: "") +
                         (binding.externalPath?.let { " ($it)" } ?: "")
                 }) +
                 (metadata.scriptTypeReferences.take(10).joinToString(prefix = if (metadata.scriptTypeReferences.isEmpty()) "" else "; scriptTypeRefs=", separator = ", ") { "fileID=${it.fileId}:pathID=${it.pathId}" }) +
@@ -590,6 +592,7 @@ class GameScanner(private val activity: Activity) {
                     .put("fileId", binding.fileId ?: JSONObject.NULL)
                     .put("pathId", binding.pathId ?: JSONObject.NULL)
                     .put("externalPath", binding.externalPath ?: JSONObject.NULL)
+                    .put("matchedExternalFilePath", binding.matchedExternalFilePath ?: JSONObject.NULL)
                     .put("localObjectClassId", binding.localObjectClassId ?: JSONObject.NULL)
                     .put("monoScriptName", binding.monoScriptName ?: JSONObject.NULL)
                     .put("className", binding.className ?: JSONObject.NULL)
@@ -603,7 +606,8 @@ class GameScanner(private val activity: Activity) {
                     .put("executionOrder", script.executionOrder)
                     .put("className", script.className)
                     .put("namespace", script.namespace)
-                    .put("assemblyName", script.assemblyName) }))
+                    .put("assemblyName", script.assemblyName)
+                    .put("sourceFilePath", script.sourceFilePath ?: JSONObject.NULL) }))
                 .put("externalReferences", JSONArray(metadata.externalReferences.map { ref -> JSONObject().put("fileId", ref.fileId).put("path", ref.path).put("type", ref.type) }))
                 .put("typeTrees", JSONArray(metadata.typeTrees.map { tree -> JSONObject().put("classId", tree.classId).put("nodeCount", tree.nodeCount).put("rootType", tree.rootType ?: JSONObject.NULL).put("rootName", tree.rootName ?: JSONObject.NULL).put("fieldNames", JSONArray(tree.fieldNames)) }))
                 .put("objectSamples", JSONArray(metadata.objectSamples.map { obj -> JSONObject().put("pathId", obj.pathId).put("byteStart", obj.byteStart).put("byteSize", obj.byteSize).put("typeIndex", obj.typeIndex).put("classId", obj.classId ?: JSONObject.NULL) }))
