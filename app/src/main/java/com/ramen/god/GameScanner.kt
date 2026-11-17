@@ -17,6 +17,7 @@ class GameScanner(private val activity: Activity) {
     private val entries = mutableListOf<ScanEntry>()
     private val warnings = mutableListOf<String>()
     private val peResults = linkedMapOf<String, PeInfo>()
+    private val unityHeaders = linkedMapOf<String, UnityFileHeader>()
     private var totalBytes = 0L
 
     companion object {
@@ -24,6 +25,8 @@ class GameScanner(private val activity: Activity) {
         private const val MAX_DEPTH = 40
         private const val MAX_PE_FILES = 150
         private const val MAX_PE_READ = 1024 * 1024
+        private const val MAX_UNITY_HEADER_FILES = 500
+        private const val MAX_UNITY_HEADER_READ = 64
         private const val MAX_GGM_READ = 16 * 1024 * 1024
         private const val MAX_TREE_LINES = 20_000
     }
@@ -36,6 +39,7 @@ class GameScanner(private val activity: Activity) {
         entries.clear()
         warnings.clear()
         peResults.clear()
+        unityHeaders.clear()
         totalBytes = 0L
         walk(root, "", 0, shouldCancel, onProgress)
         if (shouldCancel()) throw ScanCancelledException()
@@ -71,6 +75,20 @@ class GameScanner(private val activity: Activity) {
             readPeInfo(entry)?.let { peResults[entry.path] = it }
         }
 
+        val unityCandidates = files.filter { isUnityHeaderCandidate(it.name) }
+        if (unityCandidates.size > MAX_UNITY_HEADER_FILES) {
+            warnings.add("Проверка Unity-заголовков ограничена первыми " + MAX_UNITY_HEADER_FILES + " файлами-кандидатами.")
+        }
+        unityCandidates.take(MAX_UNITY_HEADER_FILES).forEach { entry ->
+            if (shouldCancel()) throw ScanCancelledException()
+            try {
+                val prefix = readPrefix(entry.uri, MAX_UNITY_HEADER_READ) ?: return@forEach
+                UnityFileHeaderParser.parse(prefix, entry.size)?.let { unityHeaders[entry.path] = it }
+            } catch (e: Exception) {
+                warnings.add("Unity-заголовок не прочитан для " + entry.path + ": " + e.message)
+            }
+        }
+
         val managedBinaries = peResults.filterValues { it.managed }.keys
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
         val importSummary = peResults.values.flatMap { it.imports }
@@ -79,11 +97,11 @@ class GameScanner(private val activity: Activity) {
         val md = buildMarkdown(
             root.name ?: "(unnamed)", backend, unityVersion, gameAssemblies, unityModules,
             monoFolder, managedDir, hasGameAssembly, hasMetadata, hasIl2CppDir, hasUnityPlayer,
-            managedBinaries, nativeBinaries, importSummary
+            managedBinaries, nativeBinaries, importSummary, unityHeaders
         )
         val json = buildJson(
             root.name ?: "(unnamed)", backend, unityVersion, gameAssemblies, unityModules,
-            managedBinaries, nativeBinaries, importSummary
+            managedBinaries, nativeBinaries, importSummary, unityHeaders
         )
         return ScanResult(md, json)
     }
@@ -123,6 +141,13 @@ class GameScanner(private val activity: Activity) {
             if (!isDir) totalBytes += size
             if (isDir) walk(child, path, depth + 1, shouldCancel, onProgress)
         }
+    }
+
+    private fun isUnityHeaderCandidate(name: String): Boolean {
+        val lower = name.lowercase(Locale.ROOT)
+        return lower.endsWith(".assets") || lower.endsWith(".bundle") ||
+            lower.endsWith(".unity3d") || lower.endsWith(".assetbundle") ||
+            lower == "globalgamemanagers" || lower.startsWith("level")
     }
 
     private fun findUnityVersion(files: List<ScanEntry>): String? {
@@ -167,7 +192,8 @@ class GameScanner(private val activity: Activity) {
         rootName: String, backend: String, unityVersion: String?, gameAssemblies: List<ScanEntry>,
         unityModules: List<ScanEntry>, monoFolder: Boolean, managedDir: Boolean,
         hasGameAssembly: Boolean, hasMetadata: Boolean, hasIl2CppDir: Boolean, hasUnityPlayer: Boolean,
-        managedBinaries: Set<String>, nativeBinaries: Set<String>, importSummary: List<Map.Entry<String, Int>>
+        managedBinaries: Set<String>, nativeBinaries: Set<String>, importSummary: List<Map.Entry<String, Int>>,
+        unityHeaders: Map<String, UnityFileHeader>
     ): String = buildString {
         appendLine("# Unity Game Architecture Report")
         appendLine()
@@ -212,6 +238,18 @@ class GameScanner(private val activity: Activity) {
             info.imports.forEach { appendLine("  - " + it) }
         }
         appendLine()
+        appendLine("## Unity serialized files and bundles")
+        if (unityHeaders.isEmpty()) appendLine("- Поддерживаемые заголовки не обнаружены среди проверенных кандидатов")
+        unityHeaders.forEach { (path, header) ->
+            appendLine("- " + path + ": " + header.kind +
+                (header.formatVersion?.let { "; format=" + it } ?: "") +
+                (header.fileSize?.let { "; fileSize=" + it } ?: "") +
+                (header.metadataSize?.let { "; metadata=" + it } ?: "") +
+                (header.dataOffset?.let { "; dataOffset=" + it } ?: "") +
+                (header.endianness?.let { "; " + it } ?: "") +
+                (header.note?.let { "; " + it } ?: ""))
+        }
+        appendLine()
         appendLine("## Directory tree")
         val shown = entries.take(MAX_TREE_LINES)
         shown.forEach { entry ->
@@ -237,10 +275,10 @@ class GameScanner(private val activity: Activity) {
     private fun buildJson(
         rootName: String, backend: String, unityVersion: String?, gameAssemblies: List<ScanEntry>,
         unityModules: List<ScanEntry>, managedBinaries: Set<String>, nativeBinaries: Set<String>,
-        importSummary: List<Map.Entry<String, Int>>
+        importSummary: List<Map.Entry<String, Int>>, unityHeaders: Map<String, UnityFileHeader>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 2)
+        root.put("schemaVersion", 3)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -253,6 +291,16 @@ class GameScanner(private val activity: Activity) {
         root.put("nativePeBinaries", JSONArray(nativeBinaries))
         root.put("nativeImports", JSONArray(importSummary.map {
             JSONObject().put("dll", it.key).put("referencedByCount", it.value)
+        }))
+        root.put("unityFileHeaders", JSONArray(unityHeaders.map { (path, header) ->
+            JSONObject().put("path", path).put("kind", header.kind)
+                .put("formatVersion", header.formatVersion ?: JSONObject.NULL)
+                .put("fileSize", header.fileSize ?: JSONObject.NULL)
+                .put("metadataSize", header.metadataSize ?: JSONObject.NULL)
+                .put("dataOffset", header.dataOffset ?: JSONObject.NULL)
+                .put("endianness", header.endianness ?: JSONObject.NULL)
+                .put("headerSize", header.headerSize)
+                .put("note", header.note ?: JSONObject.NULL)
         }))
         root.put("files", JSONArray(entries.map {
             JSONObject().put("path", it.path).put("directory", it.directory).put("size", it.size)
