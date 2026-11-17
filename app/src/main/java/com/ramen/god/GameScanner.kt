@@ -18,6 +18,7 @@ class GameScanner(private val activity: Activity) {
     private val warnings = mutableListOf<String>()
     private val peResults = linkedMapOf<String, PeInfo>()
     private val clrResults = linkedMapOf<String, ClrAssemblySummary>()
+    private val managedTypeResolutions = mutableListOf<UnityManagedTypeResolution>()
     private val unityHeaders = linkedMapOf<String, UnityFileHeader>()
     private val unityMetadata = linkedMapOf<String, UnityMetadataSummary>()
     private var totalBytes = 0L
@@ -46,6 +47,7 @@ class GameScanner(private val activity: Activity) {
         warnings.clear()
         peResults.clear()
         clrResults.clear()
+        managedTypeResolutions.clear()
         unityHeaders.clear()
         unityMetadata.clear()
         totalBytes = 0L
@@ -106,6 +108,7 @@ class GameScanner(private val activity: Activity) {
         resolveExternalMonoScriptRecords(files)
         resolveExternalScenePointers(files)
         resolveMonoBehaviourScriptBindings(files)
+        managedTypeResolutions.addAll(UnityManagedTypeResolver.resolve(unityMetadata, clrResults))
 
         val managedBinaries = peResults.filterValues { it.managed }.keys
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
@@ -621,6 +624,16 @@ class GameScanner(private val activity: Activity) {
             }
         }
         appendLine()
+        appendLine("## MonoBehaviour to managed TypeDef links")
+        if (managedTypeResolutions.isEmpty()) appendLine("- Сопоставимых MonoBehaviour MonoScript и managed type records не найдено")
+        managedTypeResolutions.forEach { link ->
+            appendLine("- " + link.sourceFilePath + " object=" + link.sourcePathId +
+                " -> " + ((link.namespace?.takeIf { it.isNotBlank() }?.plus(".") ?: "") + (link.className ?: "?")) +
+                " in " + (link.assemblyName ?: "?") +
+                (link.managedAssemblyPath?.let { " [" + it + "]" } ?: "") +
+                "; status=" + link.status)
+        }
+        appendLine()
         appendLine("## Unity serialized files and bundles")
         if (unityHeaders.isEmpty()) appendLine("- Поддерживаемые заголовки не обнаружены среди проверенных кандидатов")
         unityHeaders.forEach { (path, header) ->
@@ -777,7 +790,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 17)
+        root.put("schemaVersion", 18)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -808,6 +821,16 @@ class GameScanner(private val activity: Activity) {
                     .put("culture", ref.culture) }))
                 .put("status", assembly.status)
                 .put("note", assembly.note ?: JSONObject.NULL)
+        }))
+        root.put("managedTypeResolutions", JSONArray(managedTypeResolutions.map { link -> JSONObject()
+            .put("sourceFilePath", link.sourceFilePath)
+            .put("sourcePathId", link.sourcePathId)
+            .put("className", link.className ?: JSONObject.NULL)
+            .put("namespace", link.namespace ?: JSONObject.NULL)
+            .put("assemblyName", link.assemblyName ?: JSONObject.NULL)
+            .put("managedAssemblyPath", link.managedAssemblyPath ?: JSONObject.NULL)
+            .put("managedTypeFound", link.managedTypeFound ?: JSONObject.NULL)
+            .put("status", link.status)
         }))
         root.put("unityMetadata", JSONArray(unityMetadata.map { (path, metadata) ->
             JSONObject().put("path", path)
