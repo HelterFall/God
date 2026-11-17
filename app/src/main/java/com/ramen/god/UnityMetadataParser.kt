@@ -1,5 +1,7 @@
 package com.ramen.god
 
+internal data class UnityObjectSummary(val pathId: Long, val byteStart: Long, val byteSize: Long, val typeIndex: Int, val classId: Int?)
+
 /** Bounded metadata summary for modern Unity SerializedFiles. */
 internal data class UnityMetadataSummary(
     val unityVersion: String?,
@@ -9,6 +11,7 @@ internal data class UnityMetadataSummary(
     val objectCount: Long? = null,
     val scriptTypeCount: Long? = null,
     val externalReferenceCount: Long? = null,
+    val objectSamples: List<UnityObjectSummary> = emptyList(),
     val note: String? = null
 )
 
@@ -19,6 +22,7 @@ internal object UnityMetadataParser {
     private const val MAX_TYPE_COUNT = 200_000L
     private const val MAX_OBJECT_COUNT = 2_000_000L
     private const val MAX_AUX_COUNT = 500_000L
+    private const val MAX_OBJECT_SAMPLES = 500
     private const val TYPE_TREE_NODE_SIZE = 32L
 
     fun parse(prefix: ByteArray, header: UnityFileHeader): UnityMetadataSummary? {
@@ -48,11 +52,11 @@ internal object UnityMetadataParser {
         )
         val typeTreeEnabled = typeTreeByte == 1
 
-        // Skip type records with strict bounds so we can reach the object table.
+        val typeClassIds = ArrayList<Int>(typeCount.toInt())
         repeat(typeCount.toInt()) {
-            if (!skipTypeEntry(cursor, version, typeTreeEnabled)) {
-                return partial.copy(note = "Таблица типов обрезана или содержит неподдерживаемые размеры; object count не прочитан.")
-            }
+            val classId = readTypeEntry(cursor, version, typeTreeEnabled)
+                ?: return partial.copy(note = "Таблица типов обрезана или содержит неподдерживаемые размеры; object count не прочитан.")
+            typeClassIds.add(classId)
         }
 
         val objectCount = cursor.readU32()
@@ -61,13 +65,20 @@ internal object UnityMetadataParser {
             return partial.copy(note = "Число объектов превышает безопасный лимит.")
         }
 
+        val objectSamples = ArrayList<UnityObjectSummary>(minOf(objectCount, MAX_OBJECT_SAMPLES.toLong()).toInt())
         repeat(objectCount.toInt()) {
-            if (!cursor.align4() || cursor.readU64() == null) {
-                return partial.copy(objectCount = objectCount, note = "Таблица объектов обрезана.")
+            if (!cursor.align4()) {
+                return partial.copy(objectCount = objectCount, objectSamples = objectSamples, note = "Таблица объектов обрезана.")
             }
+            val pathId = cursor.readU64()
             val relativeStart = if (version >= 22L) cursor.readU64() else cursor.readU32()
-            if (relativeStart == null || cursor.readU32() == null || cursor.readU32() == null) {
-                return partial.copy(objectCount = objectCount, note = "Таблица объектов обрезана.")
+            val byteSize = cursor.readU32()
+            val typeIndex = cursor.readI32()
+            if (pathId == null || relativeStart == null || byteSize == null || typeIndex == null) {
+                return partial.copy(objectCount = objectCount, objectSamples = objectSamples, note = "Таблица объектов обрезана.")
+            }
+            if (objectSamples.size < MAX_OBJECT_SAMPLES) {
+                objectSamples.add(UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, typeClassIds.getOrNull(typeIndex)))
             }
         }
 
@@ -103,38 +114,39 @@ internal object UnityMetadataParser {
             objectCount = objectCount,
             scriptTypeCount = scriptCount,
             externalReferenceCount = externalCount,
+            objectSamples = objectSamples,
             note = "Прочитаны основные таблицы metadata; расширения SerializeReference/TypeTree shared subtrees не анализировались."
         )
     }
 
-    private fun skipTypeEntry(cursor: Cursor, version: Long, typeTreeEnabled: Boolean): Boolean {
-        val classId = cursor.readI32() ?: return false
-        if (version >= 16L && cursor.readU8() == null) return false
-        val scriptTypeIndex = if (version >= 17L) cursor.readI16() ?: return false else -1
+    private fun readTypeEntry(cursor: Cursor, version: Long, typeTreeEnabled: Boolean): Int? {
+        val classId = cursor.readI32() ?: return null
+        if (version >= 16L && cursor.readU8() == null) return null
+        val scriptTypeIndex = if (version >= 17L) cursor.readI16() ?: return null else -1
         if (classId == -1 || classId == 114 || scriptTypeIndex >= 0) {
-            if (!cursor.skip(16)) return false
+            if (!cursor.skip(16)) return null
         }
-        if (!cursor.skip(16)) return false // old type hash
-        if (!typeTreeEnabled) return true
+        if (!cursor.skip(16)) return null // old type hash
+        if (!typeTreeEnabled) return classId
 
         if (version >= 23L) {
-            if (!cursor.skip(16)) return false // TypeTree content hash
-            val treeSize = cursor.readU32() ?: return false
-            if (treeSize > 0 && !cursor.skip(treeSize)) return false
+            if (!cursor.skip(16)) return null // TypeTree content hash
+            val treeSize = cursor.readU32() ?: return null
+            if (treeSize > 0 && !cursor.skip(treeSize)) return null
         } else {
-            val nodeCount = cursor.readU32() ?: return false
-            val stringSize = cursor.readU32() ?: return false
-            if (nodeCount > 1_000_000L) return false
+            val nodeCount = cursor.readU32() ?: return null
+            val stringSize = cursor.readU32() ?: return null
+            if (nodeCount > 1_000_000L) return null
             val nodeBytes = nodeCount * TYPE_TREE_NODE_SIZE
-            if (nodeBytes / TYPE_TREE_NODE_SIZE != nodeCount) return false
-            if (!cursor.skip(nodeBytes + stringSize)) return false
+            if (nodeBytes / TYPE_TREE_NODE_SIZE != nodeCount) return null
+            if (!cursor.skip(nodeBytes + stringSize)) return null
         }
 
         if (version >= 21L) {
-            val dependencyCount = cursor.readU32() ?: return false
-            if (dependencyCount > MAX_AUX_COUNT || !cursor.skip(dependencyCount * 4L)) return false
+            val dependencyCount = cursor.readU32() ?: return null
+            if (dependencyCount > MAX_AUX_COUNT || !cursor.skip(dependencyCount * 4L)) return null
         }
-        return true
+        return classId
     }
 
     private class Cursor(
