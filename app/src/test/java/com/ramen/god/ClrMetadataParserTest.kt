@@ -94,7 +94,7 @@ class ClrMetadataParserTest {
             u32(1); u16(typeName); u16(namespace); u16(0); u16(1); u16(1)
 
             // Field row: private Int32 health
-            u16(6); u16(fieldName); u16(0)
+            u16(6); u16(fieldName); u16(1)
 
             // MethodDef row: TakeDamage
             u32(0x1234); u16(0); u16(0x16); u16(methodName); u16(3); u16(1)
