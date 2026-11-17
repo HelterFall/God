@@ -349,10 +349,14 @@ class UnityMetadataParserTest {
         p += 16 // type hash
         put32(bytes, p, 0, true); p += 4 // dependencies
 
-        put32(bytes, p, 1, true); p += 4 // object count
+        put32(bytes, p, 2, true); p += 4 // object count
         p = (p + 3) and -4
         put64(bytes, p, 777L, true); p += 8 // local MonoScript pathID
         put64(bytes, p, 0L, true); p += 8 // byte start
+        put32(bytes, p, 16, true); p += 4 // byte size
+        put32(bytes, p, 1, true); p += 4 // type index -> class 115
+        put64(bytes, p, 778L, true); p += 8 // second MonoScript pathID
+        put64(bytes, p, 16L, true); p += 8 // byte start
         put32(bytes, p, 16, true); p += 4 // byte size
         put32(bytes, p, 1, true); p += 4 // type index -> class 115
         put32(bytes, p, 1, true); p += 4 // script reference count
@@ -370,6 +374,9 @@ class UnityMetadataParserTest {
         assertEquals(777L, binding.pathId)
         assertEquals(115, binding.targetObjectClassId)
         assertEquals("local-monoscript-object-found", binding.resolution)
+        val monoScriptTypeCount = result.objectTypeCounts.single { it.classId == 115 }
+        assertEquals(2L, monoScriptTypeCount.count)
+        assertEquals(listOf(777L, 778L), monoScriptTypeCount.samplePathIds)
     }
 
     @Test
