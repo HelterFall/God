@@ -23,11 +23,11 @@ class MonoScriptParserTest {
     @Test
     fun parsesBigEndianMonoScriptPayload() {
         val parsed = requireNotNull(MonoScriptParser.parse(buildPayload(false), false))
-        assertEquals("Sample", parsed.first)
-        assertEquals(42, parsed.second)
-        assertEquals("PlayerController", parsed.third[0])
-        assertEquals("Game", parsed.third[1])
-        assertEquals("Assembly-CSharp", parsed.third[2])
+        assertEquals("SpriteSkin", parsed.first)
+        assertEquals(-15, parsed.second)
+        assertEquals("SpriteSkin", parsed.third[0])
+        assertEquals("UnityEngine.U2D.Animation", parsed.third[1])
+        assertEquals("Unity.2D.Animation.Runtime", parsed.third[2])
     }
 
     @Test
