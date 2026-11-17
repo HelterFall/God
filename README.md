@@ -13,6 +13,8 @@ Android-приложение для анализа Windows Unity-игр непо
 - Разбор PE: x86, x86-64, ARM64.
 - Определение CLR-флага для различения managed .NET assemblies и native PE.
 - Чтение статической таблицы импортов PE и сводка DLL-зависимостей.
+- Распознавание заголовков Unity SerializedFile (форматы до/после v22) и UnityFS bundles без распаковки данных.
+- Отчёт по версии формата, размерам, data offset и endianness; UnityFS пока определяется только по заголовку.
 - Список игровых сборок и UnityEngine modules.
 - Экспорт Markdown и JSON.
 - Отображение прогресса при обходе папок.
@@ -22,6 +24,8 @@ Android-приложение для анализа Windows Unity-игр непо
 - `MainActivity.kt` — Android UI, выбор папки через SAF и экспорт.
 - `GameScanner.kt` — обход дерева игры, эвристики Unity/Mono/IL2CPP и формирование отчётов.
 - `PeParser.kt` — независимый PE-парсер: архитектура, CLR-флаг и статические импорты.
+- `UnityFileHeaderParser.kt` — ограниченный парсер заголовков SerializedFile и UnityFS.
+- `app/src/test/...` — JVM-тесты бинарных парсеров.
 
 ## Получение APK
 GitHub Actions собирает debug APK при каждом push в main. Открой вкладку Actions, выбери последний успешный запуск Android APK и скачай artifact God-debug-apk. В ZIP находится app-debug.apk.
@@ -38,4 +42,5 @@ GitHub Actions собирает debug APK при каждом push в main. От
 - PE-анализ: первые 150 EXE/DLL, первые 1 MiB каждого файла.
 - Таблица импортов не обнаруживает LoadLibrary, managed references или все P/Invoke calls.
 - Версия Unity определяется эвристически.
+- Unity SerializedFile пока не разбирается до TypeTree/объектов; UnityFS не распаковывается. Для форматов до v9 нужен отдельный позиционный read для endian marker.
 - Это анализатор, не runtime и не декомпилятор.
