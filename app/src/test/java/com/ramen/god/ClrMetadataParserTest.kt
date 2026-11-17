@@ -23,6 +23,11 @@ class ClrMetadataParserTest {
         assertEquals(1, result.typeCount)
         assertEquals("PlayerController", result.types.single().name)
         assertEquals("Game", result.types.single().namespace)
+        assertEquals("health", result.fields.single().name)
+        assertEquals(6, result.fields.single().flags)
+        assertEquals("TakeDamage", result.methods.single().name)
+        assertEquals(0x1234L, result.methods.single().relativeVirtualAddress)
+        assertEquals(0x16, result.methods.single().flags)
         assertEquals("mscorlib", result.assemblyReferences.single().name)
         assertEquals("4.0.0.0", listOf(
             result.assemblyReferences.single().majorVersion,
@@ -62,20 +67,28 @@ class ClrMetadataParserTest {
         val namespace = addString("Game")
         val assemblyName = addString("Assembly-CSharp")
         val referenceName = addString("mscorlib")
+        val fieldName = addString("health")
+        val methodName = addString("TakeDamage")
         val stringHeap = strings.toByteArray()
 
         val tables = ByteArrayOutputStream().apply {
             u32(0)
             u8(2); u8(0); u8(0); u8(1)
-            u64((1L shl 0) or (1L shl 2) or (1L shl 32) or (1L shl 35))
+            u64((1L shl 0) or (1L shl 2) or (1L shl 4) or (1L shl 6) or (1L shl 32) or (1L shl 35))
             u64(0)
-            u32(1); u32(1); u32(1); u32(1)
+            u32(1); u32(1); u32(1); u32(1); u32(1); u32(1)
 
             // Module row
             u16(0); u16(moduleName); u16(0); u16(0); u16(0)
 
             // TypeDef row: public class Game.PlayerController
             u32(1); u16(typeName); u16(namespace); u16(0); u16(1); u16(1)
+
+            // Field row: private Int32 health
+            u16(6); u16(fieldName); u16(0)
+
+            // MethodDef row: TakeDamage
+            u32(0x1234); u16(0); u16(0x16); u16(methodName); u16(0); u16(1)
 
             // Assembly row: Assembly-CSharp, Version=1.2.3.4
             u32(0); u16(1); u16(2); u16(3); u16(4); u32(0)
