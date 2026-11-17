@@ -71,11 +71,11 @@ internal object UnityFileHeaderParser {
     }
 
     private fun parseUnityFs(bytes: ByteArray): UnityFileHeader? {
-        if (bytes.size < 13) return null
-        val version = u32be(bytes, 7)
+        if (bytes.size < 14 || bytes[7].toInt() != 0) return null
+        val version = u32be(bytes, 8)
         if (version !in 1L..20L) return null
-        val player = readCString(bytes, 11, 128) ?: return null
-        val revisionStart = 11 + player.second
+        val player = readCString(bytes, 12, 128) ?: return null
+        val revisionStart = 12 + player.second
         val revision = readCString(bytes, revisionStart, 128) ?: return null
         return UnityFileHeader(
             "UnityFS bundle", version, null, null, null, null,
