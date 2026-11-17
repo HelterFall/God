@@ -3,7 +3,9 @@ package com.ramen.god
 internal data class ClrTypeSummary(
     val name: String,
     val namespace: String,
-    val flags: Long
+    val flags: Long,
+    val fieldNames: List<String> = emptyList(),
+    val methodNames: List<String> = emptyList()
 )
 
 internal data class ClrAssemblyReferenceSummary(
@@ -15,13 +17,14 @@ internal data class ClrAssemblyReferenceSummary(
     val culture: String
 )
 
-internal data class ClrFieldSummary(val name: String, val flags: Int)
+internal data class ClrFieldSummary(val name: String, val flags: Int, val tableIndex: Int = 0)
 
 internal data class ClrMethodSummary(
     val name: String,
     val flags: Int,
     val implementationFlags: Int,
-    val relativeVirtualAddress: Long
+    val relativeVirtualAddress: Long,
+    val tableIndex: Int = 0
 )
 
 internal data class ClrAssemblySummary(
@@ -124,12 +127,15 @@ internal object ClrMetadataParser {
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd
         )
         val assembly = readAssemblyIdentity(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
-        val typeResult = readTypes(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
         val referenceResult = readAssemblyReferences(
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd
         )
         val fieldResult = readFields(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
         val methodResult = readMethods(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
+        val typeResult = readTypes(
+            bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd,
+            fieldResult.first, methodResult.first
+        )
 
         val notes = listOfNotNull(typeResult.second, referenceResult.second, fieldResult.second, methodResult.second).distinct()
         val status = when {
@@ -300,7 +306,8 @@ internal object ClrMetadataParser {
 
     private fun readTypes(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
-        rows: LongArray, heapStart: Int, heapEnd: Int
+        rows: LongArray, heapStart: Int, heapEnd: Int,
+        fields: List<ClrFieldSummary>, methods: List<ClrMethodSummary>
     ): Pair<List<ClrTypeSummary>, String?> {
         if (rows[2] == 0L) return emptyList<ClrTypeSummary>() to null
         val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
@@ -309,22 +316,75 @@ internal object ClrMetadataParser {
         val methodWidth = if (rows[6] < 65536L) 2 else 4
         val rowSize = 4L + 2L * stringWidth + tdorWidth + fieldWidth + methodWidth
         val start = base.toLong() + info.tableOffsets[2]
-        if (start > Int.MAX_VALUE || rowSize != info.tableSizes[2]) return emptyList<ClrTypeSummary>() to "type-table-unavailable"
+        if (start > Int.MAX_VALUE || rowSize != info.tableSizes[2]) {
+            return emptyList<ClrTypeSummary>() to "type-table-unavailable"
+        }
         val result = ArrayList<ClrTypeSummary>()
         val count = minOf(rows[2], MAX_TYPES.toLong()).toInt()
+        var ownershipIncomplete = false
         for (i in 0 until count) {
             val row = start + i * rowSize
             if (row + rowSize > bytes.size || row > Int.MAX_VALUE) break
-            var p = row.toInt()
-            val flags = readU32(bytes, p) ?: break; p += 4
-            val nameIndex = readIndex(bytes, p, stringWidth) ?: break; p += stringWidth
-            val namespaceIndex = readIndex(bytes, p, stringWidth) ?: break
+            val p = row.toInt()
+            val flags = readU32(bytes, p) ?: break
+            var memberOffset = p + 4 + 2 * stringWidth + tdorWidth
+            val fieldStart = readIndex(bytes, memberOffset, fieldWidth) ?: break
+            memberOffset += fieldWidth
+            val methodStart = readIndex(bytes, memberOffset, methodWidth) ?: break
+            val nameIndex = readIndex(bytes, p + 4, stringWidth) ?: break
+            val namespaceIndex = readIndex(bytes, p + 4 + stringWidth, stringWidth) ?: break
             val name = readHeapString(bytes, heapStart, heapEnd, nameIndex) ?: continue
             val namespace = readHeapString(bytes, heapStart, heapEnd, namespaceIndex) ?: ""
-            if (name != "<Module>") result.add(ClrTypeSummary(name, namespace, flags))
+            if (name == "<Module>") continue
+
+            val nextStarts = if (i + 1 < rows[2]) {
+                readTypeMemberStarts(
+                    bytes, start, rowSize, i + 1, stringWidth, tdorWidth,
+                    fieldWidth, methodWidth
+                )
+            } else null
+            val fieldEnd = nextStarts?.first ?: (rows[4] + 1L)
+            val methodEnd = nextStarts?.second ?: (rows[6] + 1L)
+            val ownedFields = if (fieldStart in 1L..(rows[4] + 1L) && fieldEnd >= fieldStart) {
+                fields.filter { it.tableIndex.toLong() >= fieldStart && it.tableIndex.toLong() < fieldEnd }
+            } else emptyList()
+            val ownedMethods = if (methodStart in 1L..(rows[6] + 1L) && methodEnd >= methodStart) {
+                methods.filter { it.tableIndex.toLong() >= methodStart && it.tableIndex.toLong() < methodEnd }
+            } else emptyList()
+            if (fieldEnd > fields.lastOrNull()?.tableIndex?.plus(1)?.toLong().orZero() &&
+                fieldStart <= rows[4]) ownershipIncomplete = true
+            if (methodEnd > methods.lastOrNull()?.tableIndex?.plus(1)?.toLong().orZero() &&
+                methodStart <= rows[6]) ownershipIncomplete = true
+            result.add(ClrTypeSummary(
+                name, namespace, flags,
+                ownedFields.map { it.name },
+                ownedMethods.map { it.name }
+            ))
         }
-        val note = if (rows[2] > MAX_TYPES) "Типы ограничены первыми $MAX_TYPES записями." else null
-        return result to note
+        val notes = mutableListOf<String>()
+        if (rows[2] > MAX_TYPES) notes.add("Типы ограничены первыми $MAX_TYPES записями.")
+        if (ownershipIncomplete) notes.add("Привязка полей/методов ограничена выборками таблиц; часть владельцев неизвестна.")
+        return result to notes.joinToString(" ").ifBlank { null }
+    }
+
+    private fun readTypeMemberStarts(
+        bytes: ByteArray,
+        tableStart: Long,
+        rowSize: Long,
+        rowIndex: Int,
+        stringWidth: Int,
+        typeDefOrRefWidth: Int,
+        fieldWidth: Int,
+        methodWidth: Int
+    ): Pair<Long, Long>? {
+        val row = tableStart + rowIndex.toLong() * rowSize
+        val offset = row + 4L + 2L * stringWidth + typeDefOrRefWidth
+        if (offset < 0L || offset + fieldWidth + methodWidth > bytes.size || offset > Int.MAX_VALUE) return null
+        val fieldStart = readIndex(bytes, offset.toInt(), fieldWidth) ?: return null
+        val methodOffset = offset + fieldWidth
+        if (methodOffset > Int.MAX_VALUE) return null
+        val methodStart = readIndex(bytes, methodOffset.toInt(), methodWidth) ?: return null
+        return fieldStart to methodStart
     }
 
     private fun readFields(
@@ -348,7 +408,7 @@ internal object ClrMetadataParser {
             val flags = readU16(bytes, p) ?: break
             val nameIndex = readIndex(bytes, p + 2, stringWidth) ?: break
             val name = readHeapString(bytes, heapStart, heapEnd, nameIndex) ?: continue
-            result.add(ClrFieldSummary(name, flags))
+            result.add(ClrFieldSummary(name, flags, i + 1))
         }
         val note = if (rows[4] > MAX_FIELDS) "Поля ограничены первыми $MAX_FIELDS записями." else null
         return result to note
@@ -378,7 +438,7 @@ internal object ClrMetadataParser {
             val flags = readU16(bytes, p + 6) ?: break
             val nameIndex = readIndex(bytes, p + 8, stringWidth) ?: break
             val name = readHeapString(bytes, heapStart, heapEnd, nameIndex) ?: continue
-            result.add(ClrMethodSummary(name, flags, implFlags, rva))
+            result.add(ClrMethodSummary(name, flags, implFlags, rva, i + 1))
         }
         val note = if (rows[6] > MAX_METHODS) "Методы ограничены первыми $MAX_METHODS записями." else null
         return result to note
@@ -416,6 +476,8 @@ internal object ClrMetadataParser {
         val note = if (rows[35] > MAX_ASSEMBLY_REFS) "AssemblyRef ограничены первыми $MAX_ASSEMBLY_REFS записями." else null
         return result to note
     }
+
+    private fun Long?.orZero(): Long = this ?: 0L
 
     private fun readHeapString(bytes: ByteArray, start: Int, end: Int, index: Long): String? {
         if (index == 0L) return ""
