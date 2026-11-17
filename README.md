@@ -14,7 +14,7 @@ Android-приложение для анализа Windows Unity-игр непо
 - Определение CLR-флага для различения managed .NET assemblies и native PE.
 - Чтение статической таблицы импортов PE и сводка DLL-зависимостей.
 - Распознавание заголовков Unity SerializedFile (включая 64-битный формат v22+) и UnityFS bundles без распаковки данных.
-- Чтение metadata SerializedFile v19–v26: версия Unity, target platform, флаг TypeTree, число типов, до 500 записей объектов (PathID, смещение, размер и ClassID), а также числа MonoScript-ссылок и внешних ссылок.
+- Чтение metadata SerializedFile v19–v26: версия Unity, target platform, флаг TypeTree, число типов, до 500 записей объектов (PathID, смещение, размер и ClassID), а также числа и ограниченные выборки MonoScript-ссылок (fileID/pathID) и внешних файлов (fileID/path). Проверяет границы object data ranges перед принятием записей.
 - Отчёт по версии формата, размерам, data offset и endianness; UnityFS пока определяется только по заголовку.
 - Список игровых сборок и UnityEngine modules.
 - Экспорт Markdown и JSON.
@@ -26,7 +26,7 @@ Android-приложение для анализа Windows Unity-игр непо
 - `GameScanner.kt` — обход дерева игры, эвристики Unity/Mono/IL2CPP и формирование отчётов.
 - `PeParser.kt` — независимый PE-парсер: архитектура, CLR-флаг и статические импорты.
 - `UnityFileHeaderParser.kt` — ограниченный парсер заголовков SerializedFile и UnityFS.
-- `UnityMetadataParser.kt` — ограниченный разбор metadata, таблиц объектов и TypeTree-узлов для SerializedFile v19–v26.
+- `UnityMetadataParser.kt` — ограниченный разбор metadata, таблиц объектов, MonoScript/external references и TypeTree-узлов для SerializedFile v19–v26.
 - `app/src/test/...` — JVM-тесты бинарных парсеров.
 
 ## Получение APK
@@ -44,7 +44,7 @@ GitHub Actions собирает debug APK при каждом push в main. От
 - PE-анализ: первые 150 EXE/DLL, первые 1 MiB каждого файла.
 - Таблица импортов не обнаруживает LoadLibrary, managed references или все P/Invoke calls.
 - Версия Unity определяется эвристически.
-- Полные TypeTree-графы и декодирование содержимого объектов ещё не реализованы; анализатор извлекает корневые типы и ограниченную выборку встроенных имён полей (common-string offsets пока не разрешаются), а также первые 500 объектов на файл. UnityFS не распаковывается.
+- Полные TypeTree-графы и декодирование содержимого объектов ещё не реализованы; анализатор извлекает корневые типы и ограниченную выборку встроенных имён полей (common-string offsets пока не разрешаются), а также первые 500 объектов и MonoScript-ссылок на файл; внешние ссылки ограничены первыми 200 записями. object data ranges проверяются относительно data section. Внешние ссылки пока не разрешаются между файлами, а script references ещё не декодируют содержимое MonoScript. UnityFS не распаковывается.
 - Метаданные форматов старше v26 пока не разбираются, чтобы не трактовать неизвестные структуры как известные.
 - Для форматов до v9 нужен отдельный позиционный read для endian marker.
 - Это анализатор, не runtime и не декомпилятор.
