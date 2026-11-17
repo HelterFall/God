@@ -106,7 +106,49 @@ class UnityMetadataParserTest {
         assertEquals(1, result.objectSamples[0].classId)
     }
 
-    private fun put64(bytes: ByteArray, offset: Int, value: Long, little: Boolean) {
+    @Test
+    fun extractsLegacyTypeTreeRootAndEmbeddedFieldNames() {
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 256, 512, "Little Endian", 48)
+        val bytes = ByteArray(256)
+        val version = "2022.3.10f1".toByteArray()
+        version.copyInto(bytes, 48)
+        var p = 48 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 1
+        put32(bytes, p, 1, true); p += 4 // type count
+        put32(bytes, p, 1, true); p += 4 // class ID
+        bytes[p++] = 0
+        bytes[p++] = 0xff.toByte(); bytes[p++] = 0xff.toByte()
+        p += 16 // old type hash
+        put32(bytes, p, 1, true); p += 4 // TypeTree node count
+        val strings = ("GameObject" + 0.toChar() + "Base" + 0.toChar()).toByteArray()
+        put32(bytes, p, strings.size.toLong(), true); p += 4
+        put16(bytes, p, 1, true); p += 2 // node version
+        bytes[p++] = 0; bytes[p++] = 0 // level and flags
+        put32(bytes, p, 0, true); p += 4 // type string offset
+        put32(bytes, p, 11, true); p += 4 // name string offset
+        put32(bytes, p, 0xffffffffL, true); p += 4
+        put32(bytes, p, 0, true); p += 4
+        put32(bytes, p, 0, true); p += 4
+        p += 8 // reference type hash
+        strings.copyInto(bytes, p); p += strings.size
+        put32(bytes, p, 0, true); p += 4 // type dependencies
+        put32(bytes, p, 0, true); p += 4 // object count
+        put32(bytes, p, 0, true); p += 4 // script count
+        put32(bytes, p, 0, true) // external references
+
+        val result = UnityMetadataParser.parse(bytes, header)
+        requireNotNull(result)
+        assertEquals(1, result.typeTrees.size)
+        assertEquals("GameObject", result.typeTrees[0].rootType)
+        assertEquals("Base", result.typeTrees[0].rootName)
+    }
+
+    private fun put16(bytes: ByteArray, offset: Int, value: Int, little: Boolean) {
+        bytes[offset + if (little) 0 else 1] = value.toByte()
+        bytes[offset + if (little) 1 else 0] = (value ushr 8).toByte()
+    }\n\n    private fun put64(bytes: ByteArray, offset: Int, value: Long, little: Boolean) {
         for (i in 0 until 8) {
             val shift = if (little) i * 8 else (7 - i) * 8
             bytes[offset + i] = (value ushr shift).toByte()
