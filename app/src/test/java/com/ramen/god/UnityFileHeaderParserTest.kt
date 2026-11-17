@@ -39,7 +39,7 @@ class UnityFileHeaderParserTest {
 
     @Test
     fun recognizesUnityFsBundleHeader() {
-        val bytes = "UnityFS".toByteArray() + byteArrayOf(0, 0, 0, 6) +
+        val bytes = "UnityFS".toByteArray() + byteArrayOf(0, 0, 0, 0, 6) +
             "2022.3.1f1".toByteArray() + byteArrayOf(0) + "abc123".toByteArray() + byteArrayOf(0)
         val result = UnityFileHeaderParser.parse(bytes, 4096)
         requireNotNull(result)
