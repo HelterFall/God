@@ -27,7 +27,14 @@ class ClrMetadataParserTest {
         assertEquals(listOf("TakeDamage"), result.types.single().methodNames)
         assertEquals("health", result.fields.single().name)
         assertEquals(6, result.fields.single().flags)
+        assertEquals("Int32", result.fields.single().signatureType)
+        assertEquals("parsed", result.fields.single().signatureStatus)
         assertEquals("TakeDamage", result.methods.single().name)
+        assertEquals("Void", result.methods.single().returnType)
+        assertEquals(listOf("Int32"), result.methods.single().parameterTypes)
+        assertEquals("instance Void TakeDamage(Int32)", result.methods.single().signatureDisplay)
+        assertEquals("default", result.methods.single().callingConvention)
+        assertEquals("parsed", result.methods.single().signatureStatus)
         assertEquals(0x1234L, result.methods.single().relativeVirtualAddress)
         assertEquals(0x16, result.methods.single().flags)
         assertEquals("mscorlib", result.assemblyReferences.single().name)
@@ -90,7 +97,7 @@ class ClrMetadataParserTest {
             u16(6); u16(fieldName); u16(0)
 
             // MethodDef row: TakeDamage
-            u32(0x1234); u16(0); u16(0x16); u16(methodName); u16(0); u16(1)
+            u32(0x1234); u16(0); u16(0x16); u16(methodName); u16(3); u16(1)
 
             // Assembly row: Assembly-CSharp, Version=1.2.3.4
             u32(0); u16(1); u16(2); u16(3); u16(4); u32(0)
@@ -106,18 +113,22 @@ class ClrMetadataParserTest {
             u16(1); u16(1); u32(0)
             u32(8)
             write(byteArrayOf('v'.code.toByte(), '4'.code.toByte(), '.'.code.toByte(), '0'.code.toByte(), 0, 0, 0, 0))
-            u16(0); u16(2)
+            u16(0); u16(3)
         }.toByteArray()
 
+        val blobHeap = byteArrayOf(0, 1, 0x06, 0x08, 4, 0x20, 1, 1, 0x08)
         fun paddedStreamHeaderLength(name: String): Int = 8 + (((name.length + 1 + 3) / 4) * 4)
-        val headerLength = paddedStreamHeaderLength("#~") + paddedStreamHeaderLength("#Strings")
+        val headerLength = paddedStreamHeaderLength("#~") + paddedStreamHeaderLength("#Strings") +
+            paddedStreamHeaderLength("#Blob")
         val tablesOffset = prefix.size + headerLength
         val stringsOffset = tablesOffset + tables.size
+        val blobsOffset = stringsOffset + stringHeap.size
         val headers = ByteArrayOutputStream().apply {
             streamHeader(tablesOffset, tables.size, "#~")
             streamHeader(stringsOffset, stringHeap.size, "#Strings")
+            streamHeader(blobsOffset, blobHeap.size, "#Blob")
         }.toByteArray()
-        return prefix + headers + tables + stringHeap
+        return prefix + headers + tables + stringHeap + blobHeap
     }
 
     private fun ByteArrayOutputStream.streamHeader(offset: Int, size: Int, name: String) {
