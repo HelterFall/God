@@ -28,6 +28,8 @@ class GameScanner(private val activity: Activity) {
         private const val MAX_PE_READ = 1024 * 1024
         private const val MAX_UNITY_HEADER_FILES = 500
         private const val MAX_UNITY_HEADER_READ = 256
+        private const val MAX_UNITY_METADATA_FILES = 40
+        private const val MAX_UNITY_METADATA_READ = 1024 * 1024
         private const val MAX_GGM_READ = 16 * 1024 * 1024
         private const val MAX_TREE_LINES = 20_000
     }
@@ -81,10 +83,11 @@ class GameScanner(private val activity: Activity) {
         if (unityCandidates.size > MAX_UNITY_HEADER_FILES) {
             warnings.add("Проверка Unity-заголовков ограничена первыми " + MAX_UNITY_HEADER_FILES + " файлами-кандидатами.")
         }
-        unityCandidates.take(MAX_UNITY_HEADER_FILES).forEach { entry ->
+        unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
             if (shouldCancel()) throw ScanCancelledException()
             try {
-                val prefix = readPrefix(entry.uri, MAX_UNITY_HEADER_READ) ?: return@forEach
+                val readLimit = if (index < MAX_UNITY_METADATA_FILES) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
+                val prefix = readPrefix(entry.uri, readLimit) ?: return@forEachIndexed
                 UnityFileHeaderParser.parse(prefix, entry.size)?.let { header ->
                     unityHeaders[entry.path] = header
                     UnityMetadataParser.parse(prefix, header)?.let { unityMetadata[entry.path] = it }
@@ -263,6 +266,9 @@ class GameScanner(private val activity: Activity) {
                 (metadata.targetPlatform?.let { "; platformId=" + it } ?: "") +
                 (metadata.typeTreeEnabled?.let { "; TypeTree=" + if (it) "enabled" else "disabled" } ?: "") +
                 (metadata.typeCount?.let { "; typeCount=" + it } ?: "") +
+                (metadata.objectCount?.let { "; objectCount=" + it } ?: "") +
+                (metadata.scriptTypeCount?.let { "; MonoScriptRefs=" + it } ?: "") +
+                (metadata.externalReferenceCount?.let { "; externalRefs=" + it } ?: "") +
                 (metadata.note?.let { "; " + it } ?: ""))
         }
         appendLine()
@@ -315,6 +321,9 @@ class GameScanner(private val activity: Activity) {
                 .put("targetPlatform", metadata.targetPlatform ?: JSONObject.NULL)
                 .put("typeTreeEnabled", metadata.typeTreeEnabled ?: JSONObject.NULL)
                 .put("typeCount", metadata.typeCount ?: JSONObject.NULL)
+                .put("objectCount", metadata.objectCount ?: JSONObject.NULL)
+                .put("scriptTypeCount", metadata.scriptTypeCount ?: JSONObject.NULL)
+                .put("externalReferenceCount", metadata.externalReferenceCount ?: JSONObject.NULL)
                 .put("note", metadata.note ?: JSONObject.NULL)
         }))
         root.put("unityFileHeaders", JSONArray(unityHeaders.map { (path, header) ->
