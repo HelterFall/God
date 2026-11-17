@@ -129,13 +129,14 @@ Suggested analyzer contract:
 - [x] Safely skip bounded type entries and count objects, MonoScript references and external references.
 - [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
 - [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26; validate every object range against the data section.
+- [x] Count all object records grouped by ClassID and preserve a bounded list of example PathIDs, including GameObject (1), Transform (4), MonoBehaviour (114), and MonoScript (115).
 - [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); common-string offsets remain unresolved.
 - [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.
 - [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.
 - [x] Read SerializeReference type entries for v20–v26; preserve className, namespace and assemblyName for v21+.
 - [x] Read the v26 shared TypeTree subtree count; subtree payload resolution is still pending.\n- [x] Bind serialized type scriptTypeIndex to MonoScript fileID/pathID; resolve local targets against up to 1000 ClassID 115 object records and external targets against the external-file table (sample-bounded).
 - [x] Decode local MonoScript payloads (name, execution order, class, namespace, assembly) with limits of 64 objects, 64 KiB per object and 64 MiB traversal distance.
-- [ ] Scene/GameObject/MonoBehaviour inventory.
+- [x] Basic GameObject/Transform/MonoBehaviour/MonoScript object inventory by ClassID; names and scene relationships still require object payload decoding.
 - [x] Resolve external MonoScript targets when their path matches a selected file exactly or by a unique basename; decode only when that file's SerializedFile metadata and target ClassID 115 object are in the bounded sample. Ambiguous matches remain unresolved.
 - [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL metadata.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
