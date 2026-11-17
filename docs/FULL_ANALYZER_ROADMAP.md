@@ -129,14 +129,15 @@ Suggested analyzer contract:
 - [x] Safely skip bounded type entries and count objects, MonoScript references and external references.
 - [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
 - [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26; validate every object range against the data section.
-- [x] Count all object records grouped by ClassID and preserve up to 10 example PathIDs per class; the first 40 candidate files receive an 8 MiB metadata read window.
-- [x] Count all object records grouped by ClassID and preserve a bounded list of example PathIDs, including GameObject (1), Transform (4), MonoBehaviour (114), and MonoScript (115).
+- [x] Read up to 8 MiB of metadata prefix for the first 40 SerializedFile candidates; other candidates retain bounded header-only reads.
+- [x] Count all object records grouped by ClassID and preserve up to 10 example PathIDs per class, including GameObject (1), Transform (4), MonoBehaviour (114), and MonoScript (115).
 - [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); resolve the 109 base CommonString entries plus five later Unity 2022+/6 names; unknown offsets remain unresolved.
 - [x] Preserve up to 128 detailed TypeTree nodes per summarized type (level, type/name strings, byteSize and flags) as groundwork for structured object decoding.
 - [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.
 - [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.
 - [x] Read SerializeReference type entries for v20–v26; preserve className, namespace and assemblyName for v21+.
-- [x] Read the v26 shared TypeTree subtree count; subtree payload resolution is still pending.\n- [x] Bind serialized type scriptTypeIndex to MonoScript fileID/pathID; resolve local targets against up to 1000 ClassID 115 object records and external targets against the external-file table (sample-bounded).
+- [x] Read the v26 shared TypeTree subtree count; subtree payload resolution is still pending.
+- [x] Bind serialized type scriptTypeIndex to MonoScript fileID/pathID; resolve local targets against up to 1000 ClassID 115 object records and external targets against the external-file table (sample-bounded).
 - [x] Decode local MonoScript payloads (name, execution order, class, namespace, assembly) with limits of 64 objects, 64 KiB per object and 64 MiB traversal distance.
 - [x] Basic GameObject/Transform/MonoBehaviour/MonoScript object inventory by ClassID; names and scene relationships still require object payload decoding.
 - [x] Resolve external MonoScript targets when their path matches a selected file exactly or by a unique basename; decode only when that file's SerializedFile metadata and target ClassID 115 object are in the bounded sample. Ambiguous matches remain unresolved.
@@ -177,5 +178,6 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 1. Validate the new SerializedFile/UnityFS header parser against real Unity samples and expand malformed-header tests.
 2. Add positional SAF reads so pre-v9 SerializedFiles can locate the endian marker without loading the file.
 3. Parse the first bounded metadata fields (Unity version, target platform, TypeTree flag, type/object counts) with strict count and offset limits.
-4. Add UnityFS block-table metadata parsing; keep payload decompression as a separate, explicitly bounded stage.\n5. Add TypeTree-driven decoding for MonoBehaviour, ScriptableObject and GameObject payloads; keep unresolved references explicit.
+4. Add UnityFS block-table metadata parsing; keep payload decompression as a separate, explicitly bounded stage.
+5. Add TypeTree-driven decoding for MonoBehaviour, ScriptableObject and GameObject payloads; keep unresolved references explicit.
 6. Move report generation to streaming writers and stop retaining complete Markdown/JSON strings for large scans.
