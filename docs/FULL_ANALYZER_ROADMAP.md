@@ -129,7 +129,8 @@ Suggested analyzer contract:
 - [x] Safely skip bounded type entries and count objects, MonoScript references and external references.
 - [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
 - [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26.
-- [ ] Parse TypeTree nodes and resolve MonoScript references to managed types.
+- [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); common-string offsets remain unresolved.
+- [ ] Resolve MonoScript references to managed types.
 - [ ] Scene/GameObject/MonoBehaviour inventory.
 - [ ] MonoScript-to-managed-type resolution.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
