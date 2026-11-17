@@ -17,7 +17,7 @@ internal data class UnityVersionResult(
 /** Combines exact Unity version strings without guessing when evidence conflicts. */
 internal object UnityVersionResolver {
     private val versionPattern = Regex(
-        """(?<![A-Za-z0-9])((?:[3-9]\\.\\d{1,2}\\.\\d{1,3}|(?:19|20)\\d{2}\\.\\d{1,2}\\.\\d{1,3}|[5-9]\\d{3}\\.\\d{1,2}\\.\\d{1,3})[abfp]\\d{1,4}(?:c\\d+)?)(?![A-Za-z0-9])"""
+        """(?<![A-Za-z0-9])((?:[3-9]\.\d{1,2}\.\d{1,3}|(?:19|20)\d{2}\.\d{1,2}\.\d{1,3}|[5-9]\d{3}\.\d{1,2}\.\d{1,3})[abfp]\d{1,4}(?:c\d+)?)(?![A-Za-z0-9])"""
     )
 
     fun extractVersions(value: String): List<String> =
