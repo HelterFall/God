@@ -114,14 +114,14 @@ Suggested analyzer contract:
 - Export report parts without building multi-megabyte strings in memory.
 
 ### Phase 2 — Better build and native analysis
-- Multi-source Unity version/platform detection.
+- [x] Multi-source Unity version detection: prioritize globalgamemanagers metadata, then use SerializedFile metadata and UnityFS engineVersion; retain source/confidence and suppress conflicting results instead of guessing. Platform detection remains pending.
 - More complete PE parsing with random-access reads.
 - Native dependency graph, missing plugin report, and import/export details.
 
 ### Phase 3 — Managed code intelligence
 - [x] First CLR metadata inventory: Assembly identity/version, Module name, TypeDef names/namespaces, Field names/flags, Method names/flags/RVA and AssemblyRef dependencies from bounded ECMA-335 metadata tables.
 - [x] Link parsed MonoBehaviour MonoScript identities to exact managed assembly + namespace + TypeDef names; keep ambiguous assembly matches and truncated type samples explicit.
-- [ ] Expand to fields, methods, attributes, nested type relationships and dependency graph.
+- [x] Bounded field/method name inventory with flags and method RVA; signatures, declaring-type ownership, attributes, nested types and dependency graph remain pending.
 - P/Invoke inventory and IL call-site scan.
 - Android packaging strategy for parser dependencies and offline use.
 
@@ -145,9 +145,9 @@ Suggested analyzer contract:
 - [x] Basic GameObject/Transform/MonoBehaviour/MonoScript object inventory by ClassID.
 - [x] Decode bounded GameObject, Transform and MonoBehaviour payloads from complete bounded TypeTrees: GameObject name/active/components; Transform GameObject/parent/children; MonoBehaviour enabled/script PPtrs.
 - [x] Resolve external MonoScript targets when their path matches a selected file exactly or by a unique basename; decode only when that file's SerializedFile metadata and target ClassID 115 object are in the bounded sample. Ambiguous matches remain unresolved.
-- [ ] Resolve serialized type scriptTypeIndex values to MonoScript records, then map MonoScript class identities to managed DLL TypeDef records.
+- [x] Resolve serialized type scriptTypeIndex values to MonoScript records and map available MonoScript class identities to managed DLL TypeDef records; ambiguous or truncated samples remain explicit.
 - [x] Resolve local decoded PPtr references into a bounded per-file GameObject–Transform–Component hierarchy; keep external and missing PathIDs explicitly unresolved.
-- [ ] Resolve external scene PPtr references across SerializedFiles and bind MonoBehaviour m_Script PPtrs to MonoScript/managed DLL identities.
+- [x] Resolve sampled external scene PPtr references across SerializedFiles and bind MonoBehaviour m_Script PPtrs to MonoScript/managed DLL identities when targets are available.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
 
 ### Phase 5 — Resource and compatibility intelligence
