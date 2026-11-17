@@ -14,7 +14,8 @@ internal data class UnityMonoScriptSummary(
     val executionOrder: Int,
     val className: String,
     val namespace: String,
-    val assemblyName: String
+    val assemblyName: String,
+    val sourceFilePath: String? = null
 )
 
 internal data class MonoScriptReadResult(
