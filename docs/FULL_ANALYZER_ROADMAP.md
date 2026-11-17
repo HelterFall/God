@@ -131,7 +131,7 @@ Suggested analyzer contract:
 - [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26; validate every object range against the data section.
 - [x] Count all object records grouped by ClassID and preserve up to 10 example PathIDs per class; the first 40 candidate files receive an 8 MiB metadata read window.
 - [x] Count all object records grouped by ClassID and preserve a bounded list of example PathIDs, including GameObject (1), Transform (4), MonoBehaviour (114), and MonoScript (115).
-- [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); common-string offsets remain unresolved.
+- [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); known Unity CommonString offsets resolve for the 109 base entries plus five later Unity 2022+/6 names; unknown offsets remain unresolved.
 - [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.
 - [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.
 - [x] Read SerializeReference type entries for v20–v26; preserve className, namespace and assemblyName for v21+.
