@@ -128,11 +128,11 @@ Suggested analyzer contract:
 - [x] Read leading metadata fields for SerializedFile v19–v26: Unity version, target platform, TypeTree flag and type count.
 - [x] Safely skip bounded type entries and count objects, MonoScript references and external references.
 - [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
-- [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26.
+- [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26; validate every object range against the data section.
 - [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); common-string offsets remain unresolved.
-- [ ] Resolve MonoScript references to managed types.
+- [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.\n- [ ] Resolve MonoScript references to managed types.
 - [ ] Scene/GameObject/MonoBehaviour inventory.
-- [ ] MonoScript-to-managed-type resolution.
+- [ ] Decode MonoScript objects and resolve fileID/pathID references to managed assembly, namespace, and class names.
 - [ ] TypeTree/version compatibility matrix and graceful partial results.
 
 ### Phase 5 — Resource and compatibility intelligence
@@ -169,5 +169,5 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 1. Validate the new SerializedFile/UnityFS header parser against real Unity samples and expand malformed-header tests.
 2. Add positional SAF reads so pre-v9 SerializedFiles can locate the endian marker without loading the file.
 3. Parse the first bounded metadata fields (Unity version, target platform, TypeTree flag, type/object counts) with strict count and offset limits.
-4. Add UnityFS block-table metadata parsing; keep payload decompression as a separate, explicitly bounded stage.
+4. Add UnityFS block-table metadata parsing; keep payload decompression as a separate, explicitly bounded stage.\n5. Decode MonoScript objects using their object TypeTrees and resolve cross-file references through the external-file table.
 5. Move report generation to streaming writers and stop retaining complete Markdown/JSON strings for large scans.
