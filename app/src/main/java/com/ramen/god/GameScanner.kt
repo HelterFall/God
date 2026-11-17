@@ -232,7 +232,7 @@ class GameScanner(private val activity: Activity) {
                 }
                 updatedBindings[ownerPath]?.set(index, current.copy(
                     matchedExternalFilePath = targetEntry.path,
-                    localObjectClassId = targetObject.classId,
+                    targetObjectClassId = targetObject.classId,
                     objectByteStart = targetObject.byteStart,
                     objectByteSize = targetObject.byteSize,
                     resolution = "external-monoscript-object-found"
@@ -557,7 +557,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 10)
+        root.put("schemaVersion", 11)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -593,7 +593,7 @@ class GameScanner(private val activity: Activity) {
                     .put("pathId", binding.pathId ?: JSONObject.NULL)
                     .put("externalPath", binding.externalPath ?: JSONObject.NULL)
                     .put("matchedExternalFilePath", binding.matchedExternalFilePath ?: JSONObject.NULL)
-                    .put("localObjectClassId", binding.localObjectClassId ?: JSONObject.NULL)
+                    .put("targetObjectClassId", binding.targetObjectClassId ?: JSONObject.NULL)
                     .put("monoScriptName", binding.monoScriptName ?: JSONObject.NULL)
                     .put("className", binding.className ?: JSONObject.NULL)
                     .put("namespace", binding.namespace ?: JSONObject.NULL)
