@@ -56,7 +56,7 @@ class UnityExternalPathResolverTest {
     fun normalizesWindowsSeparatorsAndCase() {
         val expected = Candidate("Game_Data/resources.assets", "resources.assets")
         val result = UnityExternalPathResolver.resolve(
-            "ARCHIVE:\\\\Game_Data\\\\RESOURCES.ASSETS",
+            "ARCHIVE:\\Game_Data\\RESOURCES.ASSETS",
             listOf(expected),
             { it.path },
             { it.name }
