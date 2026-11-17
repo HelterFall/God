@@ -101,6 +101,7 @@ class GameScanner(private val activity: Activity) {
         }
 
         resolveExternalMonoScriptRecords(files)
+        resolveExternalScenePointers(files)
 
         val managedBinaries = peResults.filterValues { it.managed }.keys
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
@@ -367,6 +368,18 @@ class GameScanner(private val activity: Activity) {
                 scriptTypeBindings = bindings,
                 monoScripts = scripts
             )
+        }
+    }
+
+    private fun resolveExternalScenePointers(files: List<ScanEntry>) {
+        val snapshot = unityMetadata.toMap()
+        val resolutions = UnityExternalPointerResolver.resolve(snapshot) { externalPath ->
+            val match = resolveExternalFile(externalPath, files)
+            if (match.ambiguous) null else match.entry?.path
+        }
+        resolutions.forEach { (path, links) ->
+            val old = unityMetadata[path] ?: return@forEach
+            unityMetadata[path] = old.copy(externalPointerResolutions = links)
         }
     }
 
@@ -638,6 +651,24 @@ class GameScanner(private val activity: Activity) {
         }
         if (decodedSceneCount == 0 && unityMetadata.isEmpty()) appendLine("- Декодированные scene objects не найдены")
         appendLine()
+        appendLine("## External Unity object references")
+        unityMetadata.forEach { (path, metadata) ->
+            val links = metadata.externalPointerResolutions
+            if (links.isNotEmpty()) {
+                appendLine("- " + path + ": external PPtr=" + links.size +
+                    "; decoded targets=" + links.count { it.status == "resolved-decoded-object" } +
+                    "; sampled targets=" + links.count { it.status == "resolved-object-record-not-decoded" })
+                links.take(64).forEach { link ->
+                    appendLine("  - source=" + link.sourcePathId + " field=" + link.field +
+                        " -> fileID=" + link.fileId + "/pathID=" + link.pathId +
+                        (link.targetFilePath?.let { " file=" + it } ?: "") +
+                        (link.targetClassId?.let { " ClassID=" + it } ?: "") +
+                        (link.targetName?.let { " name=\"" + it + "\"" } ?: "") +
+                        " status=" + link.status)
+                }
+            }
+        }
+        appendLine()
         appendLine("## Resolved Unity scene hierarchy")
         unityMetadata.forEach { (path, metadata) ->
             metadata.sceneGraph?.let { graph ->
@@ -767,6 +798,12 @@ class GameScanner(private val activity: Activity) {
                     .put("children", JSONArray(obj.children.map { ref -> JSONObject().put("fileId", ref.fileId).put("pathId", ref.pathId) }))
                     .put("components", JSONArray(obj.components.map { ref -> JSONObject().put("fileId", ref.fileId).put("pathId", ref.pathId) }))
                     .put("script", obj.script?.let { JSONObject().put("fileId", it.fileId).put("pathId", it.pathId) } ?: JSONObject.NULL) }))
+                .put("externalPointerResolutions", JSONArray(metadata.externalPointerResolutions.map { link -> JSONObject()
+                    .put("sourcePathId", link.sourcePathId).put("field", link.field)
+                    .put("fileId", link.fileId).put("pathId", link.pathId)
+                    .put("targetFilePath", link.targetFilePath ?: JSONObject.NULL)
+                    .put("targetClassId", link.targetClassId ?: JSONObject.NULL)
+                    .put("targetName", link.targetName ?: JSONObject.NULL).put("status", link.status) }))
                 .put("sceneGraph", metadata.sceneGraph?.let { graph -> JSONObject()
                     .put("unresolvedReferenceCount", graph.unresolvedReferenceCount)
                     .put("externalReferenceCount", graph.externalReferenceCount)
