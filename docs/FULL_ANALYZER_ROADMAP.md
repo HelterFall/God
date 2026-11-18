@@ -183,8 +183,15 @@ The current app uses a single `MainActivity.kt` containing the UI, SAF traversal
 
 ## Immediate next implementation slice
 
-1. Resolve external scene PPtr links across SerializedFiles using fileID/external table entries and the existing unambiguous path resolver; preserve ambiguous and missing states.
-2. Expand MonoScript↔TypeDef linking to nested types, broader scriptTypeIndex associations and more complete managed metadata; preserve ambiguous or missing matches.
-3. Extend the bounded TypeTree interpreter to more variable-length field patterns and ScriptableObject payloads without guessing unknown layouts.
-4. Add real-file fixtures across Unity generations and publish a TypeTree/object-decoding compatibility matrix.
-5. Continue with UnityFS block-table metadata, positional SAF reads, and streaming report writers as separate bounded work items.
+The first two items from the previous slice are implemented in bounded form and are checked off in Phase 4 above:
+- [x] Resolve sampled external scene PPtr links across SerializedFiles using the external file table and unambiguous paths; unresolved and ambiguous cases remain explicit.
+- [x] Link available MonoScript identities to managed TypeDef records; nested types and broader metadata coverage remain incomplete.
+
+Next implementation items:
+1. Extend the bounded TypeTree interpreter to more variable-length field patterns and ScriptableObject payloads without guessing unknown layouts.
+2. Add real-file fixtures across Unity generations and publish a TypeTree/object-decoding compatibility matrix.
+3. Add positional/random-access SAF reads for parsers that require them.
+4. Implement UnityFS block-table and bundle-content reading.
+5. Introduce streaming report writers, scan coverage, and a versioned report manifest.
+
+See [AUDIT_2026-11-18.md](AUDIT_2026-11-18.md) for the full verified audit, priorities, and acceptance criteria.
