@@ -186,7 +186,7 @@ class MainActivity : Activity() {
                 val content = if (requestCode == SAVE_JSON) jsonReport else markdownReport
                 if (content == null) return
                 try {
-                    contentResolver.openOutputStream(uri)?.bufferedWriter(Charsets.UTF_8)?.use { it.write(content) }
+                    ReportExporter.write(content) { contentResolver.openOutputStream(uri) }
                     status.text = "Отчёт сохранён."
                 } catch (e: Exception) {
                     status.text = "Ошибка сохранения: " + e.message

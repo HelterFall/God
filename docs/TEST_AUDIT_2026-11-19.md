@@ -2,20 +2,20 @@
 
 **Дата:** 19 ноября 2026 года  
 **Проверенная ветка:** main  
-**Последний проверенный commit исходников:** cb69a252aa7c7c9aee8eaa206dbe7835b9f3c9c8  
-**CI baseline:** run #250, commit 7e737eb6f7f4da28879937ffaf064aa1cdb76d05; workflow завершился успешно. После source baseline в ветке были только изменения документации.
+**Исходный commit перед текущим изменением:** 1bad13cfa47ba6b13213f33187a858d4fad255c5  
+**Последняя успешная проверка CI до текущего изменения:** run #256, commit 1bad13cfa47ba6b13213f33187a858d4fad255c5; workflow завершился успешно.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 12 JVM test files;
-- 61 метод с аннотацией `@Test`;
+- 13 JVM test files;
+- 66 методов с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
-- последний проверенный запуск #250 завершился успешно, включая компиляцию Kotlin tests, выполнение test task, сборку APK и загрузку artifact.
+- последний запуск до этой правки — #256 — завершился успешно, включая компиляцию Kotlin tests, выполнение test task, сборку APK и загрузку artifact; новый CI запуск должен подтвердить добавленные пять тестов.
 
-Это подтверждает, что текущие JVM tests проходят и Android debug APK собирается. Но **это не является доказательством корректности полного сканирования игры**. Почти все тесты изолированы на уровне parser/resolver; реальные игровые файлы, Android SAF, UI, полный `GameScanner.scan()`, cancellation и export lifecycle не покрыты интеграционными тестами.
+Это подтверждает работу изолированных JVM-тестов и сборку Android debug APK после успешного CI. Но **это не является доказательством корректности полного сканирования игры**. Реальные игровые файлы, Android SAF, UI, полный `GameScanner.scan()`, cancellation и Android export/provider lifecycle по-прежнему не покрыты интеграционными тестами. Запись отчёта дополнительно проверяется отдельными JVM-тестами `ReportExporterTest`.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -27,6 +27,7 @@
 | ClrSignatureParserTest | 6 | Primitive field/method signatures, одномерный массив, generic VAR/MVAR, truncated/unknown signatures |
 | MonoScriptParserTest | 5 | Little/big endian payload, чтение object из stream, malformed/out-of-range и traversal limit |
 | PeParserTest | 3 | Non-PE/truncated input, x86 PE и CLR directory |
+| ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -36,7 +37,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **61 тестовый метод в 12 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Всего: **66 тестовых методов в 13 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -84,18 +85,19 @@ Unit tests парсеров не ловят ошибки их orchestration и �
 
 **Риск:** повторные задания, потеря результатов при отмене/повороте экрана и работа фоновой задачи после уничтожения Activity.
 
-### QA-03 — в экспорте есть проверяемый дефект
+### QA-03 — исправлено: безопасная запись отчётов
 
-В `MainActivity` используется safe-call при открытии output stream: если `openOutputStream(uri)` вернул `null`, запись не выполняется, но UI всё равно может показать «Отчёт сохранён».
+Запись вынесена в `ReportExporter`. Если Android provider возвращает null вместо output stream, helper выбрасывает IOException. Ошибки открытия, записи и закрытия не подавляются, а вызов из `MainActivity` показывает «Отчёт сохранён» только после успешной записи и закрытия потока.
 
-Нет тестов на:
+Пять тестов `ReportExporterTest` проверяют:
 
 - null output stream;
-- IOException при открытии/записи;
-- ошибку закрытия;
-- корректность статуса экспорта при неудаче.
+- IOException при открытии;
+- IOException при записи;
+- IOException при закрытии;
+- корректную UTF-8 запись и закрытие потока.
 
-**Риск:** пользователь может принять пустой файл за успешно сохранённый отчёт.
+**Оставшаяся граница:** эти JVM-тесты проверяют helper, но не поведение настоящих Android document providers; для него остаётся QA-04 (instrumentation tests).
 
 ### QA-04 — нет Android SAF instrumentation tests
 
@@ -201,7 +203,7 @@ https://github.com/HelterFall/God/actions/runs/44398435979
 7. Добавить fuzz/property tests для binary readers и ограничений.
 8. Улучшить CI: pull_request trigger, Gradle Wrapper, JUnit XML/coverage artifacts, lint/static checks и обновление deprecated action runtimes.
 
-Не нужно пытаться выполнить всё одним большим изменением. Каждый пункт следует закрывать отдельными тестируемыми commits, начиная с пользовательских рисков отмены/экспорта и отсутствия scanner integration tests.
+Не нужно пытаться выполнить всё одним большим изменением. Каждый пункт следует закрывать отдельными тестируемыми commits; после закрытия QA-03 ближайшие пользовательские риски — отмена/жизненный цикл сканирования и отсутствие scanner integration tests.
 
 ## 6. Definition of Done для тестовой зрелости
 

@@ -2,14 +2,15 @@
 
 **Дата:** 19 ноября 2026 года  
 **Базовая ветка:** main  
-**Source baseline, проверенный по коду:** cb69a252aa7c7c9aee8eaa206dbe7835b9f3c9c8  
-**Контрольная точка документации при составлении плана:** 2ba10b3376accb46eeefbbbd5886a7d8aae555d3  
-**Последняя проверка CI:** run #250 для документационного commit 7e737eb завершился успешно; после source baseline cb69a25 менялись только документы. Отдельный аудит тестов: 12 JVM test files / 61 @Test methods; Android instrumentation и end-to-end scanner tests пока отсутствуют.  
+**Исходный commit перед этим шагом:** 1bad13cfa47ba6b13213f33187a858d4fad255c5  
+**Контрольная точка документации перед изменением:** 1bad13cfa47ba6b13213f33187a858d4fad255c5  
+**Последняя успешная проверка CI перед изменением:** run #256 для commit 1bad13c завершился успешно.  
+**Тестовая база после текущего изменения:** 13 JVM test files / 66 @Test methods; пять новых тестов проверяют безопасный экспорт. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. Последний проверенный CI — run #250 (JVM parser tests и debug APK build успешны). Этот run проверял документальный commit; код приложения остаётся на source baseline cb69a25. Отдельный test audit обнаружил пробелы за пределами parser unit tests. Это подтверждает сборку и существующие тесты, но не означает, что глубокое исследование игры уже реализовано.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. Последний подтверждённый CI перед этой правкой — run #256 (JVM tests и debug APK build успешны). В текущем изменении безопасный экспорт вынесен в отдельный компонент и покрыт пятью JVM-тестами; результат нового CI должен подтвердить эту правку. Это не означает, что глубокое исследование игры уже реализовано.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -58,8 +59,9 @@ God уже умеет выполнять ограниченную инвента
 - [x] Markdown tree имеет отдельный предел 20 000 строк.
 - [x] Текущие Markdown и JSON сначала формируются в памяти как строки; потокового ReportWriter пока нет.
 - [x] Экспорт открывает пользовательский destination через SAF.
+- [x] Запись выполняется через `ReportExporter`: null stream и ошибки открытия/записи/закрытия приводят к ошибке; успешный статус появляется только после завершения записи и закрытия потока.
 
-**Известный дефект:** openOutputStream(uri) вызывается через safe call. Если provider вернул null, код всё равно показывает «Отчёт сохранён». Это нужно исправить, а не реализовывать экспорт с нуля.
+**Оставшееся ограничение:** Markdown/JSON по-прежнему полностью формируются в памяти; потоковый `ReportWriter` ещё не реализован.
 
 ### Уже существующие анализаторы
 
@@ -83,9 +85,9 @@ God уже умеет выполнять ограниченную инвента
 
 - [ ] **QA-01 — scanner integration coverage.** Нет теста полного GameScanner.scan(): inventory → candidate selection → analyzers → coverage → JSON/Markdown. Выделить testable file tree/access interfaces и добавить end-to-end fixture.
 - [ ] **QA-02 — scan lifecycle/cancellation race.** Общий scanCancelled флаг, отсутствие scan lock и активная кнопка повторного запуска допускают queued jobs; отмена не создаёт partial report; выполняющаяся задача может пережить Activity.onDestroy(). Добавить job-scoped cancellation, один активный job, безопасное lifecycle handling и regression tests.
-- [ ] **QA-03 — export false success.** Null из openOutputStream(uri) сейчас может быть ошибочно показан как успешное сохранение. Исправить и покрыть null/IOException/write failure tests.
+- [x] **QA-03 — export false success.** Исправлено: `ReportExporter` отклоняет null stream и передаёт ошибки открытия, записи и закрытия; пять JVM-тестов проверяют эти сценарии, UTF-8 и закрытие потока.
 - [ ] **QA-04 — Android SAF tests.** Нет instrumentation tests для реальных document providers, URI permissions, stream errors, Activity recreation и export destination.
-- [ ] **QA-05 — real binary fixtures.** Текущие 61 @Test в основном используют synthetic byte arrays и вручную созданные model objects. Добавить небольшой набор реально созданных/легально распространяемых PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
+- [ ] **QA-05 — real binary fixtures.** Текущие 66 @Test в основном используют synthetic byte arrays и вручную созданные model objects. Добавить небольшой набор реально созданных/легально распространяемых PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
 - [ ] **QA-06 — positive PE imports coverage.** Текущий PeParserTest не создаёт настоящий Import Directory с секцией и не проверяет успешно извлечённые DLL names; ARM64 и malformed import descriptors тоже не покрыты.
 - [ ] **QA-07 — parser compatibility matrix.** Уточнить и расширить проверки CLR signatures/metadata, Unity header versions, SerializedFile v19–v26, TypeTree/shared subtree и scene graph limits. Synthetic tests оставить, но сверять их с реальными samples.
 - [ ] **QA-08 — binary robustness.** Добавить property/fuzz tests для offsets, lengths, counts, overflow, malformed heaps, truncated streams и compression/container boundaries.
@@ -97,7 +99,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-**Текущая база:** 12 test files / 61 @Test methods, JUnit 4.13.2. Успешный run #250 подтверждает выполнение `:app:testDebugUnitTest` и `:app:assembleDebug`, но не заменяет интеграционные/Android tests. Зелёный run не помечает ни один QA-01…QA-12 пункт выполненным.
+**Текущая база:** 13 test files / 66 @Test methods, JUnit 4.13.2. Run #256 подтвердил выполнение `:app:testDebugUnitTest` и `:app:assembleDebug` до текущей правки; новый CI должен подтвердить пять тестов `ReportExporterTest`. Интеграционные/Android tests по-прежнему нужны.
 
 ## 3. Последовательность реализации
 
@@ -106,7 +108,7 @@ God уже умеет выполнять ограниченную инвента
 **Статус:** [x] выполнено для базового commit.
 
 - [x] Проверить текущую ветку и зафиксировать исходный commit.
-- [x] Проверить зелёный CI: последний подтверждённый run #248 (JVM parser tests и debug APK build успешны); source code после baseline cb69a25 не менялся.
+- [x] Проверить зелёный CI перед текущей правкой: run #256 (JVM tests и debug APK build успешны) на commit 1bad13c.
 - [x] Зафиксировать ограничения текущего MVP в техническом аудите.
 - [x] Утвердить целевое назначение God и формат Porting Dossier.
 
