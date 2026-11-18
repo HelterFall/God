@@ -2,15 +2,15 @@
 
 **Дата:** 19 ноября 2026 года  
 **Базовая ветка:** main  
-**Исходный commit перед этим шагом:** 1bad13cfa47ba6b13213f33187a858d4fad255c5  
-**Контрольная точка документации перед изменением:** 1bad13cfa47ba6b13213f33187a858d4fad255c5  
-**Последняя успешная проверка CI перед изменением:** run #256 для commit 1bad13c завершился успешно.  
+**Исходный commit перед этим шагом:** f36b317366ae5e4d5d016f1061c0c2d0b78c76bf  
+**Контрольная точка документации перед изменением:** f36b317366ae5e4d5d016f1061c0c2d0b78c76bf  
+**Последняя успешная проверка CI до lifecycle-изменений:** run #258 для commit f36b317 завершился успешно; run #261 проверяет текущий PR.  
 **Тестовая база после текущего изменения:** 14 JVM test files / 72 @Test methods; пять тестов проверяют безопасный экспорт и шесть — lifecycle coordinator. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. Последний подтверждённый CI перед этой правкой — run #256 (JVM tests и debug APK build успешны). В текущем изменении безопасный экспорт вынесен в отдельный компонент и покрыт пятью JVM-тестами; результат нового CI должен подтвердить эту правку. Это не означает, что глубокое исследование игры уже реализовано.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. Последний подтверждённый CI до lifecycle-изменений — run #258 (JVM tests, debug APK и artifact upload успешны). Безопасный экспорт уже вынесен в `ReportExporter` и покрыт пятью тестами; текущая ветка добавляет `ScanCoordinator` и шесть тестов. Это не означает, что глубокое исследование игры уже реализовано.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -94,12 +94,12 @@ God уже умеет выполнять ограниченную инвента
 
 ### P2 — надёжность разработки и CI
 
-- [ ] **QA-09 — pull request validation and test artifacts.** Workflow сейчас запускается на push в main и вручную; добавить pull_request, сохранение JUnit XML и coverage reports, lint/static checks и отдельные Android instrumentation checks.
+- [ ] **QA-09 — pull request validation and test artifacts.** Workflow теперь запускается также на pull_request; остаётся добавить сохранение JUnit XML и coverage reports, lint/static checks и отдельные Android instrumentation checks.
 - [ ] **QA-10 — reproducible Gradle.** В репозитории нет Gradle Wrapper; добавить wrapper, закрепить Gradle distribution и использовать его локально/в CI.
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-**Текущая база:** 14 test files / 72 @Test methods, JUnit 4.13.2. Run #258 подтвердил тесты и APK build после ReportExporter; run #259 проверяет ScanCoordinator changes. Интеграционные/Android tests по-прежнему нужны.
+**Текущая база:** 14 test files / 72 @Test methods, JUnit 4.13.2. Run #258 подтвердил тесты и APK build после ReportExporter; run #261 проверяет ScanCoordinator и отвязку GameScanner от Activity. Интеграционные/Android tests по-прежнему нужны.
 
 ## 3. Последовательность реализации
 
@@ -387,7 +387,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Текущая тестовая база:** 12 JVM test files / 61 @Test methods. Существующие тесты покрывают отдельные parser/resolver functions на synthetic data; нет end-to-end GameScanner tests, Android instrumentation tests, real binary fixtures, fuzz/property tests или coverage reports. См. [test audit](TEST_AUDIT_2026-11-19.md).
+**Текущая тестовая база:** 14 JVM test files / 72 @Test methods. Существующие тесты покрывают отдельные parser/resolver functions на synthetic data; нет end-to-end GameScanner tests, Android instrumentation tests, real binary fixtures, fuzz/property tests или coverage reports. См. [test audit](TEST_AUDIT_2026-11-19.md).
 
 - [ ] Добавить scanner integration tests для inventory, candidate selection, ScanCoverage, report JSON/Markdown и partial failures.
 - [ ] Добавить tests для scan locking, job-scoped cancellation, Activity lifecycle и partial reports.
