@@ -21,6 +21,17 @@ class GameScanner(private val activity: Activity) {
     private val unityHeaders = linkedMapOf<String, UnityFileHeader>()
     private val unityMetadata = linkedMapOf<String, UnityMetadataSummary>()
     private var totalBytes = 0L
+    private var inaccessibleDirectoryCount = 0
+    private var depthLimitHitCount = 0
+    private var entryLimitReached = false
+    private var peAttemptedCount = 0
+    private var peFailedCount = 0
+    private var clrAttemptedCount = 0
+    private var clrFailedCount = 0
+    private var unityHeaderAttemptedCount = 0
+    private var unityHeaderFailedCount = 0
+    private var unityMetadataAttemptedCount = 0
+    private var unityMetadataFailedCount = 0
 
     companion object {
         private const val MAX_ENTRIES = 100_000
@@ -50,6 +61,17 @@ class GameScanner(private val activity: Activity) {
         unityHeaders.clear()
         unityMetadata.clear()
         totalBytes = 0L
+        inaccessibleDirectoryCount = 0
+        depthLimitHitCount = 0
+        entryLimitReached = false
+        peAttemptedCount = 0
+        peFailedCount = 0
+        clrAttemptedCount = 0
+        clrFailedCount = 0
+        unityHeaderAttemptedCount = 0
+        unityHeaderFailedCount = 0
+        unityMetadataAttemptedCount = 0
+        unityMetadataFailedCount = 0
         walk(root, "", 0, shouldCancel, onProgress)
         if (shouldCancel()) throw ScanCancelledException()
         onProgress(entries.size, "Инвентаризация завершена; анализирую PE-файлы")
@@ -80,7 +102,13 @@ class GameScanner(private val activity: Activity) {
         if (peCandidates.size > MAX_PE_FILES) warnings.add("PE-анализ ограничен первыми " + MAX_PE_FILES + " EXE/DLL.")
         peCandidates.take(MAX_PE_FILES).forEach { entry ->
             if (shouldCancel()) throw ScanCancelledException()
-            readPeInfo(entry)?.let { peResults[entry.path] = it }
+            peAttemptedCount++
+            val info = readPeInfo(entry)
+            if (info == null) {
+                peFailedCount++
+            } else {
+                peResults[entry.path] = info
+            }
         }
 
         val unityCandidates = files.filter { isUnityHeaderCandidate(it.name) }.sortedBy { entry ->
@@ -96,18 +124,42 @@ class GameScanner(private val activity: Activity) {
         }
         unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
             if (shouldCancel()) throw ScanCancelledException()
+            val deepMetadataRead = index < MAX_UNITY_METADATA_FILES
+            unityHeaderAttemptedCount++
+            if (deepMetadataRead) unityMetadataAttemptedCount++
+
+            var headerParsed = false
+            var metadataParsed = false
+            var diagnostic: String? = null
             try {
-                val readLimit = if (index < MAX_UNITY_METADATA_FILES) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
-                val prefix = readPrefix(entry.uri, readLimit) ?: return@forEachIndexed
-                UnityFileHeaderParser.parse(prefix, entry.size)?.let { header ->
-                    unityHeaders[entry.path] = header
-                    UnityMetadataParser.parse(prefix, header)?.let { metadata ->
-                        unityMetadata[entry.path] = readMonoScriptRecords(entry, header, metadata)
+                val readLimit = if (deepMetadataRead) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
+                val prefix = readPrefix(entry.uri, readLimit)
+                if (prefix == null) {
+                    diagnostic = "не удалось открыть файл для чтения"
+                } else {
+                    val header = UnityFileHeaderParser.parse(prefix, entry.size)
+                    if (header == null) {
+                        diagnostic = "заголовок не распознан в прочитанном диапазоне"
+                    } else {
+                        headerParsed = true
+                        unityHeaders[entry.path] = header
+                        if (deepMetadataRead) {
+                            val metadata = UnityMetadataParser.parse(prefix, header)
+                            if (metadata == null) {
+                                diagnostic = "metadata не разобрана в доступном диапазоне"
+                            } else {
+                                unityMetadata[entry.path] = readMonoScriptRecords(entry, header, metadata)
+                                metadataParsed = true
+                            }
+                        }
                     }
                 }
             } catch (e: Exception) {
-                warnings.add("Unity-заголовок не прочитан для " + entry.path + ": " + e.message)
+                diagnostic = e.message ?: e.javaClass.simpleName
             }
+            if (!headerParsed) unityHeaderFailedCount++
+            if (deepMetadataRead && !metadataParsed) unityMetadataFailedCount++
+            diagnostic?.let { warnings.add("Unity-анализ " + entry.path + ": " + it) }
         }
 
         resolveExternalMonoScriptRecords(files)
@@ -120,15 +172,22 @@ class GameScanner(private val activity: Activity) {
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
         val importSummary = peResults.values.flatMap { it.imports }
             .groupingBy { it.lowercase(Locale.ROOT) }.eachCount().entries.sortedByDescending { it.value }
+        val coverage = buildScanCoverage(
+            files.size,
+            entries.size - files.size,
+            peCandidates.size,
+            unityCandidates.size,
+            hasGameAssembly || hasMetadata || hasIl2CppDir
+        )
 
         val md = buildMarkdown(
             root.name ?: "(unnamed)", backend, unityVersion, gameAssemblies, unityModules,
             monoFolder, managedDir, hasGameAssembly, hasMetadata, hasIl2CppDir, hasUnityPlayer,
-            managedBinaries, nativeBinaries, importSummary, unityHeaders, unityMetadata
+            managedBinaries, nativeBinaries, importSummary, unityHeaders, unityMetadata, coverage
         )
         val json = buildJson(
             root.name ?: "(unnamed)", backend, unityVersion, gameAssemblies, unityModules,
-            managedBinaries, nativeBinaries, importSummary, unityHeaders, unityMetadata
+            managedBinaries, nativeBinaries, importSummary, unityHeaders, unityMetadata, coverage
         )
         return ScanResult(md, json)
     }
@@ -142,20 +201,24 @@ class GameScanner(private val activity: Activity) {
     ) {
         if (shouldCancel()) throw ScanCancelledException()
         if (depth > MAX_DEPTH) {
+            depthLimitHitCount++
             warnings.add("Достигнут лимит глубины " + MAX_DEPTH + " в " + parent)
             return
         }
         if (entries.size >= MAX_ENTRIES) {
+            entryLimitReached = true
             warnings.add("Достигнут лимит " + MAX_ENTRIES + " записей; дерево неполное.")
             return
         }
         val children = try { dir.listFiles() } catch (e: Exception) {
+            inaccessibleDirectoryCount++
             warnings.add("Не удалось прочитать каталог " + parent + ": " + e.message)
             return
         }
         for (child in children) {
             if (shouldCancel()) throw ScanCancelledException()
             if (entries.size >= MAX_ENTRIES) {
+                entryLimitReached = true
                 warnings.add("Достигнут лимит " + MAX_ENTRIES + " записей; дерево неполное.")
                 break
             }
@@ -168,6 +231,103 @@ class GameScanner(private val activity: Activity) {
             if (!isDir) totalBytes += size
             if (isDir) walk(child, path, depth + 1, shouldCancel, onProgress)
         }
+    }
+
+    private fun buildScanCoverage(
+        fileCount: Int,
+        directoryCount: Int,
+        peCandidateCount: Int,
+        unityCandidateCount: Int,
+        hasIl2CppEvidence: Boolean
+    ): ScanCoverage {
+        val peSkipped = (peCandidateCount - peAttemptedCount).coerceAtLeast(0)
+        val unityHeaderSkipped = (unityCandidateCount - unityHeaderAttemptedCount).coerceAtLeast(0)
+        val deepMetadataCandidates = minOf(unityCandidateCount, MAX_UNITY_METADATA_FILES)
+        val metadataWindowLimited = (
+            minOf(unityCandidateCount, MAX_UNITY_HEADER_FILES) - deepMetadataCandidates
+        ).coerceAtLeast(0)
+        val metadataSkipped = (unityCandidateCount - MAX_UNITY_HEADER_FILES).coerceAtLeast(0)
+
+        val clrPartial = clrResults.values.count { it.status.startsWith("partial-") }
+        val clrParsed = clrResults.values.count { it.status == "parsed" }
+        val clrOtherStatus = clrResults.size - clrPartial - clrParsed
+        val clrFailed = clrFailedCount + clrOtherStatus
+
+        val unityFsCount = unityHeaders.values.count { it.kind == "UnityFS bundle" }
+        val analyzers = listOf(
+            AnalyzerCoverage(
+                id = "pe",
+                candidateCount = peCandidateCount,
+                attemptedCount = peAttemptedCount,
+                parsedCount = peResults.size,
+                failedCount = peFailedCount,
+                skippedCount = peSkipped,
+                notes = listOf("PE inspection is limited to the first $MAX_PE_FILES EXE/DLL candidates.")
+            ),
+            AnalyzerCoverage(
+                id = "clr_metadata",
+                candidateCount = clrAttemptedCount,
+                attemptedCount = clrAttemptedCount,
+                parsedCount = clrParsed,
+                partialCount = clrPartial,
+                failedCount = clrFailed,
+                limitedCount = peSkipped,
+                notes = listOf(
+                    "Only managed PE files detected among inspected PE candidates are counted; managed files beyond the PE limit are unknown."
+                )
+            ),
+            AnalyzerCoverage(
+                id = "unity_file_headers",
+                candidateCount = unityCandidateCount,
+                attemptedCount = unityHeaderAttemptedCount,
+                parsedCount = unityHeaders.size,
+                failedCount = unityHeaderFailedCount,
+                skippedCount = unityHeaderSkipped,
+                notes = listOf("Unity header inspection is limited to the first $MAX_UNITY_HEADER_FILES filename candidates.")
+            ),
+            AnalyzerCoverage(
+                id = "serialized_file_metadata",
+                candidateCount = unityCandidateCount,
+                attemptedCount = unityMetadataAttemptedCount,
+                parsedCount = unityMetadata.size,
+                failedCount = unityMetadataFailedCount,
+                limitedCount = metadataWindowLimited,
+                skippedCount = metadataSkipped,
+                notes = listOf(
+                    "Deep metadata reads (up to $MAX_UNITY_METADATA_READ bytes) are limited to the first $MAX_UNITY_METADATA_FILES candidates; later candidates receive header-only reads."
+                )
+            ),
+            AnalyzerCoverage(
+                id = "unityfs_contents",
+                candidateCount = unityFsCount,
+                attemptedCount = 0,
+                parsedCount = 0,
+                notes = listOf("UnityFS headers are recognized, but block data and bundle entries are not unpacked."),
+                forcedStatus = if (unityFsCount > 0) "unsupported" else "not-applicable"
+            ),
+            AnalyzerCoverage(
+                id = "il2cpp_metadata",
+                candidateCount = if (hasIl2CppEvidence) 1 else 0,
+                attemptedCount = 0,
+                parsedCount = 0,
+                notes = listOf("IL2CPP is identified from structural markers only; global-metadata.dat is not parsed."),
+                forcedStatus = if (hasIl2CppEvidence) "unsupported" else "not-applicable"
+            )
+        )
+        val inventoryStatus = if (
+            inaccessibleDirectoryCount > 0 || depthLimitHitCount > 0 || entryLimitReached
+        ) "partial" else "completed"
+        return ScanCoverage(
+            inventoryStatus = inventoryStatus,
+            entriesDiscovered = entries.size,
+            filesDiscovered = fileCount,
+            directoriesDiscovered = directoryCount,
+            totalFileBytes = totalBytes,
+            inaccessibleDirectoryCount = inaccessibleDirectoryCount,
+            depthLimitHitCount = depthLimitHitCount,
+            entryLimitReached = entryLimitReached,
+            analyzers = analyzers
+        )
     }
 
     private fun isUnityHeaderCandidate(name: String): Boolean {
@@ -574,10 +734,16 @@ class GameScanner(private val activity: Activity) {
                 }
             }
             if (info.managed) {
-                ClrMetadataParser.parse(
+                clrAttemptedCount++
+                val summary = ClrMetadataParser.parse(
                     data, info.clrMetadataOffset, info.clrMetadataSize,
                     info.clrRuntimeVersion, info.clrFlags
-                )?.let { clrResults[entry.path] = it }
+                )
+                if (summary == null) {
+                    clrFailedCount++
+                } else {
+                    clrResults[entry.path] = summary
+                }
             }
             info
         } catch (e: Exception) {
@@ -607,7 +773,8 @@ class GameScanner(private val activity: Activity) {
         unityModules: List<ScanEntry>, monoFolder: Boolean, managedDir: Boolean,
         hasGameAssembly: Boolean, hasMetadata: Boolean, hasIl2CppDir: Boolean, hasUnityPlayer: Boolean,
         managedBinaries: Set<String>, nativeBinaries: Set<String>, importSummary: List<Map.Entry<String, Int>>,
-        unityHeaders: Map<String, UnityFileHeader>, unityMetadata: Map<String, UnityMetadataSummary>
+        unityHeaders: Map<String, UnityFileHeader>, unityMetadata: Map<String, UnityMetadataSummary>,
+        coverage: ScanCoverage
     ): String = buildString {
         appendLine("# Unity Game Architecture Report")
         appendLine()
@@ -846,6 +1013,27 @@ class GameScanner(private val activity: Activity) {
         }
         if (entries.size > shown.size) appendLine("- Дерево сокращено: пропущено " + (entries.size - shown.size) + " записей.")
         appendLine()
+        appendLine("## Scan coverage")
+        appendLine("- Overall status: " + coverage.status)
+        appendLine("- Inventory status: " + coverage.inventoryStatus)
+        appendLine("- Entries: " + coverage.entriesDiscovered +
+            " (files=" + coverage.filesDiscovered + ", directories=" + coverage.directoriesDiscovered + ")")
+        appendLine("- Total file bytes: " + coverage.totalFileBytes)
+        appendLine("- Inaccessible directories: " + coverage.inaccessibleDirectoryCount)
+        appendLine("- Depth-limit hits: " + coverage.depthLimitHitCount)
+        appendLine("- Entry limit reached: " + coverage.entryLimitReached)
+        coverage.analyzers.forEach { analyzer ->
+            appendLine("- " + analyzer.id + ": " + analyzer.status +
+                "; candidates=" + analyzer.candidateCount +
+                "; attempted=" + analyzer.attemptedCount +
+                "; parsed=" + analyzer.parsedCount +
+                "; partial=" + analyzer.partialCount +
+                "; failed=" + analyzer.failedCount +
+                "; limited=" + analyzer.limitedCount +
+                "; skipped=" + analyzer.skippedCount)
+            analyzer.notes.forEach { note -> appendLine("  - " + note) }
+        }
+        appendLine()
         appendLine("## Warnings")
         if (warnings.isEmpty()) appendLine("- Нет")
         warnings.forEach { appendLine("- " + it) }
@@ -863,7 +1051,7 @@ class GameScanner(private val activity: Activity) {
         rootName: String, backend: String, unityVersion: UnityVersionResult, gameAssemblies: List<ScanEntry>,
         unityModules: List<ScanEntry>, managedBinaries: Set<String>, nativeBinaries: Set<String>,
         importSummary: List<Map.Entry<String, Int>>, unityHeaders: Map<String, UnityFileHeader>,
-        unityMetadata: Map<String, UnityMetadataSummary>
+        unityMetadata: Map<String, UnityMetadataSummary>, coverage: ScanCoverage
     ): String {
         val root = JSONObject()
         root.put("schemaVersion", 22)
@@ -880,6 +1068,29 @@ class GameScanner(private val activity: Activity) {
             .put("confidence", item.confidence) }))
         root.put("entryCount", entries.size)
         root.put("totalFileBytes", totalBytes)
+        root.put("scanCoverage", JSONObject()
+            .put("status", coverage.status)
+            .put("inventory", JSONObject()
+                .put("status", coverage.inventoryStatus)
+                .put("entriesDiscovered", coverage.entriesDiscovered)
+                .put("filesDiscovered", coverage.filesDiscovered)
+                .put("directoriesDiscovered", coverage.directoriesDiscovered)
+                .put("totalFileBytes", coverage.totalFileBytes)
+                .put("inaccessibleDirectoryCount", coverage.inaccessibleDirectoryCount)
+                .put("depthLimitHitCount", coverage.depthLimitHitCount)
+                .put("entryLimitReached", coverage.entryLimitReached))
+            .put("analyzers", JSONArray(coverage.analyzers.map { analyzer -> JSONObject()
+                .put("id", analyzer.id)
+                .put("status", analyzer.status)
+                .put("candidateCount", analyzer.candidateCount)
+                .put("attemptedCount", analyzer.attemptedCount)
+                .put("parsedCount", analyzer.parsedCount)
+                .put("partialCount", analyzer.partialCount)
+                .put("failedCount", analyzer.failedCount)
+                .put("limitedCount", analyzer.limitedCount)
+                .put("skippedCount", analyzer.skippedCount)
+                .put("notes", JSONArray(analyzer.notes))
+            })))
         root.put("gameAssemblies", JSONArray(gameAssemblies.map { JSONObject().put("path", it.path).put("size", it.size) }))
         root.put("unityEngineModules", JSONArray(unityModules.map { JSONObject().put("path", it.path).put("size", it.size) }))
         root.put("managedPeAssemblies", JSONArray(managedBinaries))
