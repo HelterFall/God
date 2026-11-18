@@ -102,13 +102,15 @@ Suggested analyzer contract:
 ## Delivery roadmap
 
 ### Phase 0 — Baseline and safety
-- Preserve current 0.2 behavior and exports.
-- Add tests around current inventory, Unity-version detection, and PE parser.
-- Record scan coverage and parser limitations in the report.
-- Add progress/cancel support before expensive analyzers.
+- [x] Preserve current 0.2 behavior and exports.
+- [x] Add tests around current inventory, Unity-version detection, CLR signatures and PE parser.
+- [x] Record initial scan coverage and unsupported/limited analyzer states in JSON and Markdown.
+- [x] Add progress/cancel support before expensive analyzers.
+- Partial report persistence on cancellation remains pending.
 
 ### Phase 1 — Scalable report foundation
-- Streaming report writer and schema versioning.
+- [x] Initial scan coverage counters and analyzer status summary in JSON schemaVersion 23 (limited first implementation).
+- [ ] Streaming report writer, JSON Schema validation and independent report-format version.
 - Configurable scan limits and large-file handling.
 - Full file inventory without the current 20,000-line tree truncation in the machine-readable output.
 - Export report parts without building multi-megabyte strings in memory.
