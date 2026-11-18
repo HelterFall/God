@@ -4,12 +4,12 @@
 **Базовая ветка:** main  
 **Source baseline, проверенный по коду:** cb69a252aa7c7c9aee8eaa206dbe7835b9f3c9c8  
 **Контрольная точка документации при составлении плана:** 2ba10b3376accb46eeefbbbd5886a7d8aae555d3  
-**Последняя проверка CI при перепроверке документации:** run #248 для документационного commit 80d79e4 завершился успешно; после source baseline cb69a25 менялись только документы.  
-**Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md).
+**Последняя проверка CI:** run #250 для документационного commit 7e737eb завершился успешно; после source baseline cb69a25 менялись только документы. Отдельный аудит тестов: 12 JVM test files / 61 @Test methods; Android instrumentation и end-to-end scanner tests пока отсутствуют.  
+**Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. Последний проверенный CI — run #248 (JVM parser tests и debug APK build успешны). Этот run проверял документальный commit; код приложения остаётся на source baseline cb69a25. Это подтверждает сборку и существующие тесты, но не означает, что глубокое исследование игры уже реализовано.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. Последний проверенный CI — run #250 (JVM parser tests и debug APK build успешны). Этот run проверял документальный commit; код приложения остаётся на source baseline cb69a25. Отдельный test audit обнаружил пробелы за пределами parser unit tests. Это подтверждает сборку и существующие тесты, но не означает, что глубокое исследование игры уже реализовано.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -75,6 +75,30 @@ God уже умеет выполнять ограниченную инвента
 - [x] Распознавание UnityFS header.
 
 **Не подразумевается как завершённое:** распаковка UnityFS/AssetBundle/ZIP, полноценная PE function import/export analysis, P/Invoke map и IL bodies, IL2CPP metadata parsing, полный scene graph и asset payload decoding, общий cross-domain dependency graph и Porting Dossier generator.
+## 2.2. Проблемы, выявленные аудитом тестирования и качества
+
+Полная матрица тестов, проверенные CI steps и технические детали: [TEST_AUDIT_2026-11-19.md](TEST_AUDIT_2026-11-19.md).
+
+### P1 — исправить до расширения функциональности
+
+- [ ] **QA-01 — scanner integration coverage.** Нет теста полного GameScanner.scan(): inventory → candidate selection → analyzers → coverage → JSON/Markdown. Выделить testable file tree/access interfaces и добавить end-to-end fixture.
+- [ ] **QA-02 — scan lifecycle/cancellation race.** Общий scanCancelled флаг, отсутствие scan lock и активная кнопка повторного запуска допускают queued jobs; отмена не создаёт partial report; выполняющаяся задача может пережить Activity.onDestroy(). Добавить job-scoped cancellation, один активный job, безопасное lifecycle handling и regression tests.
+- [ ] **QA-03 — export false success.** Null из openOutputStream(uri) сейчас может быть ошибочно показан как успешное сохранение. Исправить и покрыть null/IOException/write failure tests.
+- [ ] **QA-04 — Android SAF tests.** Нет instrumentation tests для реальных document providers, URI permissions, stream errors, Activity recreation и export destination.
+- [ ] **QA-05 — real binary fixtures.** Текущие 61 @Test в основном используют synthetic byte arrays и вручную созданные model objects. Добавить небольшой набор реально созданных/легально распространяемых PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
+- [ ] **QA-06 — positive PE imports coverage.** Текущий PeParserTest не создаёт настоящий Import Directory с секцией и не проверяет успешно извлечённые DLL names; ARM64 и malformed import descriptors тоже не покрыты.
+- [ ] **QA-07 — parser compatibility matrix.** Уточнить и расширить проверки CLR signatures/metadata, Unity header versions, SerializedFile v19–v26, TypeTree/shared subtree и scene graph limits. Synthetic tests оставить, но сверять их с реальными samples.
+- [ ] **QA-08 — binary robustness.** Добавить property/fuzz tests для offsets, lengths, counts, overflow, malformed heaps, truncated streams и compression/container boundaries.
+
+### P2 — надёжность разработки и CI
+
+- [ ] **QA-09 — pull request validation and test artifacts.** Workflow сейчас запускается на push в main и вручную; добавить pull_request, сохранение JUnit XML и coverage reports, lint/static checks и отдельные Android instrumentation checks.
+- [ ] **QA-10 — reproducible Gradle.** В репозитории нет Gradle Wrapper; добавить wrapper, закрепить Gradle distribution и использовать его локально/в CI.
+- [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
+- [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
+
+**Текущая база:** 12 test files / 61 @Test methods, JUnit 4.13.2. Успешный run #250 подтверждает выполнение `:app:testDebugUnitTest` и `:app:assembleDebug`, но не заменяет интеграционные/Android tests. Зелёный run не помечает ни один QA-01…QA-12 пункт выполненным.
+
 ## 3. Последовательность реализации
 
 ### Этап 0 — зафиксировать исходную точку
@@ -164,6 +188,8 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Добавить прогресс по стадиям и анализаторам; текущий счётчик/путь отражает в основном обход папок.
 - [ ] Сохранять результат/состояние scan при пересоздании Activity; сейчас сохраняется URI папки, но не отчёт и не состояние задания.
 
+**Обязательные регрессионные тесты:** повторный старт во время активного scan не ставит второй job; отмена действует только на соответствующий job; Activity destruction не оставляет задачу, обращающуюся к уничтоженной Activity; отмена сохраняет partial report и его coverage.
+
 **Критерий завершения:** на тестовом дереве каждый собранный entry имеет stable ID и terminal status; одновременно существует не более одного активного scan; отмена одного задания не затрагивает другое и создаёт корректный partial report.
 
 ### Этап 4 — потоковое сохранение отчёта
@@ -182,6 +208,8 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Добавить manifest с версией God/analyzer, schemaVersion, временем, coverage и hashes частей отчёта.
 - [ ] Проверять null output stream и ошибки записи; сейчас openOutputStream()?.use(...) может завершиться без записи, но UI всё равно сообщает «Отчёт сохранён».
 - [ ] Поддержать partial/cancelled report с явной маркировкой.
+
+**Обязательные регрессионные тесты:** null output stream, IOException при открытии и записи, write/close failure, partial report после cancellation и повторное чтение сформированного JSON.
 
 **Критерий завершения:** тест генерирует большой отчёт без построения всей структуры в памяти; JSON проходит schema validation; manifest корректен; null stream/ошибка экспорта не обозначаются как успех; partial report содержит completed/partial/failed analyzer states.
 
@@ -231,6 +259,7 @@ God уже умеет выполнять ограниченную инвента
 **Что добавить:**
 - [ ] Расширить чтение PE sections/data directories с positional reads, чтобы не зависеть от небольшого prefix.
 - [ ] Import Table с function names, ordinal imports и подробными thunk records.
+- [ ] Добавить positive PE fixture с секцией и Import Directory; отдельно проверить DLL names, function thunks, ordinal imports и malformed descriptors.
 - [ ] Delay Import Table.
 - [ ] Export Table и forwarded exports.
 - [ ] Сопоставлять import DLL с найденными файлами, в том числе внутри поддерживаемых containers.
@@ -356,6 +385,16 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
+**Текущая тестовая база:** 12 JVM test files / 61 @Test methods. Существующие тесты покрывают отдельные parser/resolver functions на synthetic data; нет end-to-end GameScanner tests, Android instrumentation tests, real binary fixtures, fuzz/property tests или coverage reports. См. [test audit](TEST_AUDIT_2026-11-19.md).
+
+- [ ] Добавить scanner integration tests для inventory, candidate selection, ScanCoverage, report JSON/Markdown и partial failures.
+- [ ] Добавить tests для scan locking, job-scoped cancellation, Activity lifecycle и partial reports.
+- [ ] Добавить tests для export null stream/write/close failures.
+- [ ] Добавить настоящие legal/redistributable PE/CLR/Unity fixtures и golden reports.
+- [ ] Android instrumentation tests для SAF permissions, provider stream behavior, Activity recreation и export.
+- [ ] Positive PE Import Directory tests и расширенная Unity version/layout matrix.
+- [ ] Property/fuzz tests и regression corpus для parser boundaries.
+- [ ] JUnit XML и code coverage report; установить порог только после baseline измерения.
 - [ ] Quick/Standard/Deep scan profiles.
 - [x] Базовый progress callback и индикатор пути/счётчика во время inventory (обновление UI каждые 128 записей).
 - [x] Кнопка запроса отмены анализа.
@@ -374,14 +413,16 @@ God уже умеет выполнять ограниченную инвента
 
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
-1. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
-2. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
-3. **Inventory:** вынести уже работающий SAF walk из GameScanner, сохранить текущий JSON files[] и добавить per-file ID/status, не дублируя инвентаризацию.
-4. **ScanCoordinator:** изолировать уже существующие progress/cancel механизмы на уровне отдельных job, убрать повторный запуск и сохранить partial state.
-5. **ReportWriter:** заменить сборку уже существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23 как текущую версию схемы, добавить JSON Schema/manifest и исправить null output stream.
-6. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
-7. **UnityFS vertical slice:** прочитать block table, один entry и SerializedFile внутри него.
-8. Только после успешных вертикальных срезов расширять PE/CLR/IL и остальные Unity decoders.
+1. **Регрессионные тесты текущих дефектов:** повторный запуск, отмена и Activity destruction; null output stream и ошибки экспорта. Сначала зафиксировать ожидаемое поведение.
+2. **ScanCoordinator:** изолировать уже существующие progress/cancel механизмы на уровне job, убрать повторный запуск, не удерживать уничтоженную Activity и сохранять partial state.
+3. **Safe export:** исправить null stream false-success и покрыть все failure paths тестами.
+4. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
+5. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
+6. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
+7. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23, добавить JSON Schema/manifest.
+8. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
+9. **UnityFS vertical slice:** прочитать block table, один entry и SerializedFile внутри него.
+10. Только после успешных вертикальных срезов расширять PE/CLR/IL и остальные Unity decoders.
 
 **Первый реальный пользовательский milestone:** пользователь выбирает папку игры; God инвентаризирует её, находит ZIP/UnityFS, исследует доступные entries, обнаруживает Unity SerializedFiles и экспортирует partial/full report с точным coverage. Никакой ручной распаковки поддерживаемых контейнеров не требуется.
 
@@ -396,6 +437,8 @@ God уже умеет выполнять ограниченную инвента
 - проверка, что неизвестные и неподдерживаемые случаи не трактуются как отсутствие данных;
 - отсутствие неограниченного чтения/распаковки в память;
 - зелёный CI: JVM tests и Android debug APK build;
+- где применимо — scanner integration tests и Android instrumentation tests;
+- test fixtures проверяют реальные binary formats, а не только synthetic inputs;
 - обновление README/audit/roadmap только в той части, которая действительно изменилась.
 
 ## 6. Когда можно переходить к следующему этапу
