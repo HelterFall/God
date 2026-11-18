@@ -167,13 +167,13 @@ class MainActivity : Activity() {
                         it.markdownReport = result.markdown
                         it.jsonReport = result.json
                         it.output.text = result.markdown
-                        it.status.text = "Анализ завершён. Доступен экспорт Markdown и JSON."
+                        it.status.text = if (result.isPartial) "Анализ остановлен. Сохранён частичный отчёт: доступна инвентаризация, анализаторы не завершены." else "Анализ завершён. Доступен экспорт Markdown и JSON."
                     }
                 }
             } catch (_: ScanCancelledException) {
                 activityRef.get()?.runOnUiThread {
                     activityRef.get()?.takeIf { !it.isDestroyed }?.status?.text =
-                        "Анализ остановлен. Частичный отчёт пока не поддерживается."
+                        "Анализ прерван до формирования отчёта. Проверьте журнал ошибок."
                 }
             } catch (e: Exception) {
                 activityRef.get()?.runOnUiThread {
