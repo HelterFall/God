@@ -735,14 +735,19 @@ class GameScanner(private val activity: Activity) {
             }
             if (info.managed) {
                 clrAttemptedCount++
-                val summary = ClrMetadataParser.parse(
-                    data, info.clrMetadataOffset, info.clrMetadataSize,
-                    info.clrRuntimeVersion, info.clrFlags
-                )
-                if (summary == null) {
+                try {
+                    val summary = ClrMetadataParser.parse(
+                        data, info.clrMetadataOffset, info.clrMetadataSize,
+                        info.clrRuntimeVersion, info.clrFlags
+                    )
+                    if (summary == null) {
+                        clrFailedCount++
+                    } else {
+                        clrResults[entry.path] = summary
+                    }
+                } catch (e: Exception) {
                     clrFailedCount++
-                } else {
-                    clrResults[entry.path] = summary
+                    warnings.add("CLR metadata analysis failed for " + entry.path + ": " + e.message)
                 }
             }
             info
@@ -1054,7 +1059,7 @@ class GameScanner(private val activity: Activity) {
         unityMetadata: Map<String, UnityMetadataSummary>, coverage: ScanCoverage
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 22)
+        root.put("schemaVersion", 23)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
