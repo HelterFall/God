@@ -1,199 +1,244 @@
-# God — Full Unity Intelligence Analyzer
+# God — дорожная карта автономного Unity Intelligence Analyzer
 
-## Mission
+**Дата актуализации:** 19 ноября 2026 года  
+**Назначение:** построить автономный инструмент исследования Unity-игр, который формирует доказательное техническое досье и карту переноса.
 
-Turn God from a lightweight folder scanner into an extensible Android-first analysis workstation for Unity game builds. God reads the selected game folder in place through Android Storage Access Framework (SAF), never executes game binaries, and produces machine-readable and human-readable reports suitable for compatibility research in RamenUnity.
+## 1. Главная цель
 
-God is an analyzer, not a game runtime, emulator, decompiler UI, or guarantee that every proprietary/stripped asset can be decoded.
+God должен самостоятельно исследовать выбранную папку Windows Unity-игры и ответить на вопросы: что находится внутри, как устроена сборка, как связаны файлы, код, Unity-объекты и ресурсы, какие API и системные возможности используются, что потребуется реализовать в целевой среде и какие интерфейсы между подсистемами необходимо соединить.
 
-## Product principles
+**Ключевой результат — Porting Dossier:** связанный комплект документов и dependency/wiring graph, а не просто inventory файлов и не API для импорта в другой проект.
 
-1. **No manual archive preparation.** Analyze the selected folder directly. Archives found inside the game folder may be inspected in place when supported; extraction is optional and must never be required for the normal workflow.
-2. **Streaming, not loading everything into RAM.** Large files are opened through streams and processed in bounded chunks. Per-format parsers declare their read limits and report truncation.
-3. **Evidence over guesses.** Every conclusion has a source, confidence level, and parser status. Distinguish confirmed facts, heuristics, unsupported data, and errors.
-4. **Version-aware architecture.** Identify Unity version and build layout first; select format handlers by format/version. Unknown versions should still receive safe generic inventory and signature analysis.
-5. **Extensible modules.** Each analyzer is independent, testable, and can be added without rewriting the scanner.
-6. **Useful output for RamenUnity.** Reports emphasize runtime backend, managed assemblies, native imports, P/Invoke, scene components, input/audio/graphics/network dependencies, and missing native libraries.
-7. **Resumable and transparent.** Long scans show progress, can be cancelled, and preserve completed sections if a later parser fails.
-8. **No silent omissions.** Every skipped file, SAF permission failure, size limit, unsupported format, and parse error is summarized.
+God — самостоятельный Android-first исследовательский инструмент. История ручного исследования файлов в проекте Ramen (в том числе при работе с system-nnn) объясняет мотивацию. RamenUnity — отдельный проект; обязательной связи, общего runtime или импортёра отчётов между God и RamenUnity не требуется.
 
-## Report outputs
+## 2. Принципы разработки
 
-Generate a report bundle in the user-selected destination:
-- `unity-analysis.txt`: readable full report.
-- `unity-analysis.json`: versioned structured report.
-- Optional split files for very large sections: `files.jsonl`, `managed.jsonl`, `scenes.jsonl`, `assets.jsonl`.
-- `manifest.json`: report schema version, analyzer version, Unity version, platform, timestamps, scan coverage, and hashes of report parts.
+1. **Один выбор папки.** Обычный рабочий процесс начинается с выбора корня игры. God сам обнаруживает файлы и вложенные поддерживаемые контейнеры.
+2. **Связное исследование.** Каждый анализатор передаёт находки в общий индекс и граф; отдельные списки без разрешённых связей — промежуточный результат.
+3. **Evidence-first.** Каждый вывод имеет первичный источник, locator, метод, confidence и parser status.
+4. **Честное покрытие.** Лимиты, недоступные файлы, повреждения, неизвестные форматы и unresolved links нельзя скрывать.
+5. **Version-aware.** Форматы Unity, Mono и IL2CPP анализируются с учётом версий и реальных compatibility matrices.
+6. **Безопасность.** God работает read-only, не запускает game binaries и не исполняет игровые скрипты.
+7. **Масштабируемость.** Потоковое/позиционное чтение, bounded decompression, cancellation и ограниченное потребление памяти.
+8. **Результат для разработчика.** Отчёты описывают не только найденную зависимость, но и то, какая реализация, интерфейс и тест понадобятся при переносе.
+9. **Нет обязательной межпроектной интеграции.** JSON/manifest нужны для структурированного хранения, валидации и воспроизводимости, а не потому, что RamenUnity обязан их импортировать.
 
-Avoid holding the complete report in memory. Stream JSONL/TXT sections to output streams and write the manifest last. Keep the existing compact Markdown/JSON export available during migration.
+## 3. Целевая структура анализа
 
-## Analysis modules
+### Этап A — Inventory и file access
 
-### A. Folder inventory
-- Recursive paths, entry type, byte size, extension, timestamps when SAF exposes them.
-- Counts and total sizes by extension and directory.
-- Detect duplicate content with optional streaming SHA-256; hash large files only when enabled.
-- Configurable limits, cancellation, inaccessible-path reporting.
-- Detect split/sidecar files and group related Unity files.
+- Полный inventory корневой папки: relative path, type, size, accessibility, timestamps, file identity.
+- Статусы файлов: discovered, queued, analyzed, partial, skipped, inaccessible, unsupported, failed.
+- Поддержка large-file streaming и positional/random-access reads через SAF abstraction.
+- Потоковое хеширование по опции для сравнения файлов и доказательства идентичности.
+- Grouping split files, sidecars и связанных ресурсов.
+- Профили Quick / Standard / Deep с явными лимитами; Deep должен стремиться к полному обходу всех доступных поддерживаемых объектов.
+- Любой cutoff отражается в coverage и не трактуется как отсутствие содержимого.
 
-### B. Unity build identification
-- Unity version from multiple independent sources (globalgamemanagers, data headers, player metadata, version strings).
-- Target platform, architecture, scripting backend, API compatibility indicators.
-- Build layout classification: Mono, IL2CPP, hybrid/uncertain.
-- Record each evidence item; never infer certainty from a single filename.
+### Этап B — Container intelligence
 
-### C. PE and native binary analysis
-- Parse PE headers without arbitrary first-1MiB truncation where safe; seek/stream relevant offsets.
-- Architecture, sections, CLR header, data directories, imports, exports, delay imports.
-- Native dependency graph and missing DLL candidates.
-- Detect dynamic-loading strings and known plugin families as evidence, not proof of use.
-- Identify unsupported architectures and Windows-only imports relevant to Android porting.
+- UnityFS block info, directory entries, compressed blocks.
+- LZ4/LZMA и другие форматы только при наличии проверенной поддержки.
+- Чтение отдельных bundle entries без распаковки всего архива в RAM.
+- AssetBundle → SerializedFile → object/resource hierarchy.
+- ZIP и другие распространённые контейнеры, вложенная структура с защитой от archive bombs.
+- Поиск sidecar/external resources и разрешение путей.
+- Отдельные состояния encrypted, unsupported, corrupted, truncated, inaccessible.
+- Сохранение факта вложенности и источника каждого извлечённого entry.
 
-### D. Managed .NET / Mono analysis
-- Enumerate assemblies and AssemblyRef dependencies.
-- Metadata: namespaces, types, methods, fields, attributes, interfaces, entry points.
-- P/Invoke declarations, native library names, calling conventions.
-- IL method-body call-site inventory where parser support exists.
-- Separate metadata references from actual call sites; static call sites from runtime reachability.
-- Prefer a proven metadata library such as Mono.Cecil in an offline-capable analysis component; evaluate Android-compatible packaging and licensing before adoption.
+### Этап C — Unity build profile и native analysis
 
-### E. Unity serialized files and scenes
-- Detect serialized file versions and TypeTree availability.
-- Enumerate assets, object types, paths/IDs, MonoScript links, GameObjects, components, and scene relationships when decodable.
-- Resolve MonoBehaviour script references to managed class names. (first pass: bind decoded `m_Script` pointers to available MonoScript payload records; broader managed DLL symbol resolution remains)
-- Resolve sampled external PPtrs through fileID → external path → target PathID; preserve ambiguous/missing/unparsed states.
-- Extract component enabled/active state only when the serialized fields are actually decoded.
-- Report missing TypeTrees, unsupported versions, and unresolved script IDs explicitly.
-- Support both individual level files and split resource sidecars.
+- Многоканальное определение Unity version, target platform, build layout и scripting backend.
+- PE headers, sections, data directories, RVA resolver, imports, exports, delay imports и forwarded exports.
+- Граф native binaries → imported libraries → functions.
+- Сопоставление импортов с реально найденными библиотеками и указание отсутствующих файлов.
+- Динамическая загрузка и LoadLibrary/GetProcAddress clues с уровнем достоверности.
+- Отдельные признаки Windows-only API, x86/x64 limitations и platform plugin dependencies.
+- Полная evidence chain для версии Unity, архитектуры, build target и backend.
 
-### F. Asset/resource inspection
-- Identify textures, meshes, audio, animation, materials, shaders, fonts, text assets, bundles, and resource containers.
-- Extract metadata by default; optional payload extraction only on user request.
-- Avoid dumping raw binary payloads into text.
-- Detect compression and encryption indicators without claiming to decode them when unsupported.
+### Этап D — Managed / Mono code intelligence
 
-### G. Configuration and runtime behavior clues
-- Parse JSON/XML/INI and known Unity configuration files with size limits.
-- Extract scripting assembly lists, runtime initialization registrations, plugin manifests, input bindings, graphics settings, and package metadata.
-- Scan managed/native strings selectively with encoding and provenance.
+- Полная поддерживаемая metadata inventory: assemblies, namespaces, nested types, inheritance, interfaces, fields, methods, attributes и references.
+- P/Invoke maps с library, entry point, calling convention и flags.
+- IL method body parser с локальными сигнатурами, exception handlers и token references.
+- IL instruction decoding и static call-site graph.
+- Cross-assembly symbol resolution.
+- Отдельные статусы для AssemblyRef, call site, statically reachable estimate и runtime-unverified.
+- Reflection, delegates, dynamic loading и unknown IL patterns как явные coverage gaps.
+- Проверка выбранных parser libraries, Android packaging и лицензий до добавления.
 
-### H. Compatibility assessment
-- Group findings into Android blockers, likely work items, optional integrations, and unknowns.
-- Evidence-backed categories: graphics APIs, input systems, audio, filesystem, threading, networking, native plugins, platform APIs, anti-cheat/DRM indicators (detection only).
-- Never claim a feature is unused merely because a string or call was not found.
+### Этап E — IL2CPP intelligence
 
-## App architecture
+- Versioned parser framework для global-metadata.dat.
+- Извлечение assemblies, types, fields, methods, generic data и attributes по поддерживаемым layouts.
+- Mapping metadata tokens к доступным native structures.
+- PE/native dependency inventory для GameAssembly.
+- Архитектурные ограничения и native boundary report.
+- Отдельная матрица версий и тестовые fixtures; metadata parsing не путать с выполнением IL2CPP кода.
 
-Separate the current monolithic `MainActivity.kt` into:
-- UI and SAF document-tree selection.
-- Scan coordinator (background execution, progress, cancellation).
-- Streaming file abstraction over `ContentResolver`/SAF URIs.
-- Inventory database/index (bounded memory; consider Room only if needed).
-- Analyzer interfaces and version-specific modules.
-- Report writer (streaming TXT/JSON/JSONL).
-- Unit-testable binary readers and parsers.
+### Этап F — Unity serialized data и scene graph
 
-Suggested analyzer contract:
-- Input: read-only file descriptor/stream abstraction, relative path, size, detected format/version context.
-- Output: structured findings, evidence records, warnings, and optional child records.
-- Must declare whether it needs random access, maximum read window, and whether it supports streaming.
-- Must never mutate source files or launch executables.
+- Матрица Unity version × SerializedFile version × TypeTree encoding.
+- Полноценные bounded/streaming object-table reads без скрытого ограничения только первыми samples.
+- Полные TypeTree и shared TypeTree subtree payload для поддерживаемых версий.
+- Local и external PPtr resolution; GUID/path и bundle references.
+- Декодеры GameObject, Transform, Component, MonoBehaviour, MonoScript, ScriptableObject и других форматов.
+- Scene/prefab/object graph с component order, enabled/active flags, parent-child relations и unresolved edges.
+- Статусы raw/metadata-only/partial/decoded/unsupported per object.
+- Golden fixtures для разных поколений Unity.
 
-## Delivery roadmap
+### Этап G — Asset/resource intelligence
 
-### Phase 0 — Baseline and safety
-- [x] Preserve current 0.2 behavior and exports.
-- [x] Add tests around current inventory, Unity-version detection, CLR signatures and PE parser.
-- [x] Record initial scan coverage and unsupported/limited analyzer states in JSON and Markdown.
-- [x] Add progress/cancel support before expensive analyzers.
-- Partial report persistence on cancellation remains pending.
+- Texture2D: размеры, formats, mipmaps, streaming references.
+- Mesh: vertex layout, indices, submeshes, bounds.
+- AudioClip: format, channels, frequency, payload references.
+- Material/Shader: properties, shader links, variants и texture dependencies.
+- AnimationClip, Animator, fonts, TextAsset, ScriptableObject.
+- Resource, StreamingAssets и sidecar mapping.
+- AssetBundle dependency graph и shared-resource mapping.
+- По умолчанию metadata-first; payload export только по необходимости и в пределах безопасных лимитов.
 
-### Phase 1 — Scalable report foundation
-- [x] Initial scan coverage counters and analyzer status summary in JSON schemaVersion 23 (limited first implementation).
-- [ ] Streaming report writer, JSON Schema validation and independent report-format version.
-- Configurable scan limits and large-file handling.
-- Full file inventory without the current 20,000-line tree truncation in the machine-readable output.
-- Export report parts without building multi-megabyte strings in memory.
+### Этап H — Cross-reference и wiring graph
 
-### Phase 2 — Better build and native analysis
-- [x] Multi-source Unity version detection: prioritize globalgamemanagers metadata, then use SerializedFile metadata and UnityFS engineVersion; retain source/confidence and suppress conflicting results instead of guessing. Platform detection remains pending.
-- More complete PE parsing with random-access reads.
-- Native dependency graph, missing plugin report, and import/export details.
+Это сквозной этап: он не должен откладываться до завершения всех декодеров. Новые анализаторы сразу публикуют структурированные nodes, edges и evidence.
 
-### Phase 3 — Managed code intelligence
-- [x] First CLR metadata inventory: Assembly identity/version, Module name, TypeDef names/namespaces, Field names/flags, Method names/flags/RVA and AssemblyRef dependencies from bounded ECMA-335 metadata tables.
-- [x] Link parsed MonoBehaviour MonoScript identities to exact managed assembly + namespace + TypeDef names; keep ambiguous assembly matches and truncated type samples explicit.
-- [x] Bounded field/method inventory with flags, method RVA and declaring-type ownership through TypeDef FieldList/MethodList indices.
-- [x] Decode common Field and MethodDef signatures from the bounded Blob heap: primitive types, arrays, pointers, by-ref, generic variables, method return types, parameter types and calling convention; unsupported signatures remain labelled.
-- [ ] Decode custom attributes, nested types and a richer managed dependency graph.
-- P/Invoke inventory and IL call-site scan.
-- Android packaging strategy for parser dependencies and offline use.
+Типы узлов:
+- файлы, контейнеры и entries;
+- native binaries, managed assemblies, types, methods и fields;
+- Unity scenes, serialized objects, GameObjects, components и scripts;
+- assets, resources, shaders и configurations;
+- Unity APIs, platform APIs и runtime subsystems;
+- blockers, implementation tasks и validation tests.
 
-### Phase 4 — Unity scenes and serialized assets
-- [x] Bounded header recognition for SerializedFile versions 9–21 and modern 64-bit v22+ layout.
-- [x] UnityFS signature/header recognition (container contents are not yet unpacked).
-- [x] Read leading metadata fields for SerializedFile v19–v26: Unity version, target platform, TypeTree flag and type count.
-- [x] Safely skip bounded type entries and count objects, MonoScript references and external references.
-- [ ] Add positional reads for pre-v9 endianness markers and validate against real sample files.
-- [x] Parse bounded object-record samples (path ID, data offset, byte size, type index and ClassID) for SerializedFile v19–v26; validate every object range against the data section.
-- [x] Read up to 8 MiB of metadata prefix for the first 40 SerializedFile candidates; other candidates retain bounded header-only reads.
-- [x] Count all object records grouped by ClassID and preserve up to 10 example PathIDs per class, including GameObject (1), Transform (4), MonoBehaviour (114), and MonoScript (115).
-- [x] Extract bounded TypeTree node summaries and embedded type/field names for legacy v19–22 trees and modern mhtt blobs (v23–26); resolve the 109 base CommonString entries plus five later Unity 2022+/6 names; unknown offsets remain unresolved.
-- [x] Preserve up to 128 detailed TypeTree nodes per summarized type (level, type/name strings, byteSize and flags) for reporting; keep complete TypeTrees for GameObject/Transform and up to 12 MonoBehaviour serialized type entries (matched by typeIndex), only when each tree has at most 4096 nodes.
-- [x] Parse bounded MonoScript reference records (fileID/pathID) and external file reference paths for SerializedFile v19–v26.
-- [x] Preserve bounded serialized type identities (ClassID, scriptTypeIndex and MonoBehaviour scriptID) even when TypeTrees are disabled.
-- [x] Read SerializeReference type entries for v20–v26; preserve className, namespace and assemblyName for v21+.
-- [x] Read the v26 shared TypeTree subtree count; subtree payload resolution is still pending.
-- [x] Bind serialized type scriptTypeIndex to MonoScript fileID/pathID; resolve local targets against up to 1000 ClassID 115 object records and external targets against the external-file table (sample-bounded).
-- [x] Decode local MonoScript payloads (name, execution order, class, namespace, assembly) with limits of 64 objects, 64 KiB per object and 64 MiB traversal distance.
-- [x] Basic GameObject/Transform/MonoBehaviour/MonoScript object inventory by ClassID.
-- [x] Decode bounded GameObject, Transform and MonoBehaviour payloads from complete bounded TypeTrees: GameObject name/active/components; Transform GameObject/parent/children; MonoBehaviour enabled/script PPtrs.
-- [x] Resolve external MonoScript targets when their path matches a selected file exactly or by a unique basename; decode only when that file's SerializedFile metadata and target ClassID 115 object are in the bounded sample. Ambiguous matches remain unresolved.
-- [x] Resolve serialized type scriptTypeIndex values to MonoScript records and map available MonoScript class identities to managed DLL TypeDef records; ambiguous or truncated samples remain explicit.
-- [x] Resolve local decoded PPtr references into a bounded per-file GameObject–Transform–Component hierarchy; keep external and missing PathIDs explicitly unresolved.
-- [x] Resolve sampled external scene PPtr references across SerializedFiles and bind MonoBehaviour m_Script PPtrs to MonoScript/managed DLL identities when targets are available.
-- [ ] TypeTree/version compatibility matrix and graceful partial results.
+Типы связей:
+- contains / extracted-from;
+- imports / exports;
+- references-assembly / references-type;
+- inherits / implements;
+- calls-static / calls-possibly-dynamic;
+- invokes-pinvoke / loads-library;
+- attaches-script / component-of;
+- references-object / external-pointer;
+- loads-asset / uses-resource;
+- uses-unity-api / requires-platform-api;
+- depends-on-subsystem / must-connect-to;
+- unresolved-reference / unsupported-format.
 
-### Phase 5 — Resource and compatibility intelligence
-- Asset metadata and sidecar grouping.
-- Config/input/plugin analysis.
-- RamenUnity-focused compatibility summary.
+У каждой связи — evidence, locator, confidence и unresolved reason. Неоднозначные совпадения имён не превращаются в подтверждённые связи.
 
-### Phase 6 — Validation matrix
-- Test against multiple Unity generations and both Mono/IL2CPP builds.
-- Keep fixture samples small and legally distributable.
-- Compare Android reports with trusted desktop tooling on the same build.
-- Publish supported-format matrix and known limitations.
+### Этап I — Platform requirements и porting analysis
 
-## Acceptance criteria for a useful full scan
+- Сводка API Unity и системных API, реально найденных в игре.
+- Graphics/render pipeline, shader model и graphics API requirements.
+- Input systems, keyboard/mouse/controller/touch and vibration.
+- Audio, filesystem, threading/synchronization, networking and SDK integrations.
+- Native plugin portability и missing DLL assessment.
+- Required implementation / optional integration / potential issue / confirmed blocker / unknown.
+- Матрица: требование → evidence → нужный интерфейс → зависимые подсистемы → задача реализации → тест.
+- Порядок реализации, учитывающий граф зависимостей и bootstrap/load order.
+- Никаких гарантий запуска только по статическим данным.
 
-A scan is considered complete only when the report states:
-- Number of discovered files/directories and total bytes.
-- Number successfully read, partially read, skipped, inaccessible, and failed.
-- Unity version/platform/backend evidence and confidence.
-- Parser/version support status for each major data family.
-- Managed assembly and native binary coverage.
-- Scene and asset coverage, including unresolved references.
-- Every configured limit and every omission.
-- Report schema and God analyzer versions.
+### Этап J — Porting Dossier и отчётная система
 
-"Complete scan" means all accessible files were inventoried and every supported analyzer ran; it does not mean every proprietary payload was decoded.
+Целевой комплект:
 
-## Current baseline (God 0.2.0)
+1. Game Overview.
+2. Build Profile.
+3. Complete File Inventory.
+4. Container & Archive Report.
+5. Native Dependency Report.
+6. Managed Code Report.
+7. Unity Data & Scene Report.
+8. Assets & Resources Report.
+9. Dependency & Wiring Map.
+10. Platform Requirements.
+11. Porting Implementation Plan.
+12. Blockers & Unknowns.
 
-The current app uses a single `MainActivity.kt` containing the UI, SAF traversal, report generation, and PE parser. It scans up to 100,000 entries and depth 40; PE inspection is limited to 150 EXE/DLL files and a 1 MiB prefix; the text tree is capped at 20,000 lines. It exports a single Markdown and JSON string in memory. These are the first scaling bottlenecks to remove.
+Отчёт должен быть навигационным: каждый тезис ведёт к evidence и связанным узлам графа. Для больших сборок использовать split Markdown/JSONL и индекс, а не один огромный текстовый файл.
 
-## Immediate next implementation slice
+Machine-readable JSON, JSON Schema, format version и manifest применяются для воспроизводимости, проверки целостности и последующей автоматизации. Это внутреннее качество исследовательских материалов, не межпроектный импортный контракт.
 
-The first two items from the previous slice are implemented in bounded form and are checked off in Phase 4 above:
-- [x] Resolve sampled external scene PPtr links across SerializedFiles using the external file table and unambiguous paths; unresolved and ambiguous cases remain explicit.
-- [x] Link available MonoScript identities to managed TypeDef records; nested types and broader metadata coverage remain incomplete.
+## 4. Приоритетный порядок реализации
 
-Next implementation items:
-1. Extend the bounded TypeTree interpreter to more variable-length field patterns and ScriptableObject payloads without guessing unknown layouts.
-2. Add real-file fixtures across Unity generations and publish a TypeTree/object-decoding compatibility matrix.
-3. Add positional/random-access SAF reads for parsers that require them.
-4. Implement UnityFS block-table and bundle-content reading.
-5. Introduce streaming report writers, scan coverage, and a versioned report manifest.
+| Приоритет | Работа | Результат |
+|---|---|---|
+| P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
+| P1 | FileAccess abstraction, random access, streaming, cancellation и partial report | Надёжный полный обход |
+| P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
+| P1 | Полный machine inventory и report pipeline | Ничего не теряется между анализаторами |
+| P2 | PE/native dependency graph | Понимание нативных границ |
+| P2 | CLR/Mono metadata, IL, P/Invoke и call-site graph | Понимание managed-логики |
+| P2 | SerializedFile/TypeTree/object graph | Понимание сцен и компонентов |
+| P2 | Asset decoders and resource graph | Понимание контента |
+| P2 | IL2CPP metadata and native mapping | Второй backend |
+| P3 | Cross-reference/wiring graph and platform assessment | Сквозная картина зависимостей |
+| P3 | Porting Dossier and actionable implementation plan | Главный продукт God |
+| P3 | UI navigation, deep profiles, validation matrix | Практическая эксплуатация |
 
-See [AUDIT_2026-11-18.md](AUDIT_2026-11-18.md) for the full verified audit, priorities, and acceptance criteria.
+P1/P2 обозначают приоритет исследования и разработки, а не обязательный порядок для каждого файла. Общий graph/evidence format должен развиваться вместе с парсерами.
+
+## 5. Acceptance criteria
+
+### Надёжность анализа
+
+- Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
+- Все ограничения, пропуски и ошибки отражаются в coverage.
+- Отмена создаёт partial report, не выдавая его за полный.
+- Большие файлы читаются потоково/позиционно с контролем памяти.
+- Вложенные архивы имеют защиту от чрезмерной глубины и распакованного объёма.
+- Повреждённые или зашифрованные данные не обозначаются как успешно разобранные.
+
+### Полнота исследования
+
+- Каждое семейство форматов имеет опубликованную матрицу поддерживаемых версий.
+- Mono/IL2CPP, native/managed, Unity data, containers и assets тестируются на реальных fixtures.
+- Взаимные ссылки разрешаются сквозным способом либо получают явный unresolved reason.
+- Выводы имеют source locator и confidence.
+- Отсутствие находки не выдаётся за доказательство отсутствия, если сканирование было ограничено.
+
+### Полезность для переноса
+
+- Для целевого профиля игры определены используемые подсистемы и API.
+- Native/managed/platform boundaries показаны в карте зависимостей.
+- Porting plan содержит интерфейсы, связи, порядок реализации и validation steps.
+- Отдельно указаны confirmed blockers, optional integrations и unknowns.
+- Разработчик может перейти из задачи переноса к конкретному evidence без повторного ручного исследования всей папки.
+
+### Техническая зрелость
+
+- CI стабильно зелёный.
+- Golden/property/fuzz tests покрывают parser boundaries.
+- Есть тесты на повреждённые, большие и вложенные файлы.
+- Android SAF проверен на permission loss и providers без seek.
+- Поддерживаемые версии и известные ограничения опубликованы.
+- Report schema/manifest проверяются автоматически.
+
+## 6. Что не является целью God
+
+- Запускать игру или исполнять EXE/DLL/IL.
+- Быть Windows emulator или Unity runtime.
+- Рендерить сцены.
+- Реализовывать Android graphics/input/audio backend.
+- Гарантировать успешный порт любой игры.
+- Обязательный импорт отчёта в Ramen или RamenUnity.
+- Подменять человеческую/динамическую проверку там, где статического анализа недостаточно.
+
+## 7. Текущая ближайшая очередь
+
+С учётом текущего кода и подтверждённого аудита следующий практический порядок:
+
+1. FileAccess abstraction с size, stream и positional read capabilities.
+2. Полный inventory независимо от UI tree limit; единые file/analyzer statuses.
+3. Streaming report writer и partial report при отмене.
+4. Safe export, UI scan locking и per-scan cancellation.
+5. UnityFS block-table reader и bounded LZ4/LZMA decompression.
+6. ZIP/вложенные archives inventory с защитой от archive bombs.
+7. Реальные fixtures для современных SerializedFile/TypeTree и глубокого чтения.
+8. PE imports/exports/delay imports и native dependency graph.
+9. CLR P/Invoke, IL bodies и cross-assembly call sites.
+10. Общий graph/evidence model, расширяемый каждым анализатором.
+11. Расширение object/asset decoders и IL2CPP metadata.
+12. Porting assessment и генератор досье.
+
+Не создавать видимость прогресса за счёт множества несвязанных декодеров. Каждый новый результат должен повышать полноту связной модели игры.
