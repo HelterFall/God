@@ -17,13 +17,14 @@ Android-приложение для анализа Windows Unity-игр непо
 - Чтение metadata SerializedFile v19–v26: версия Unity, target platform, флаг TypeTree, число типов, до 500 записей объектов (PathID, смещение, размер и ClassID) и точные счётчики объектов по ClassID по всей прочитанной таблице (включая GameObject, Transform, MonoBehaviour и MonoScript), а также числа и ограниченные выборки MonoScript-ссылок (fileID/pathID), внешних файлов (fileID/path) и первых 500 serialized type-записей (ClassID, scriptTypeIndex, scriptID), число SerializeReference-типов и до 200 их записей с className/namespace/assemblyName (если формат v21+). Связывает scriptTypeIndex с MonoScript fileID/pathID. Для локальных ссылок сохраняет до 1000 записей ClassID 115 и декодирует до 64 MonoScript-объектов (имя, executionOrder, className, namespace, assemblyName), если позиция не дальше 64 MiB от начала файла, а размер объекта не больше 64 KiB. Для внешних ссылок пытается сопоставить путь с файлом в выбранной папке по точному пути или уникальному имени; если целевой SerializedFile попал в ограниченный разбор и содержит нужный ClassID 115, декодирует внешний MonoScript теми же лимитами. Неоднозначные имена не угадываются. Для v26 считывается число shared TypeTree subtrees. Проверяет границы object data ranges перед принятием записей.
 - Отчёт по версии формата, размерам, data offset и endianness; UnityFS пока определяется только по заголовку.
 - Список игровых сборок и UnityEngine modules.
-- Экспорт Markdown и JSON (JSON schemaVersion 22).
+- Экспорт Markdown и JSON (JSON schemaVersion 23); JSON содержит scanCoverage с состоянием инвентаризации и сводкой статусов PE/CLR/Unity metadata.
 - Отображение прогресса при обходе папок.
 - Возможность остановить длительный анализ; незавершённый отчёт не экспортируется.
 
 ## Структура исходного кода
 - `MainActivity.kt` — Android UI, выбор папки через SAF и экспорт.
 - `GameScanner.kt` — обход дерева игры, эвристики Unity/Mono/IL2CPP, связь MonoScript между файлами и формирование отчётов.
+- `ScanCoverage.kt` — счётчики покрытия инвентаризации и анализаторов, правила статусов completed/partial/failed/unsupported/not-run.
 - `PeParser.kt` — независимый PE-парсер: архитектура, CLR directory, адрес CLR metadata и статические импорты.
 - `ClrMetadataParser.kt` — ограниченный ECMA-335 reader: Assembly identity, Module, TypeDef имена, привязка полей/методов к классам через CLR metadata list indices, чтение Blob heap для сигнатур.
 - `ClrSignatureParser.kt` — безопасное декодирование распространённых CLR field/method signatures: примитивы, массивы, указатели, by-ref, generic variables и базовая информация о calling convention.
