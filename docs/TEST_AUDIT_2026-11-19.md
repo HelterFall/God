@@ -9,8 +9,8 @@
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 13 JVM test files;
-- 66 методов с аннотацией `@Test`;
+- 14 JVM test files;
+- 72 метода с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - последний запуск до этой правки — #256 — завершился успешно, включая компиляцию Kotlin tests, выполнение test task, сборку APK и загрузку artifact; новый CI запуск должен подтвердить добавленные пять тестов.
@@ -37,7 +37,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **66 тестовых методов в 13 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Всего: **72 тестовых метода в 14 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 

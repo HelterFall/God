@@ -5,7 +5,7 @@
 **Исходный commit перед этим шагом:** 1bad13cfa47ba6b13213f33187a858d4fad255c5  
 **Контрольная точка документации перед изменением:** 1bad13cfa47ba6b13213f33187a858d4fad255c5  
 **Последняя успешная проверка CI перед изменением:** run #256 для commit 1bad13c завершился успешно.  
-**Тестовая база после текущего изменения:** 13 JVM test files / 66 @Test methods; пять новых тестов проверяют безопасный экспорт. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
+**Тестовая база после текущего изменения:** 14 JVM test files / 72 @Test methods; пять тестов проверяют безопасный экспорт и шесть — lifecycle coordinator. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
@@ -87,7 +87,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-02 — scan lifecycle/cancellation race.** Первый этап реализован: `ScanCoordinator` допускает только одну активную задачу, отмена привязана к job, кнопка запуска блокируется, `onDestroy()` запрашивает отмену, `GameScanner` получает applicationContext, а worker держит Activity только через WeakReference. Шесть JVM-тестов проверяют single-job, cancellation scope и завершение. Осталось: сохранять partial report при отмене, тестировать Activity recreation/SAF на Android и доказать остановку во время блокирующих операций provider.
 - [x] **QA-03 — export false success.** Исправлено: `ReportExporter` отклоняет null stream и передаёт ошибки открытия, записи и закрытия; пять JVM-тестов проверяют эти сценарии, UTF-8 и закрытие потока.
 - [ ] **QA-04 — Android SAF tests.** Нет instrumentation tests для реальных document providers, URI permissions, stream errors, Activity recreation и export destination.
-- [ ] **QA-05 — real binary fixtures.** Текущие 66 @Test в основном используют synthetic byte arrays и вручную созданные model objects. Добавить небольшой набор реально созданных/легально распространяемых PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
+- [ ] **QA-05 — real binary fixtures.** Текущие 72 @Test в основном используют synthetic byte arrays и вручную созданные model objects. Добавить небольшой набор реально созданных/легально распространяемых PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
 - [ ] **QA-06 — positive PE imports coverage.** Текущий PeParserTest не создаёт настоящий Import Directory с секцией и не проверяет успешно извлечённые DLL names; ARM64 и malformed import descriptors тоже не покрыты.
 - [ ] **QA-07 — parser compatibility matrix.** Уточнить и расширить проверки CLR signatures/metadata, Unity header versions, SerializedFile v19–v26, TypeTree/shared subtree и scene graph limits. Synthetic tests оставить, но сверять их с реальными samples.
 - [ ] **QA-08 — binary robustness.** Добавить property/fuzz tests для offsets, lengths, counts, overflow, malformed heaps, truncated streams и compression/container boundaries.
@@ -99,7 +99,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-**Текущая база:** 13 test files / 66 @Test methods, JUnit 4.13.2. Run #256 подтвердил выполнение `:app:testDebugUnitTest` и `:app:assembleDebug` до текущей правки; новый CI должен подтвердить пять тестов `ReportExporterTest`. Интеграционные/Android tests по-прежнему нужны.
+**Текущая база:** 14 test files / 72 @Test methods, JUnit 4.13.2. Run #258 подтвердил тесты и APK build после ReportExporter; run #259 проверяет ScanCoordinator changes. Интеграционные/Android tests по-прежнему нужны.
 
 ## 3. Последовательность реализации
 
@@ -417,12 +417,12 @@ God уже умеет выполнять ограниченную инвента
 
 1. **QA-02 lifecycle slice (частично реализован):** `ScanCoordinator`, job-scoped cancellation, один активный scan, applicationContext и weak Activity callbacks; шесть JVM-тестов. Следом — partial report и Android lifecycle/SAF tests.
 2. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
-4. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
-5. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
-6. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23, добавить JSON Schema/manifest.
-7. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
-8. **UnityFS vertical slice:** прочитать block table, один entry и SerializedFile внутри него.
-9. Только после успешных вертикальных срезов расширять PE/CLR/IL и остальные Unity decoders.
+3. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
+4. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
+5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23, добавить JSON Schema/manifest.
+6. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
+7. **UnityFS vertical slice:** прочитать block table, один entry и SerializedFile внутри него.
+8. Только после успешных вертикальных срезов расширять PE/CLR/IL и остальные Unity decoders.
 
 **Первый реальный пользовательский milestone:** пользователь выбирает папку игры; God инвентаризирует её, находит ZIP/UnityFS, исследует доступные entries, обнаруживает Unity SerializedFiles и экспортирует partial/full report с точным coverage. Никакой ручной распаковки поддерживаемых контейнеров не требуется.
 
