@@ -402,7 +402,9 @@ God уже умеет выполнять ограниченную инвента
 - [x] Базовый progress callback и индикатор пути/счётчика во время inventory (обновление UI каждые 128 записей).
 - [x] Кнопка запроса отмены анализа.
 - [ ] Расширить progress до стадий и отдельных analyzers; текущая индикация не показывает прогресс PE/CLR/Unity parsing.
-- [x] Добавить single-job locking и job-scoped cancellation через `ScanCoordinator`; шесть JVM-тестов проверяют state transitions.\n- [ ] Сохранять partial report при отмене и добавить Android lifecycle/SAF instrumentation tests.
+- [x] Добавить single-job locking и job-scoped cancellation через `ScanCoordinator`; шесть JVM-тестов проверяют state transitions.
+- [x] Сохранять inventory-only partial report при отмене; пять JVM-тестов проверяют сериализацию и ограничения.
+- [ ] Добавить Android lifecycle/SAF instrumentation tests.
 - [ ] Поиск, фильтры и навигация по findings/graph.
 - [ ] Переход к evidence из итоговых документов.
 - [ ] Тесты на реальные легально распространяемые Unity Mono/IL2CPP fixtures.
