@@ -4,7 +4,7 @@
 **Базовая ветка:** main  
 **Исходный commit перед этим шагом:** f36b317366ae5e4d5d016f1061c0c2d0b78c76bf  
 **Контрольная точка документации перед изменением:** f36b317366ae5e4d5d016f1061c0c2d0b78c76bf  
-**Последняя успешная проверка CI до lifecycle-изменений:** run #258 для commit f36b317 завершился успешно; run #261 проверяет текущий PR.  
+**Последняя успешная проверка CI для lifecycle-ветки:** run #261 успешно проверил JVM tests, debug APK и artifact upload; run #263 проверяет squash-коммит в main.  
 **Тестовая база после текущего изменения:** 14 JVM test files / 72 @Test methods; пять тестов проверяют безопасный экспорт и шесть — lifecycle coordinator. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
@@ -99,7 +99,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-**Текущая база:** 14 test files / 72 @Test methods, JUnit 4.13.2. Run #258 подтвердил тесты и APK build после ReportExporter; run #261 проверяет ScanCoordinator и отвязку GameScanner от Activity. Интеграционные/Android tests по-прежнему нужны.
+**Текущая база:** 14 test files / 72 @Test methods, JUnit 4.13.2. Run #261 подтвердил тесты, APK build и artifact upload для ScanCoordinator и отвязки GameScanner от Activity. Интеграционные/Android tests по-прежнему нужны.
 
 ## 3. Последовательность реализации
 
@@ -401,7 +401,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] Базовый progress callback и индикатор пути/счётчика во время inventory (обновление UI каждые 128 записей).
 - [x] Кнопка запроса отмены анализа.
 - [ ] Расширить progress до стадий и отдельных analyzers; текущая индикация не показывает прогресс PE/CLR/Unity parsing.
-- [ ] Добавить корректное job locking и job-scoped cancellation; это не обеспечивается текущим глобальным флагом.
+- [x] Добавить single-job locking и job-scoped cancellation через `ScanCoordinator`; шесть JVM-тестов проверяют state transitions.\n- [ ] Сохранять partial report при отмене и добавить Android lifecycle/SAF instrumentation tests.
 - [ ] Поиск, фильтры и навигация по findings/graph.
 - [ ] Переход к evidence из итоговых документов.
 - [ ] Тесты на реальные легально распространяемые Unity Mono/IL2CPP fixtures.

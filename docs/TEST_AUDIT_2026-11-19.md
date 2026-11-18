@@ -155,11 +155,10 @@ Unit tests парсеров не ловят ошибки их orchestration и �
 
 Для бинарных форматов это существенный пробел, так как входные файлы могут быть обрезаны, повреждены или специально сформированы.
 
-### QA-09 — CI пока проверяет только узкую часть качества
+### QA-09 — CI проверяет pull request, но покрытие качества пока узкое
 
 Текущий workflow:
-- запускается на push в main и через workflow_dispatch;
-- не имеет отдельного trigger `pull_request`;
+- запускается на push в main, через workflow_dispatch и на pull_request в main (trigger добавлен в PR #1);
 - выполняет только `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - не выполняет Android instrumentation tests, lint/static analysis, release build или проверку report schema;
 - загружает debug APK, но не публикует JUnit XML test reports/coverage reports как отдельные artifacts.
