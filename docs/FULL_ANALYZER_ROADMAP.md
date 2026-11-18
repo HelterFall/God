@@ -27,8 +27,11 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-- Полный inventory корневой папки: relative path, type, size, accessibility, timestamps, file identity.
-- Статусы файлов: discovered, queued, analyzed, partial, skipped, inaccessible, unsupported, failed.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит записи, собранные обходом; есть агрегированные ScanCoverage, базовый progress callback и кнопка отмены. Markdown tree отдельно ограничен 20 000 строк.
+
+**Цель расширения (не повторная реализация):**
+- Добавить stable file IDs и per-file terminal statuses: discovered, queued, analyzed, partial, skipped, inaccessible, unsupported, failed.
+- Сохранить текущий JSON inventory и связать его записи с analyzer runs/findings.
 - Поддержка large-file streaming и positional/random-access reads через SAF abstraction.
 - Потоковое хеширование по опции для сравнения файлов и доказательства идентичности.
 - Grouping split files, sidecars и связанных ресурсов.
@@ -166,7 +169,7 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
 | P1 | FileAccess abstraction, random access, streaming, cancellation и partial report | Надёжный полный обход |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
-| P1 | Полный machine inventory и report pipeline | Ничего не теряется между анализаторами |
+| P1 | Per-file IDs/statuses и streaming report pipeline поверх существующего JSON files[] inventory | Ничего не теряется между анализаторами |
 | P2 | PE/native dependency graph | Понимание нативных границ |
 | P2 | CLR/Mono metadata, IL, P/Invoke и call-site graph | Понимание managed-логики |
 | P2 | SerializedFile/TypeTree/object graph | Понимание сцен и компонентов |
