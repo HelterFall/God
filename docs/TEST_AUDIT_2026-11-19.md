@@ -1,9 +1,9 @@
 # God — аудит тестирования и качества
 
 **Дата:** 19 ноября 2026 года  
-**Проверенная ветка:** `work/qa-02-partial-report` (PR #2 к main)  
-**Исходный commit перед текущим изменением:** a3cdb70020e803b98090a9acf555a324d693e476  
-**Последняя успешная проверка CI до partial-report изменения:** run #264, commit a3cdb70020e803b98090a9acf555a324d693e476. Новый PR CI проверяет текущую версию.
+**Проверенная ветка:** `main`  
+**Проверенный commit:** 933ee5d1cd751d09c85a605a0249597539c92cec  
+**Последняя успешная проверка CI:** run #267 для partial-report PR; run #268 проверяет squash-коммит в main.
 
 ## 1. Итог
 
@@ -13,7 +13,7 @@
 - 77 методов с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
-- последний запуск до этой правки — #264 — завершился успешно, включая Kotlin unit tests, сборку APK и загрузку artifact; новый CI запуск должен подтвердить пять тестов partial report.
+- run #267 успешно выполнил Kotlin unit tests, сборку APK и загрузку artifact после добавления partial report.
 
 Это подтверждает работу изолированных JVM-тестов и сборку Android debug APK после успешного CI. Но **это не является доказательством корректности полного сканирования игры**. Реальные игровые файлы, Android SAF, UI, полный `GameScanner.scan()`, cancellation и Android export/provider lifecycle по-прежнему не покрыты интеграционными тестами. Запись отчёта проверяется `ReportExporterTest`, а coordinator и partial report — отдельными JVM-тестами.
 

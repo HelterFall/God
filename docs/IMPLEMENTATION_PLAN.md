@@ -2,10 +2,10 @@
 
 **Дата:** 19 ноября 2026 года  
 **Базовая ветка:** main  
-**Исходный commit перед этим шагом:** a3cdb70020e803b98090a9acf555a324d693e476  
-**Контрольная точка документации перед изменением:** a3cdb70020e803b98090a9acf555a324d693e476  
-**Последняя успешная проверка CI до partial-report изменения:** run #264 успешно проверил main commit a3cdb70; новый PR CI должен проверить текущий partial-report код.  
-**Тестовая база до partial-report изменения:** 14 JVM test files / 72 @Test methods; текущая ветка добавляет пять тестов `PartialReportBuilderTest`. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
+**Текущий source baseline:** 933ee5d1cd751d09c85a605a0249597539c92cec  
+**Контрольная точка документации:** 933ee5d1cd751d09c85a605a0249597539c92cec  
+**Последняя успешная проверка CI:** run #267 успешно проверил partial-report PR (JVM tests, debug APK и artifact upload); run #268 проверяет squash-коммит в main.  
+**Текущая тестовая база:** 15 JVM test files / 77 @Test methods; добавлены пять тестов `PartialReportBuilderTest`. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
@@ -100,7 +100,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-**Текущая база после этого шага:** 15 test files / 77 @Test methods, JUnit 4.13.2. Run #264 подтвердил предыдущую версию; PR CI проверяет пять новых тестов partial report. Интеграционные/Android tests по-прежнему нужны.
+**Текущая база:** 15 test files / 77 @Test methods, JUnit 4.13.2. Run #267 подтвердил tests, APK build и artifact upload для partial-report реализации. Интеграционные/Android tests по-прежнему нужны.
 
 ## 3. Последовательность реализации
 
