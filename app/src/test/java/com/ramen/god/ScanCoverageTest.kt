@@ -13,6 +13,7 @@ class ScanCoverageTest {
         assertEquals("partial", deriveAnalyzerStatus(3, 2, 2, skippedCount = 1))
         assertEquals("partial", deriveAnalyzerStatus(5, 2, 2, limitedCount = 3))
         assertEquals("failed", deriveAnalyzerStatus(2, 2, 0, failedCount = 2))
+        assertEquals("partial", deriveAnalyzerStatus(0, 0, 0, limitedCount = 2))
     }
 
     @Test
@@ -37,5 +38,17 @@ class ScanCoverageTest {
 
         val incompleteInventory = complete.copy(inventoryStatus = "partial")
         assertEquals("partial", incompleteInventory.status)
+
+        val unsupported = complete.copy(
+            analyzers = listOf(
+                AnalyzerCoverage("unityfs_contents", 1, 0, 0, forcedStatus = "unsupported")
+            )
+        )
+        assertEquals("partial", unsupported.status)
+
+        val notRun = complete.copy(
+            analyzers = listOf(AnalyzerCoverage("config", 1, 0, 0))
+        )
+        assertEquals("partial", notRun.status)
     }
 }
