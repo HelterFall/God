@@ -1,16 +1,16 @@
 # God — аудит тестирования и качества
 
 **Дата:** 19 ноября 2026 года  
-**Проверенная ветка:** main  
-**Исходный commit перед текущим изменением:** 1bad13cfa47ba6b13213f33187a858d4fad255c5  
-**Последняя успешная проверка CI до текущего изменения:** run #256, commit 1bad13cfa47ba6b13213f33187a858d4fad255c5; workflow завершился успешно.
+**Проверенная ветка:** `work/qa-02-scan-coordinator` (PR #1 к main)  
+**Исходный commit перед текущим изменением:** f36b317366ae5e4d5d016f1061c0c2d0b78c76bf  
+**Последняя успешная проверка CI до lifecycle-изменения:** run #258, commit f36b317366ae5e4d5d016f1061c0c2d0b78c76bf. Run #261 проверяет текущую версию PR.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 13 JVM test files;
-- 66 методов с аннотацией `@Test`;
+- 14 JVM test files;
+- 72 метода с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - последний запуск до этой правки — #256 — завершился успешно, включая компиляцию Kotlin tests, выполнение test task, сборку APK и загрузку artifact; новый CI запуск должен подтвердить добавленные пять тестов.
@@ -27,7 +27,7 @@
 | ClrSignatureParserTest | 6 | Primitive field/method signatures, одномерный массив, generic VAR/MVAR, truncated/unknown signatures |
 | MonoScriptParserTest | 5 | Little/big endian payload, чтение object из stream, malformed/out-of-range и traversal limit |
 | PeParserTest | 3 | Non-PE/truncated input, x86 PE и CLR directory |
-| ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
+| ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |\n| ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -37,7 +37,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **66 тестовых методов в 13 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Всего: **72 тестовых метода в 14 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -69,7 +69,7 @@ Unit tests парсеров не ловят ошибки их orchestration и �
 
 **Риск:** отдельный parser может пройти тесты, а итоговый отчёт всё равно неверно отразить количество кандидатов, успешных чтений или пропусков.
 
-### QA-02 — нет тестов MainActivity, cancellation и lifecycle
+### QA-02 — lifecycle частично укреплён; Android lifecycle tests всё ещё отсутствуют
 
 В текущем UI:
 
