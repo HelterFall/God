@@ -55,3 +55,8 @@ GitHub Actions собирает debug APK при каждом push в main. От
 - Метаданные форматов старше v26 пока не разбираются, чтобы не трактовать неизвестные структуры как известные.
 - Для форматов до v9 нужен отдельный позиционный read для endian marker.
 - Это анализатор, не runtime и не декомпилятор.
+
+
+## Engineering audit
+
+The detailed development audit and prioritized checklist are maintained in [docs/AUDIT_2026-11-18.md](docs/AUDIT_2026-11-18.md). It records the verified baseline, CI blocker, missing capabilities, acceptance criteria, and implementation order.
