@@ -2,12 +2,14 @@
 
 **Дата:** 19 ноября 2026 года  
 **Базовая ветка:** main  
-**Базовый commit:** e118d8a164a6646cb84593a9d0f68856cfd1ecf6  
+**Последний commit документации при перепроверке:** 2ba10b3376accb46eeefbbbd5886a7d8aae555d3  
+**Последний проверенный commit исходного кода:** cb69a252aa7c7c9aee8eaa206dbe7835b9f3c9c8  
+**Последняя проверка CI:** run #239 для commit 2ba10b3 завершился успешно; между проверенным commit исходников и этим commit были только изменения документации.  
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md).
 
 ## 1. С чего начинаем
 
-God уже умеет распознавать часть Unity-структур и извлекать ограниченные сведения из PE/CLR и SerializedFile. CI run #236 для базового commit прошёл успешно: JVM tests и debug APK build завершились успешно. Это подтверждает работоспособность текущей тестовой базы, но не означает, что глубокое исследование игры уже реализовано.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. Последний проверенный CI — run #239 (JVM parser tests и debug APK build успешны). Этот run проверял документальный commit; код приложения остаётся на source baseline cb69a25. Это подтверждает сборку и существующие тесты, но не означает, что глубокое исследование игры уже реализовано.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -28,9 +30,51 @@ God уже умеет распознавать часть Unity-структур
 - Не загружать большие файлы и архивы целиком в память, если формат допускает потоковое или позиционное чтение.
 - Не запускать игровые EXE/DLL, не исполнять CIL и не менять оригиналы файлов.
 - Не считать строку, AssemblyRef, импорт или статический call site доказательством runtime-использования. У каждого уровня — собственный тип evidence.
-- JSON Schema и manifest нужны для целостности, воспроизводимости и будущей автоматизации отчётов. Не создавать обязательный импортёр или runtime/API-связь с Ramen или RamenUnity.
+- Сначала проверить и переиспользовать существующие ScanCoverage, ScanEntry, ScanResult и parser-specific data classes. Не создавать дубликаты уже работающих моделей.
+- JSON Schema и manifest нужны для целостности, воспроизводимости и будущей автоматизации отчётов. Уже существующий schemaVersion=23 считать текущей версией структуры JSON; не вводить второй номер версии с тем же смыслом.
+- Не создавать обязательный импортёр или runtime/API-связь с Ramen или RamenUnity.
 - Сначала довести Mono/SerializedFile путь до полезной глубины и получить реальные fixtures. IL2CPP развивать отдельной веткой, не смешивая его с готовностью Mono.
 
+## 2.1. Что уже реализовано — не делать повторно
+
+Этот список нужен, чтобы следующие этапы расширяли текущий код, а не заново создавали уже работающие функции. «Реализовано» здесь означает ограниченную текущую версию, а не полную целевую возможность.
+
+### Android UI, инвентаризация и ScanCoverage
+
+- [x] Выбор корневой папки через SAF и сохранение выбранного URI между пересозданиями Activity.
+- [x] Рекурсивный обход через DocumentFile с лимитами 100 000 записей и глубиной 40.
+- [x] Сбор относительного пути, имени, типа directory/file и размера; подсчёт общего числа записей и байтов.
+- [x] JSON-поле files содержит все записи, собранные текущим обходом в пределах этих лимитов. Markdown-дерево отдельно ограничено 20 000 строк.
+- [x] Базовый callback прогресса во время инвентаризации; UI обновляет путь/счётчик каждые 128 записей.
+- [x] Кнопка запроса отмены и проверки флага отмены во время обхода и отдельных циклов анализа.
+- [x] Агрегированная ScanCoverage: inventory counters, PE/CLR/Unity analyzer candidate/attempt/parsed/partial/failed/limited/skipped counts и derived status.
+
+**Ограничения, которые не следует путать с отсутствием функции:** прогресс пока относится преимущественно к обходу папок; отдельного прогресса каждого анализатора нет. Отмена использует один общий флаг Activity, не изолированный по scan job; отменённый анализ выбрасывает ScanCancelledException и не сохраняет частичный отчёт. Кнопка запуска анализа остаётся доступной во время работы, поэтому задания могут попасть в очередь однопоточного executor.
+
+### Уже существующие форматы и экспорт
+
+- [x] Экспорт Markdown и JSON.
+- [x] JSON включает schemaVersion=23, scanCoverage и массив files для всех собранных inventory entries.
+- [x] Markdown tree имеет отдельный предел 20 000 строк.
+- [x] Текущие Markdown и JSON сначала формируются в памяти как строки; потокового ReportWriter пока нет.
+- [x] Экспорт открывает пользовательский destination через SAF.
+
+**Известный дефект:** openOutputStream(uri) вызывается через safe call. Если provider вернул null, код всё равно показывает «Отчёт сохранён». Это нужно исправить, а не реализовывать экспорт с нуля.
+
+### Уже существующие анализаторы
+
+- [x] Unity build inventory и эвристическая классификация Mono/IL2CPP.
+- [x] Multi-source Unity version evidence с разрешением конфликтов без угадывания.
+- [x] PE headers, машинная архитектура x86/x86-64/ARM64, ограниченное чтение sections/RVA и имена DLL из static Import Table.
+- [x] CLR directory recognition и ограниченная CLR metadata: Assembly identity, Module, TypeDef, поля, методы, AssemblyRef и распространённые signatures.
+- [x] Привязка полей/методов к TypeDef и ограниченное сопоставление MonoScript identity с managed TypeDef.
+- [x] Unity SerializedFile headers и metadata v19–v26 в ограниченных окнах.
+- [x] Sampled object records, ClassID counts, TypeTree summaries и выбранные полные TypeTrees.
+- [x] Ограниченное чтение MonoScript payload, часть local/external PPtr resolution и MonoBehaviour script bindings.
+- [x] Ограниченный decoder GameObject/Transform/MonoBehaviour и локальный GameObject–Transform–Component scene graph.
+- [x] Распознавание UnityFS header.
+
+**Не подразумевается как завершённое:** распаковка UnityFS/AssetBundle/ZIP, полноценная PE function import/export analysis, P/Invoke map и IL bodies, IL2CPP metadata parsing, полный scene graph и asset payload decoding, общий cross-domain dependency graph и Porting Dossier generator.
 ## 3. Последовательность реализации
 
 ### Этап 0 — зафиксировать исходную точку
@@ -49,80 +93,97 @@ God уже умеет распознавать часть Unity-структур
 **Приоритет:** P0  
 **Зависимости:** нет.
 
-Создать базовые типы данных, которые будут использовать все последующие анализаторы:
+В коде уже есть частные модели результатов парсеров, ScanEntry/ScanResult и агрегированная ScanCoverage. Не заменять их вторым параллельным набором DTO. Нужно постепенно собрать из них общий слой доказательных результатов.
 
-- FileRecord — файл или виртуальный entry, путь, размер, источник и состояние доступа;
-- ContainerRecord — архив/bundle и связь с содержащимися entries;
-- AnalyzerRun — имя и версия анализатора, вход, поддерживаемые форматы, лимиты и итоговый статус;
-- Finding — конкретная находка;
-- Evidence — откуда взят вывод: путь, offset/range, metadata token, PathID, RVA, IL offset или другой locator;
-- GraphNode и GraphEdge — объекты и доказательные связи между ними;
-- ScanIssue — ошибка, предупреждение, пропуск или неизвестный формат.
+**Переиспользовать:**
+- ScanEntry как исходную основу для FileRecord; добавить стабильный ID и явные состояния, а не создавать второй инвентарь.
+- AnalyzerCoverage, ScanCoverage и deriveAnalyzerStatus как уже работающую агрегированную модель покрытия.
+- Существующие PeInfo, ClrAssemblySummary, UnityFileHeader, UnityMetadataSummary и scene graph models как parser-specific findings.
+- ScanResult пока содержит только готовые Markdown/JSON строки; со временем заменить/расширить его структурированным ScanReport.
 
-Для каждой сущности нужны стабильный ID в пределах отчёта, source reference, parser status и причина неполноты. Статусы должны различать как минимум discovered, queued, completed, partial, skipped, inaccessible, unsupported, failed и unresolved там, где это применимо.
+**Что ещё не существует как общий межанализаторный слой:**
+- ContainerRecord для обычных и вложенных архивных entries.
+- AnalyzerRun с parser version, input IDs, supported format range, limits и итоговым статусом.
+- Finding и Evidence с точными source locators.
+- ScanIssue для typed warning/error/skip reasons вместо только строк warnings.
+- GraphNode и GraphEdge для межфайловых, native, managed, Unity и asset dependencies.
 
 **Задачи:**
-- [ ] Спроектировать Kotlin data model без зависимости от Android UI.
-- [ ] Добавить сериализацию/десериализацию и тесты round-trip.
-- [ ] Описать enum статусов и правила переходов.
-- [ ] Ввести evidence locator и ссылки между findings.
-- [ ] Подключить текущие PE, CLR и Unity результаты к новой модели постепенно, без удаления существующих отчётов.
+- [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
+- [ ] Эволюционировать ScanEntry в FileRecord со стабильным ID, parent/container ID и terminal status.
+- [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
+- [ ] Добавить typed ScanIssue, сохранив текущие warnings при переходном периоде.
+- [ ] Ввести GraphNode/GraphEdge здесь один раз; последующие этапы должны наполнять и связывать их, а не создавать новые типы.
+- [ ] Добавить сериализацию/десериализацию и round-trip tests.
+- [ ] Подключить один существующий parser end-to-end как образец и затем постепенно подключить остальные.
+- [ ] Расширить per-file/per-analyzer statuses, не дублируя агрегированную ScanCoverage.
 
-**Критерий завершения:** один тестовый scan может сохранить файл, parser finding, evidence и связь между двумя findings в едином формате; тест подтверждает, что source locator не теряется после сериализации.
+**Критерий завершения:** один тестовый scan сохраняет FileRecord, parser finding, Evidence и graph edge в единой модели; после сериализации сохраняются ID, связи и точный source locator.
 
 ### Этап 2 — единый файловый слой поверх SAF
 
 **Приоритет:** P0  
 **Зависимости:** этап 1.
 
-Сейчас анализаторы используют ограниченные byte arrays и окна чтения. Для глубокой разведки необходим общий read-only доступ к файлам.
+Сейчас GameScanner использует DocumentFile и отдельный readPrefix(uri, maximum), который открывает ContentResolver InputStream и копит ограниченный ByteArrayOutputStream. Это bounded prefix read, но не общий файловый API и не random access.
 
 **Задачи:**
-- [ ] Ввести FileAccess / ReadableEntry abstraction с относительным путём, размером и возможностями чтения.
-- [ ] Поддержать sequential stream и отдельную операцию positional read, если SAF provider её позволяет.
-- [ ] Обрабатывать provider без seek: fallback на последовательное чтение с явным status/limit.
-- [ ] Передавать cancellation token в операции чтения.
+- [ ] Ввести FileAccess / ReadableEntry abstraction на базе уже используемых SAF URI: relative path, size, stream и capability flags.
+- [ ] Поддержать sequential stream и отдельную операцию positional read, если SAF provider действительно её предоставляет.
+- [ ] Для provider без seek использовать честный sequential fallback; не обещать random access, которого нет.
+- [ ] Расширить существующий shouldCancel callback до job-scoped cancellation token, передаваемого в операции чтения и декомпрессии.
 - [ ] Проверять offset, длины, integer overflow и границы диапазонов до чтения.
 - [ ] Не делать полную копию файла в RAM ради чтения небольшого участка.
 - [ ] Добавить fake in-memory и file-backed test implementations.
 
-**Критерий завершения:** PE и Unity header parser могут читать данные через общий интерфейс; тесты покрывают чтение диапазона, конец файла, truncated input, отсутствие seek, отмену и oversized range.
+**Критерий завершения:** PE и Unity header parser читают данные через общий интерфейс; тесты покрывают range read, EOF, truncated input, provider без seek, cancellation и oversized range.
 
 ### Этап 3 — inventory и управление scan job
 
 **Приоритет:** P0  
 **Зависимости:** этапы 1–2.
 
-Отделить обход дерева от GameScanner и сделать inventory самостоятельной фазой.
+Рекурсивный обход, базовый progress callback, JSON inventory и кнопка отмены уже существуют. Задача — не переписать обход заново, а вынести его из GameScanner, добавить per-entry state и исправить жизненный цикл задания.
 
-**Задачи:**
-- [ ] Выделить InventoryScanner / ScanCoordinator из монолитной orchestration.
-- [ ] Сохранять полный машинный inventory независимо от ограничения дерева в UI.
-- [ ] Учитывать файлы, каталоги, byte totals, недоступные директории и причины пропусков.
-- [ ] Добавить очередь analyzer jobs с per-file/per-analyzer status.
-- [ ] Не запускать повторный scan поверх активного job.
-- [ ] Сделать отмену принадлежащей конкретному scan job.
-- [ ] При отмене сохранять обработанные результаты и создавать partial report.
-- [ ] Сохранять минимальное состояние scan так, чтобы пересоздание Activity не превращало успешный анализ в потерянный.
+**Уже реализовано:**
+- [x] SAF directory traversal через DocumentFile с текущими лимитами 100 000 записей и глубиной 40.
+- [x] Сбор path/name/directory/size и aggregate totals.
+- [x] JSON files[] содержит все собранные entries; Markdown tree отдельно обрезается до 20 000 строк.
+- [x] UI получает базовый прогресс инвентаризации; обновление текста происходит каждые 128 записей.
+- [x] Пользователь может запросить отмену через кнопку.
 
-**Критерий завершения:** на тестовом дереве с доступными, отсутствующими, большими и вложенными файлами inventory содержит итоговый статус каждого entry; отмена сохраняет корректный частичный результат; повторный запуск не дублирует активное задание.
+**Что нужно сделать:**
+- [ ] Выделить InventoryScanner / ScanCoordinator из GameScanner, не переписывая существующий обход без необходимости.
+- [ ] Добавить стабильные file IDs и per-file terminal status; сейчас JSON files[] хранит только path/directory/size, без статуса анализа.
+- [ ] Сохранить aggregate ScanCoverage и расширить его связями с per-file/per-analyzer runs.
+- [ ] Учитывать причины пропусков: permission denied, inaccessible, depth/entry limit, too large, unsupported и другие.
+- [ ] Добавить analyzer jobs с per-file/per-analyzer status и избежать повторной обработки без необходимости.
+- [ ] Отключать кнопку повторного запуска, пока scan активен; сейчас повторные нажатия могут поставить новые задания в single-thread executor.
+- [ ] Заменить общий scanCancelled на отдельный cancellation token для каждого задания; общий флаг сейчас сбрасывается при новом вызове и не изолирует queued jobs.
+- [ ] При отмене сохранять уже собранные данные и формировать честный partial report вместо текущего поведения «отчёт не создан».
+- [ ] Добавить прогресс по стадиям и анализаторам; текущий счётчик/путь отражает в основном обход папок.
+- [ ] Сохранять результат/состояние scan при пересоздании Activity; сейчас сохраняется URI папки, но не отчёт и не состояние задания.
+
+**Критерий завершения:** на тестовом дереве каждый собранный entry имеет stable ID и terminal status; одновременно существует не более одного активного scan; отмена одного задания не затрагивает другое и создаёт корректный partial report.
 
 ### Этап 4 — потоковое сохранение отчёта
 
 **Приоритет:** P0  
 **Зависимости:** этапы 1–3.
 
+Экспорт Markdown и JSON уже работает. JSON содержит schemaVersion=23 и files[] с собранными inventory entries. Но buildMarkdown/buildJson возвращают большие строки, а MainActivity хранит обе строки в памяти до экспорта. Отдельного ReportWriter, JSON Schema и manifest пока нет.
+
 **Задачи:**
 - [ ] Создать отдельный ReportWriter, не связанный с UI и GameScanner.
 - [ ] Записывать крупные секции потоково, не собирая весь отчёт в одну большую строку.
-- [ ] Разделить краткое резюме и подробные данные (например, inventory/findings/graph edges).
-- [ ] Добавить независимую версию формата отчёта, не смешивая её с версией приложения.
-- [ ] Добавить JSON Schema и тест валидации.
-- [ ] Добавить manifest с версией God, версией формата, временем, coverage и hashes частей отчёта.
-- [ ] Проверять null output stream и ошибки записи; нельзя показывать «сохранено», если поток не был открыт или запись не завершилась.
+- [ ] Разделить краткое резюме и подробные данные (inventory/findings/graph edges), сохранив текущие Markdown/JSON outputs как совместимый переходный формат.
+- [ ] Формализовать существующий schemaVersion=23 как версию структуры JSON: определить правила bump/backward compatibility. Не вводить второй report format version с тем же смыслом.
+- [ ] Добавить JSON Schema и тест валидации текущего и будущего report format.
+- [ ] Добавить manifest с версией God/analyzer, schemaVersion, временем, coverage и hashes частей отчёта.
+- [ ] Проверять null output stream и ошибки записи; сейчас openOutputStream()?.use(...) может завершиться без записи, но UI всё равно сообщает «Отчёт сохранён».
 - [ ] Поддержать partial/cancelled report с явной маркировкой.
 
-**Критерий завершения:** тест генерирует большой отчёт без построения всей структуры в памяти; JSON проходит schema validation; manifest корректен; ошибка экспорта не обозначается как успех.
+**Критерий завершения:** тест генерирует большой отчёт без построения всей структуры в памяти; JSON проходит schema validation; manifest корректен; null stream/ошибка экспорта не обозначаются как успех; partial report содержит completed/partial/failed analyzer states.
 
 ### Этап 5 — чтение архивов и контейнеров
 
@@ -157,28 +218,45 @@ God уже умеет распознавать часть Unity-структур
 ### Этап 6 — анализ native binaries и зависимостей
 
 **Приоритет:** P1/P2  
-**Зависимости:** этапы 1–5; graph/evidence model уже должна существовать.
+**Зависимости:** этапы 1–5; GraphNode/GraphEdge и Evidence создаются на этапе 1.
 
-**Задачи:**
-- [ ] Углубить PE: sections, data directories, RVA mapping.
-- [ ] Разбирать imports, exports, delay imports, ordinal/forwarded exports.
-- [ ] Сопоставлять import DLL с найденными файлами, в том числе внутри доступных containers.
+**Уже реализовано:**
+- [x] PE/DOS/PE signature recognition и machine architecture x86, x86-64, ARM64.
+- [x] Ограниченное чтение section headers и RVA-to-file-offset mapping для текущего bounded buffer.
+- [x] Определение CLR directory и базового CLR metadata locator.
+- [x] Чтение имён DLL из static Import Table в пределах доступного окна чтения.
+
+**Ограничение текущего импорта:** PeInfo.imports содержит имена импортируемых DLL, а не полные имена импортируемых функций; экспорты и delay imports не анализируются. PE parser получает prefix до 1 MiB, а managed PE может перечитываться до 4 MiB.
+
+**Что добавить:**
+- [ ] Расширить чтение PE sections/data directories с positional reads, чтобы не зависеть от небольшого prefix.
+- [ ] Import Table с function names, ordinal imports и подробными thunk records.
+- [ ] Delay Import Table.
+- [ ] Export Table и forwarded exports.
+- [ ] Сопоставлять import DLL с найденными файлами, в том числе внутри поддерживаемых containers.
 - [ ] Выявлять недостающие зависимости.
 - [ ] Сохранять native dependency edges и function-level evidence.
 - [ ] Исследовать dynamic loading clues отдельно от подтверждённых imports.
 - [ ] Классифицировать архитектуру и Windows-only API как porting requirements, а не как автоматический verdict.
 
-**Критерий завершения:** для native binary видна цепочка binary → function import → DLL → найденный файл либо объяснение отсутствия; каждое ребро имеет evidence.
+**Критерий завершения:** для native binary видна цепочка binary → imported function → DLL → найденный файл либо объяснение отсутствия; каждое ребро имеет evidence.
 
 ### Этап 7 — полный managed/Mono анализ
 
 **Приоритет:** P2  
 **Зависимости:** этапы 1–4 и общая модель графа.
 
-**Задачи:**
-- [ ] Расширить CLR metadata: nested types, inheritance, interfaces, attributes, generic constraints.
-- [ ] Добавить полную поддерживаемую P/Invoke map.
-- [ ] Читать method bodies: IL, locals, exception handlers и token references.
+**Уже реализовано:**
+- [x] Ограниченная CLR metadata inventory: Assembly identity, Module, TypeDef, fields, methods и AssemblyRef.
+- [x] Привязка fields/methods к declaring TypeDef через FieldList/MethodList.
+- [x] Декодирование поддерживаемых CLR signatures: primitives, arrays, pointers, by-ref и generic variables.
+- [x] Ограниченные method/field samples и статусы parsed/partial/failed.
+- [x] Точное сопоставление доступных MonoScript class/namespace/assembly с managed TypeDef; неоднозначные совпадения не угадываются.
+
+**Что добавить:**
+- [ ] Расширить CLR metadata: nested types, inheritance, interfaces, attributes, generic constraints и остальные важные tables.
+- [ ] Полная поддерживаемая P/Invoke map: library, entry point, convention, charset and flags. Текущие PE imports не заменяют CLR P/Invoke metadata.
+- [ ] Читать method bodies: IL bytes, locals, exception handlers и token references.
 - [ ] Декодировать IL instructions и строить static call-site graph.
 - [ ] Разрешать tokens и symbols между assemblies.
 - [ ] Собирать связи managed method → Unity API → native boundary.
@@ -192,14 +270,22 @@ God уже умеет распознавать часть Unity-структур
 **Приоритет:** P2  
 **Зависимости:** этапы 1–5.
 
-**Задачи:**
-- [ ] Расширить матрицу Unity version × SerializedFile version × TypeTree layout.
-- [ ] Добавить позиционное чтение metadata и object payload.
-- [ ] Поддержать shared TypeTree subtrees для целевых версий.
+**Уже реализовано:**
+- [x] Распознавание SerializedFile headers, включая 64-bit layout v22+; metadata reader заявлен для v19–v26.
+- [x] Сбор ограниченных object record samples, ClassID counts, MonoScript references и external-file paths.
+- [x] TypeTree summaries и сохранение некоторых полных TypeTrees для GameObject/Transform и ограниченного числа MonoBehaviour types.
+- [x] Чтение части MonoScript payload и сопоставление scriptTypeIndex/MonoScript с managed TypeDef в доступных пределах.
+- [x] Базовый decoder GameObject, Transform и MonoBehaviour; локальный GameObject–Transform–Component graph.
+- [x] Ограниченное разрешение local/external PPtr и MonoBehaviour script bindings.
+
+**Что добавить:**
+- [ ] Опубликовать и расширить матрицу Unity version × SerializedFile version × TypeTree layout на реальных fixtures.
+- [ ] Добавить позиционное чтение metadata и object payload вместо bounded prefix dependency.
+- [ ] Поддержать shared TypeTree subtrees payload для целевых версий; сейчас для v26 читается только число shared subtrees.
 - [ ] Расширить decoder за пределы GameObject/Transform/MonoBehaviour.
 - [ ] Добавить ScriptableObject и используемые игрой типы объектов.
-- [ ] Улучшить PPtr resolution: local, external, GUID/path и bundle entries.
-- [ ] Строить scene/prefab graph с состояниями объектов и компонентами.
+- [ ] Улучшить PPtr resolution: local/external уже частично есть; расширить GUID/path и bundle-contained entries.
+- [ ] Строить более полный scene/prefab graph с component order, состояниями объектов и связями через файлы/bundles.
 - [ ] Сохранять raw/metadata-only/partial/unsupported object records, чтобы ничего не терять из-за неизвестного decoder.
 
 **Критерий завершения:** для реальных fixture scenes God строит проверенный граф объектов и компонентов, а unresolved references и недекодированные объекты явно видны.
@@ -225,11 +311,11 @@ God уже умеет распознавать часть Unity-структур
 **Приоритет:** P2/P3  
 **Зависимости:** модель этапа 1; наполнение идёт параллельно с этапами 5–9.
 
-Не откладывать создание модели графа до завершения всех декодеров. Каждый новый анализатор сразу создаёт узлы, связи и evidence. На этом этапе добавить сквозное разрешение ссылок между семействами данных.
+Не откладывать создание модели графа до завершения всех декодеров. Типы GraphNode/GraphEdge/Evidence создаются на этапе 1; этот этап не вводит их повторно, а связывает уже существующие parser outputs между собой. Локальный GameObject–Transform–Component scene graph в God уже есть, но общего графа File/Native/Managed/Unity/Asset dependencies ещё нет.
 
 **Задачи:**
 - [ ] Связать File/Container → Assembly/Native library → Type/Method → API → Unity Component/Scene → Asset.
-- [ ] Ввести устойчивые типы nodes и edges.
+- [ ] Согласовать IDs и типы cross-domain узлов/связей с моделью этапа 1; не создавать параллельные GraphNode/GraphEdge.
 - [ ] Добавить unresolved/ambiguous edges и причины.
 - [ ] Реализовать запросы: «кто использует этот API?», «какие сцены затрагивает эта библиотека?», «от чего зависит этот компонент?».
 - [ ] Добавить экспорт графа в структурированный формат и ссылки из Markdown к evidence.
@@ -271,7 +357,10 @@ God уже умеет распознавать часть Unity-структур
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
 - [ ] Quick/Standard/Deep scan profiles.
-- [ ] Прогресс по стадиям, анализаторам и файлам.
+- [x] Базовый progress callback и индикатор пути/счётчика во время inventory (обновление UI каждые 128 записей).
+- [x] Кнопка запроса отмены анализа.
+- [ ] Расширить progress до стадий и отдельных analyzers; текущая индикация не показывает прогресс PE/CLR/Unity parsing.
+- [ ] Добавить корректное job locking и job-scoped cancellation; это не обеспечивается текущим глобальным флагом.
 - [ ] Поиск, фильтры и навигация по findings/graph.
 - [ ] Переход к evidence из итоговых документов.
 - [ ] Тесты на реальные легально распространяемые Unity Mono/IL2CPP fixtures.
@@ -285,11 +374,11 @@ God уже умеет распознавать часть Unity-структур
 
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
-1. **Data model:** добавить FileRecord, AnalyzerRun, Finding, Evidence, GraphNode, GraphEdge и единые статусы. Подключить сначала один существующий parser как образец.
-2. **FileAccess:** добавить read-only abstraction и тесты на stream/positional read/non-seekable/EOF/cancel.
-3. **Inventory:** вынести обход каталогов из GameScanner, сохранить полный machine inventory и per-file status.
-4. **ScanCoordinator:** изолировать job, прогресс, отмену и partial state.
-5. **ReportWriter:** писать частичный и полный отчёт потоково, проверить null stream и export errors.
+1. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
+2. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
+3. **Inventory:** вынести уже работающий SAF walk из GameScanner, сохранить текущий JSON files[] и добавить per-file ID/status, не дублируя инвентаризацию.
+4. **ScanCoordinator:** изолировать уже существующие progress/cancel механизмы на уровне отдельных job, убрать повторный запуск и сохранить partial state.
+5. **ReportWriter:** заменить сборку уже существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23 как текущую версию схемы, добавить JSON Schema/manifest и исправить null output stream.
 6. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
 7. **UnityFS vertical slice:** прочитать block table, один entry и SerializedFile внутри него.
 8. Только после успешных вертикальных срезов расширять PE/CLR/IL и остальные Unity decoders.
