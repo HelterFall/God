@@ -44,7 +44,7 @@ internal data class ScanCoverage(
     val status: String
         get() = if (
             inventoryStatus == "partial" ||
-            analyzers.any { it.status == "partial" || it.status == "failed" || it.status == "unsupported" }
+            analyzers.any { it.status == "partial" || it.status == "failed" || it.status == "unsupported" || it.status == "not-run" }
         ) "partial" else "completed"
 }
 
