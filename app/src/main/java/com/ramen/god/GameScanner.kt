@@ -32,6 +32,7 @@ class GameScanner(private val activity: Activity) {
     private var unityHeaderFailedCount = 0
     private var unityMetadataAttemptedCount = 0
     private var unityMetadataFailedCount = 0
+    private var unityMetadataPrerequisiteSkippedCount = 0
 
     companion object {
         private const val MAX_ENTRIES = 100_000
@@ -72,6 +73,7 @@ class GameScanner(private val activity: Activity) {
         unityHeaderFailedCount = 0
         unityMetadataAttemptedCount = 0
         unityMetadataFailedCount = 0
+        unityMetadataPrerequisiteSkippedCount = 0
         walk(root, "", 0, shouldCancel, onProgress)
         if (shouldCancel()) throw ScanCancelledException()
         onProgress(entries.size, "Инвентаризация завершена; анализирую PE-файлы")
@@ -126,7 +128,6 @@ class GameScanner(private val activity: Activity) {
             if (shouldCancel()) throw ScanCancelledException()
             val deepMetadataRead = index < MAX_UNITY_METADATA_FILES
             unityHeaderAttemptedCount++
-            if (deepMetadataRead) unityMetadataAttemptedCount++
 
             var headerParsed = false
             var metadataParsed = false
@@ -157,8 +158,13 @@ class GameScanner(private val activity: Activity) {
             } catch (e: Exception) {
                 diagnostic = e.message ?: e.javaClass.simpleName
             }
-            if (!headerParsed) unityHeaderFailedCount++
-            if (deepMetadataRead && !metadataParsed) unityMetadataFailedCount++
+            if (!headerParsed) {
+                unityHeaderFailedCount++
+                if (deepMetadataRead) unityMetadataPrerequisiteSkippedCount++
+            } else if (deepMetadataRead) {
+                unityMetadataAttemptedCount++
+                if (!metadataParsed) unityMetadataFailedCount++
+            }
             diagnostic?.let { warnings.add("Unity-анализ " + entry.path + ": " + it) }
         }
 
@@ -246,7 +252,8 @@ class GameScanner(private val activity: Activity) {
         val metadataWindowLimited = (
             minOf(unityCandidateCount, MAX_UNITY_HEADER_FILES) - deepMetadataCandidates
         ).coerceAtLeast(0)
-        val metadataSkipped = (unityCandidateCount - MAX_UNITY_HEADER_FILES).coerceAtLeast(0)
+        val metadataSkipped = (unityCandidateCount - MAX_UNITY_HEADER_FILES).coerceAtLeast(0) +
+            unityMetadataPrerequisiteSkippedCount
 
         val clrPartial = clrResults.values.count { it.status.startsWith("partial-") }
         val clrParsed = clrResults.values.count { it.status == "parsed" }
