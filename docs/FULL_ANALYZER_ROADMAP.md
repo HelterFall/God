@@ -27,7 +27,7 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит записи, собранные обходом; есть агрегированные ScanCoverage, базовый progress callback и кнопка отмены. Markdown tree отдельно ограничен 20 000 строк.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит записи, собранные обходом; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator, job-scoped cancellation и inventory-only partial report при отмене. Markdown tree отдельно ограничен 20 000 строк.
 
 **Цель расширения (не повторная реализация):**
 - Добавить stable file IDs и per-file terminal statuses: discovered, queued, analyzed, partial, skipped, inaccessible, unsupported, failed.
@@ -196,7 +196,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 - Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
 - Все ограничения, пропуски и ошибки отражаются в coverage.
-- Отмена создаёт partial report, не выдавая его за полный.
+- Отмена на контролируемых границах создаёт inventory-only partial report; незавершённые parser результаты не объявляются завершёнными.
 - Большие файлы читаются потоково/позиционно с контролем памяти.
 - Вложенные архивы имеют защиту от чрезмерной глубины и распакованного объёма.
 - Повреждённые или зашифрованные данные не обозначаются как успешно разобранные.
