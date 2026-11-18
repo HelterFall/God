@@ -1,6 +1,6 @@
 package com.ramen.god
 
-import android.app.Activity
+import android.content.ContentResolver
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import org.json.JSONArray
@@ -12,7 +12,7 @@ private data class ScanEntry(val path: String, val name: String, val directory: 
 data class ScanResult(val markdown: String, val json: String)
 class ScanCancelledException : Exception()
 
-class GameScanner(private val activity: Activity) {
+class GameScanner(private val contentResolver: ContentResolver) {
     private val entries = mutableListOf<ScanEntry>()
     private val warnings = mutableListOf<String>()
     private val peResults = linkedMapOf<String, PeInfo>()
@@ -538,7 +538,7 @@ class GameScanner(private val activity: Activity) {
                 return@forEach
             }
             try {
-                val input = activity.contentResolver.openInputStream(first.targetEntry.uri)
+                val input = contentResolver.openInputStream(first.targetEntry.uri)
                 if (input == null) {
                     group.forEach { request ->
                         val bindings = updatedBindings[request.ownerPath] ?: return@forEach
@@ -660,7 +660,7 @@ class GameScanner(private val activity: Activity) {
         var updated = metadata
         if (targets.isNotEmpty()) {
             updated = try {
-                val input = activity.contentResolver.openInputStream(entry.uri)
+                val input = contentResolver.openInputStream(entry.uri)
                     ?: return readUnitySceneRecords(entry, header, metadata)
                 val result = input.use { stream ->
                     MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
@@ -722,7 +722,7 @@ class GameScanner(private val activity: Activity) {
             return metadata.copy(sceneDecodeNote = reason)
         }
         return try {
-            val input = activity.contentResolver.openInputStream(entry.uri)
+            val input = contentResolver.openInputStream(entry.uri)
                 ?: return metadata.copy(sceneDecodeNote = "Не удалось открыть файл для чтения scene objects.")
             val result = input.use { stream ->
                 UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
@@ -772,7 +772,7 @@ class GameScanner(private val activity: Activity) {
     }
 
     private fun readPrefix(uri: Uri, maximum: Int): ByteArray? {
-        val input = activity.contentResolver.openInputStream(uri) ?: return null
+        val input = contentResolver.openInputStream(uri) ?: return null
         input.use { stream ->
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(16 * 1024)

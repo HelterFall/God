@@ -148,7 +148,7 @@ class MainActivity : Activity() {
             try {
                 val root = DocumentFile.fromTreeUri(appContext, tree)
                     ?: error("Не удалось открыть выбранную папку.")
-                val result = GameScanner(appContext).scan(
+                val result = GameScanner(appContext.contentResolver).scan(
                     root,
                     shouldCancel = { job.isCancelled }
                 ) { count, path ->
