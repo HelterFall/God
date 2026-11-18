@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.documentfile.provider.DocumentFile
+import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -17,7 +18,8 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var output: TextView
     private var selectedTree: Uri? = null
-    @Volatile private var scanCancelled = false
+    private val scanCoordinator = ScanCoordinator()
+    private lateinit var scanButton: Button
     private lateinit var cancelScanButton: Button
     private var markdownReport: String? = null
     private var jsonReport: String? = null
@@ -67,7 +69,7 @@ class MainActivity : Activity() {
                 startActivityForResult(intent, PICK_TREE)
             }
         }
-        val scan = Button(this).apply {
+        scanButton = Button(this).apply {
             text = "2. Анализировать"
             setOnClickListener { scanSelectedFolder() }
         }
@@ -75,9 +77,10 @@ class MainActivity : Activity() {
             text = "Остановить анализ"
             isEnabled = false
             setOnClickListener {
-                scanCancelled = true
-                status.text = "Останавливаю анализ…"
-                isEnabled = false
+                if (scanCoordinator.cancelActive()) {
+                    status.text = "Останавливаю анализ…"
+                    isEnabled = false
+                }
             }
         }
         val saveMd = Button(this).apply {
@@ -95,7 +98,7 @@ class MainActivity : Activity() {
             setPadding(0, dp(12), 0, dp(24))
         }
         root.addView(choose, match())
-        root.addView(scan, match())
+        root.addView(scanButton, match())
         root.addView(cancelScanButton, match())
         root.addView(saveMd, match())
         root.addView(saveJson, match())
@@ -125,41 +128,65 @@ class MainActivity : Activity() {
             status.text = "Сначала выберите папку игры."
             return
         }
-        scanCancelled = false
+        val job = scanCoordinator.begin()
+        if (job == null) {
+            status.text = "Анализ уже выполняется."
+            return
+        }
+
+        val coordinator = scanCoordinator
+        val activityRef = WeakReference(this)
+        val appContext = applicationContext
+        scanButton.isEnabled = false
         cancelScanButton.isEnabled = true
         status.text = "Анализирую. Исходные файлы остаются на месте…"
         output.text = ""
         markdownReport = null
         jsonReport = null
+
         executor.execute {
             try {
-                val root = DocumentFile.fromTreeUri(this, tree) ?: error("Не удалось открыть выбранную папку.")
-                val result = GameScanner(this).scan(
+                val root = DocumentFile.fromTreeUri(appContext, tree)
+                    ?: error("Не удалось открыть выбранную папку.")
+                val result = GameScanner(appContext).scan(
                     root,
-                    shouldCancel = { scanCancelled }
+                    shouldCancel = { job.isCancelled }
                 ) { count, path ->
-                    if (count % 128 == 0) {
-                        runOnUiThread {
-                            if (!scanCancelled) status.text = "Просмотрено записей: $count\nПоследний путь: $path"
+                    if (count % 128 == 0 && !job.isCancelled) {
+                        activityRef.get()?.let { activity ->
+                            activity.runOnUiThread {
+                                activityRef.get()?.takeIf { !it.isDestroyed }?.let {
+                                    it.status.text = "Просмотрено записей: $count\nПоследний путь: $path"
+                                }
+                            }
                         }
                     }
                 }
-                markdownReport = result.markdown
-                jsonReport = result.json
-                runOnUiThread {
-                    output.text = result.markdown
-                    status.text = "Анализ завершён. Доступен экспорт Markdown и JSON."
-                    cancelScanButton.isEnabled = false
+                activityRef.get()?.runOnUiThread {
+                    activityRef.get()?.takeIf { !it.isDestroyed }?.let {
+                        it.markdownReport = result.markdown
+                        it.jsonReport = result.json
+                        it.output.text = result.markdown
+                        it.status.text = "Анализ завершён. Доступен экспорт Markdown и JSON."
+                    }
                 }
             } catch (_: ScanCancelledException) {
-                runOnUiThread {
-                    status.text = "Анализ остановлен. Отчёт не создан."
-                    cancelScanButton.isEnabled = false
+                activityRef.get()?.runOnUiThread {
+                    activityRef.get()?.takeIf { !it.isDestroyed }?.status?.text =
+                        "Анализ остановлен. Частичный отчёт пока не поддерживается."
                 }
             } catch (e: Exception) {
-                runOnUiThread {
-                    status.text = "Ошибка анализа: " + (e.message ?: e.javaClass.simpleName)
-                    cancelScanButton.isEnabled = false
+                activityRef.get()?.runOnUiThread {
+                    activityRef.get()?.takeIf { !it.isDestroyed }?.status?.text =
+                        "Ошибка анализа: " + (e.message ?: e.javaClass.simpleName)
+                }
+            } finally {
+                coordinator.complete(job)
+                activityRef.get()?.runOnUiThread {
+                    activityRef.get()?.takeIf { !it.isDestroyed }?.let {
+                        it.scanButton.isEnabled = true
+                        it.cancelScanButton.isEnabled = false
+                    }
                 }
             }
         }
@@ -201,7 +228,8 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        executor.shutdown()
+        scanCoordinator.cancelActive()
+        executor.shutdownNow()
         super.onDestroy()
     }
 

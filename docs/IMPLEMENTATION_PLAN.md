@@ -84,7 +84,7 @@ God уже умеет выполнять ограниченную инвента
 ### P1 — исправить до расширения функциональности
 
 - [ ] **QA-01 — scanner integration coverage.** Нет теста полного GameScanner.scan(): inventory → candidate selection → analyzers → coverage → JSON/Markdown. Выделить testable file tree/access interfaces и добавить end-to-end fixture.
-- [ ] **QA-02 — scan lifecycle/cancellation race.** Общий scanCancelled флаг, отсутствие scan lock и активная кнопка повторного запуска допускают queued jobs; отмена не создаёт partial report; выполняющаяся задача может пережить Activity.onDestroy(). Добавить job-scoped cancellation, один активный job, безопасное lifecycle handling и regression tests.
+- [ ] **QA-02 — scan lifecycle/cancellation race.** Первый этап реализован: `ScanCoordinator` допускает только одну активную задачу, отмена привязана к job, кнопка запуска блокируется, `onDestroy()` запрашивает отмену, `GameScanner` получает applicationContext, а worker держит Activity только через WeakReference. Шесть JVM-тестов проверяют single-job, cancellation scope и завершение. Осталось: сохранять partial report при отмене, тестировать Activity recreation/SAF на Android и доказать остановку во время блокирующих операций provider.
 - [x] **QA-03 — export false success.** Исправлено: `ReportExporter` отклоняет null stream и передаёт ошибки открытия, записи и закрытия; пять JVM-тестов проверяют эти сценарии, UTF-8 и закрытие потока.
 - [ ] **QA-04 — Android SAF tests.** Нет instrumentation tests для реальных document providers, URI permissions, stream errors, Activity recreation и export destination.
 - [ ] **QA-05 — real binary fixtures.** Текущие 66 @Test в основном используют synthetic byte arrays и вручную созданные model objects. Добавить небольшой набор реально созданных/легально распространяемых PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
@@ -415,9 +415,8 @@ God уже умеет выполнять ограниченную инвента
 
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
-1. **Регрессионные тесты QA-02:** повторный запуск, отмена и Activity destruction; зафиксировать ожидаемое поведение до внедрения координатора.
-2. **ScanCoordinator:** изолировать progress/cancel механизмы на уровне job, убрать повторный запуск, не удерживать уничтоженную Activity и сохранять partial state.
-3. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
+1. **QA-02 lifecycle slice (частично реализован):** `ScanCoordinator`, job-scoped cancellation, один активный scan, applicationContext и weak Activity callbacks; шесть JVM-тестов. Следом — partial report и Android lifecycle/SAF tests.
+2. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
 4. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
 5. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
 6. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23, добавить JSON Schema/manifest.
