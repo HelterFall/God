@@ -9,7 +9,7 @@ import java.io.ByteArrayOutputStream
 import java.util.Locale
 
 private data class ScanEntry(val path: String, val name: String, val directory: Boolean, val size: Long, val uri: Uri)
-data class ScanResult(val markdown: String, val json: String)
+data class ScanResult(val markdown: String, val json: String, val isPartial: Boolean = false)
 class ScanCancelledException : Exception()
 
 class GameScanner(private val contentResolver: ContentResolver) {
@@ -78,8 +78,12 @@ class GameScanner(private val contentResolver: ContentResolver) {
         unityMetadataFailedCount = 0
         unityMetadataPrerequisiteSkippedCount = 0
         unityMetadataWindowLimitedCount = 0
-        walk(root, "", 0, shouldCancel, onProgress)
-        if (shouldCancel()) throw ScanCancelledException()
+        try {
+            walk(root, "", 0, shouldCancel, onProgress)
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
+        if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         onProgress(entries.size, "Инвентаризация завершена; анализирую PE-файлы")
 
         val files = entries.filter { !it.directory }
@@ -106,15 +110,19 @@ class GameScanner(private val contentResolver: ContentResolver) {
 
         val peCandidates = files.filter { it.name.endsWith(".exe", true) || it.name.endsWith(".dll", true) }
         if (peCandidates.size > MAX_PE_FILES) warnings.add("PE-анализ ограничен первыми " + MAX_PE_FILES + " EXE/DLL.")
-        peCandidates.take(MAX_PE_FILES).forEach { entry ->
-            if (shouldCancel()) throw ScanCancelledException()
-            peAttemptedCount++
-            val info = readPeInfo(entry)
-            if (info == null) {
-                peFailedCount++
-            } else {
-                peResults[entry.path] = info
+        try {
+            peCandidates.take(MAX_PE_FILES).forEach { entry ->
+                if (shouldCancel()) throw ScanCancelledException()
+                peAttemptedCount++
+                val info = readPeInfo(entry)
+                if (info == null) {
+                    peFailedCount++
+                } else {
+                    peResults[entry.path] = info
+                }
             }
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
         }
 
         val unityCandidates = files.filter { isUnityHeaderCandidate(it.name) }.sortedBy { entry ->
@@ -128,7 +136,8 @@ class GameScanner(private val contentResolver: ContentResolver) {
         if (unityCandidates.size > MAX_UNITY_HEADER_FILES) {
             warnings.add("Проверка Unity-заголовков ограничена первыми " + MAX_UNITY_HEADER_FILES + " файлами-кандидатами.")
         }
-        unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
+        try {
+            unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
             if (shouldCancel()) throw ScanCancelledException()
             val deepMetadataRead = index < MAX_UNITY_METADATA_FILES
             unityHeaderAttemptedCount++
@@ -176,12 +185,19 @@ class GameScanner(private val contentResolver: ContentResolver) {
                 unityMetadataFailedCount++
             }
             diagnostic?.let { warnings.add("Unity-анализ " + entry.path + ": " + it) }
+            }
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
         }
 
         resolveExternalMonoScriptRecords(files)
+        if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         resolveExternalScenePointers(files)
+        if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         resolveMonoBehaviourScriptBindings(files)
+        if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         managedTypeResolutions.addAll(UnityManagedTypeResolver.resolve(unityMetadata, clrResults))
+        if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         val unityVersion = collectUnityVersion(files)
 
         val managedBinaries = peResults.filterValues { it.managed }.keys
@@ -207,6 +223,13 @@ class GameScanner(private val contentResolver: ContentResolver) {
         )
         return ScanResult(md, json)
     }
+
+    private fun buildPartialResult(rootName: String): ScanResult =
+        PartialReportBuilder.build(
+            rootName,
+            entries.map { PartialFileEntry(it.path, it.directory, it.size) },
+            totalBytes
+        )
 
     private fun walk(
         dir: DocumentFile,
