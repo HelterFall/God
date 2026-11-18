@@ -44,7 +44,7 @@ internal data class ScanCoverage(
     val status: String
         get() = if (
             inventoryStatus == "partial" ||
-            analyzers.any { it.status == "partial" || it.status == "failed" }
+            analyzers.any { it.status == "partial" || it.status == "failed" || it.status == "unsupported" }
         ) "partial" else "completed"
 }
 
@@ -58,7 +58,9 @@ internal fun deriveAnalyzerStatus(
     limitedCount: Int = 0,
     skippedCount: Int = 0
 ): String {
-    if (candidateCount <= 0) return "not-applicable"
+    if (candidateCount <= 0) {
+        return if (limitedCount > 0 || skippedCount > 0) "partial" else "not-applicable"
+    }
     if (attemptedCount <= 0) return if (limitedCount > 0 || skippedCount > 0) "partial" else "not-run"
     if (
         failedCount >= attemptedCount &&
