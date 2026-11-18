@@ -30,9 +30,11 @@ class GameScanner(private val activity: Activity) {
     private var clrFailedCount = 0
     private var unityHeaderAttemptedCount = 0
     private var unityHeaderFailedCount = 0
+    private var unityMetadataCandidateCount = 0
     private var unityMetadataAttemptedCount = 0
     private var unityMetadataFailedCount = 0
     private var unityMetadataPrerequisiteSkippedCount = 0
+    private var unityMetadataWindowLimitedCount = 0
 
     companion object {
         private const val MAX_ENTRIES = 100_000
@@ -71,9 +73,11 @@ class GameScanner(private val activity: Activity) {
         clrFailedCount = 0
         unityHeaderAttemptedCount = 0
         unityHeaderFailedCount = 0
+        unityMetadataCandidateCount = 0
         unityMetadataAttemptedCount = 0
         unityMetadataFailedCount = 0
         unityMetadataPrerequisiteSkippedCount = 0
+        unityMetadataWindowLimitedCount = 0
         walk(root, "", 0, shouldCancel, onProgress)
         if (shouldCancel()) throw ScanCancelledException()
         onProgress(entries.size, "Инвентаризация завершена; анализирую PE-файлы")
@@ -144,13 +148,19 @@ class GameScanner(private val activity: Activity) {
                     } else {
                         headerParsed = true
                         unityHeaders[entry.path] = header
-                        if (deepMetadataRead) {
-                            val metadata = UnityMetadataParser.parse(prefix, header)
-                            if (metadata == null) {
-                                diagnostic = "metadata не разобрана в доступном диапазоне"
+                        if (header.kind == "SerializedFile") {
+                            unityMetadataCandidateCount++
+                            if (deepMetadataRead) {
+                                unityMetadataAttemptedCount++
+                                val metadata = UnityMetadataParser.parse(prefix, header)
+                                if (metadata == null) {
+                                    diagnostic = "metadata не разобрана в доступном диапазоне"
+                                } else {
+                                    unityMetadata[entry.path] = readMonoScriptRecords(entry, header, metadata)
+                                    metadataParsed = true
+                                }
                             } else {
-                                unityMetadata[entry.path] = readMonoScriptRecords(entry, header, metadata)
-                                metadataParsed = true
+                                unityMetadataWindowLimitedCount++
                             }
                         }
                     }
@@ -160,10 +170,10 @@ class GameScanner(private val activity: Activity) {
             }
             if (!headerParsed) {
                 unityHeaderFailedCount++
-                if (deepMetadataRead) unityMetadataPrerequisiteSkippedCount++
-            } else if (deepMetadataRead) {
-                unityMetadataAttemptedCount++
-                if (!metadataParsed) unityMetadataFailedCount++
+                unityMetadataCandidateCount++
+                unityMetadataPrerequisiteSkippedCount++
+            } else if (deepMetadataRead && unityHeaders[entry.path]?.kind == "SerializedFile" && !metadataParsed) {
+                unityMetadataFailedCount++
             }
             diagnostic?.let { warnings.add("Unity-анализ " + entry.path + ": " + it) }
         }
@@ -248,12 +258,9 @@ class GameScanner(private val activity: Activity) {
     ): ScanCoverage {
         val peSkipped = (peCandidateCount - peAttemptedCount).coerceAtLeast(0)
         val unityHeaderSkipped = (unityCandidateCount - unityHeaderAttemptedCount).coerceAtLeast(0)
-        val deepMetadataCandidates = minOf(unityCandidateCount, MAX_UNITY_METADATA_FILES)
-        val metadataWindowLimited = (
-            minOf(unityCandidateCount, MAX_UNITY_HEADER_FILES) - deepMetadataCandidates
-        ).coerceAtLeast(0)
-        val metadataSkipped = (unityCandidateCount - MAX_UNITY_HEADER_FILES).coerceAtLeast(0) +
-            unityMetadataPrerequisiteSkippedCount
+        val unityCandidatesNotInspected = (unityCandidateCount - unityHeaderAttemptedCount).coerceAtLeast(0)
+        val metadataSkipped = unityMetadataPrerequisiteSkippedCount + unityCandidatesNotInspected
+        val metadataCandidates = unityMetadataCandidateCount + unityCandidatesNotInspected
 
         val clrPartial = clrResults.values.count { it.status.startsWith("partial-") }
         val clrParsed = clrResults.values.count { it.status == "parsed" }
@@ -294,11 +301,11 @@ class GameScanner(private val activity: Activity) {
             ),
             AnalyzerCoverage(
                 id = "serialized_file_metadata",
-                candidateCount = unityCandidateCount,
+                candidateCount = metadataCandidates,
                 attemptedCount = unityMetadataAttemptedCount,
                 parsedCount = unityMetadata.size,
                 failedCount = unityMetadataFailedCount,
-                limitedCount = metadataWindowLimited,
+                limitedCount = unityMetadataWindowLimitedCount,
                 skippedCount = metadataSkipped,
                 notes = listOf(
                     "Deep metadata reads (up to $MAX_UNITY_METADATA_READ bytes) are limited to the first $MAX_UNITY_METADATA_FILES candidates; later candidates receive header-only reads."
