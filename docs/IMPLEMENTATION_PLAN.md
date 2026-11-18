@@ -415,16 +415,15 @@ God уже умеет выполнять ограниченную инвента
 
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
-1. **Регрессионные тесты текущих дефектов:** повторный запуск, отмена и Activity destruction; null output stream и ошибки экспорта. Сначала зафиксировать ожидаемое поведение.
-2. **ScanCoordinator:** изолировать уже существующие progress/cancel механизмы на уровне job, убрать повторный запуск, не удерживать уничтоженную Activity и сохранять partial state.
-3. **Safe export:** исправить null stream false-success и покрыть все failure paths тестами.
-4. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
-5. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
-6. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
-7. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23, добавить JSON Schema/manifest.
-8. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
-9. **UnityFS vertical slice:** прочитать block table, один entry и SerializedFile внутри него.
-10. Только после успешных вертикальных срезов расширять PE/CLR/IL и остальные Unity decoders.
+1. **Регрессионные тесты QA-02:** повторный запуск, отмена и Activity destruction; зафиксировать ожидаемое поведение до внедрения координатора.
+2. **ScanCoordinator:** изолировать progress/cancel механизмы на уровне job, убрать повторный запуск, не удерживать уничтоженную Activity и сохранять partial state.
+3. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
+4. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
+5. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
+6. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23, добавить JSON Schema/manifest.
+7. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
+8. **UnityFS vertical slice:** прочитать block table, один entry и SerializedFile внутри него.
+9. Только после успешных вертикальных срезов расширять PE/CLR/IL и остальные Unity decoders.
 
 **Первый реальный пользовательский milestone:** пользователь выбирает папку игры; God инвентаризирует её, находит ZIP/UnityFS, исследует доступные entries, обнаруживает Unity SerializedFiles и экспортирует partial/full report с точным coverage. Никакой ручной распаковки поддерживаемых контейнеров не требуется.
 
