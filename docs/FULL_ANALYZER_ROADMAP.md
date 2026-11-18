@@ -183,6 +183,15 @@ P1/P2 обозначают приоритет исследования и раз
 
 ## 5. Acceptance criteria
 
+### Текущий уровень проверок (source baseline cb69a25)
+
+- 12 JVM test files / 61 @Test methods.
+- CI run #250 прошёл `:app:testDebugUnitTest` и `:app:assembleDebug`.
+- Parser tests в основном используют synthetic inputs.
+- End-to-end GameScanner, Android SAF instrumentation, реальных Unity fixtures, fuzz/property и coverage metrics пока нет.
+
+Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
+
 ### Надёжность анализа
 
 - Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
@@ -212,8 +221,11 @@ P1/P2 обозначают приоритет исследования и раз
 
 - CI стабильно зелёный.
 - Golden/property/fuzz tests покрывают parser boundaries.
+- Есть реальные, legально распространяемые fixtures и end-to-end scanner tests на небольших сборках.
 - Есть тесты на повреждённые, большие и вложенные файлы.
-- Android SAF проверен на permission loss и providers без seek.
+- Android SAF проверен instrumentation tests на permission loss, providers без seek и Activity recreation.
+- CI запускается на pull_request и сохраняет JUnit/coverage reports.
+- Gradle Wrapper закрепляет build environment; GitHub Actions используют поддерживаемые runtimes.
 - Поддерживаемые версии и известные ограничения опубликованы.
 - Report schema/manifest проверяются автоматически.
 
