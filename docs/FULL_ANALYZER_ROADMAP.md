@@ -224,21 +224,12 @@ P1/P2 обозначают приоритет исследования и раз
 - Обязательный импорт отчёта в Ramen или RamenUnity.
 - Подменять человеческую/динамическую проверку там, где статического анализа недостаточно.
 
-## 7. Текущая ближайшая очередь
+## 7. Исполнение плана
 
-С учётом текущего кода и подтверждённого аудита следующий практический порядок:
+Подробная последовательность работ, зависимости между этапами, ближайшие маленькие задачи и Definition of Done вынесены в отдельный документ:
 
-1. FileAccess abstraction с size, stream и positional read capabilities.
-2. Полный inventory независимо от UI tree limit; единые file/analyzer statuses.
-3. Streaming report writer и partial report при отмене.
-4. Safe export, UI scan locking и per-scan cancellation.
-5. UnityFS block-table reader и bounded LZ4/LZMA decompression.
-6. ZIP/вложенные archives inventory с защитой от archive bombs.
-7. Реальные fixtures для современных SerializedFile/TypeTree и глубокого чтения.
-8. PE imports/exports/delay imports и native dependency graph.
-9. CLR P/Invoke, IL bodies и cross-assembly call sites.
-10. Общий graph/evidence model, расширяемый каждым анализатором.
-11. Расширение object/asset decoders и IL2CPP metadata.
-12. Porting assessment и генератор досье.
+[**План дальнейших действий God**](IMPLEMENTATION_PLAN.md)
 
-Не создавать видимость прогресса за счёт множества несвязанных декодеров. Каждый новый результат должен повышать полноту связной модели игры.
+Эта дорожная карта определяет конечные функциональные направления. План дальнейших действий определяет практический порядок изменений в коде и критерии перехода между этапами. При расхождении приоритет для ближайшего рабочего шага задаёт IMPLEMENTATION_PLAN.md, а полный перечень целевых функций сохраняется здесь.
+
+Не добавлять изолированные декодеры ради количества. Каждый новый анализатор должен публиковать структурированные findings/evidence и расширять общую модель связей.
