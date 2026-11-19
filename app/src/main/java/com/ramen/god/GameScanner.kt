@@ -9,7 +9,7 @@ private data class ScanEntry(val path: String, val name: String, val directory: 
 data class ScanResult(val markdown: String, val json: String, val isPartial: Boolean = false)
 class ScanCancelledException : Exception()
 
-class GameScanner(private val fileAccess: ScanFileAccess) {
+internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private val entries = mutableListOf<ScanEntry>()
     private val warnings = mutableListOf<String>()
     private val peResults = linkedMapOf<String, PeInfo>()
