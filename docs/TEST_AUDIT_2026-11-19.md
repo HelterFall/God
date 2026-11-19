@@ -3,7 +3,7 @@
 **Дата:** 19 ноября 2026 года  
 **Проверенная ветка:** `main`  
 **Проверенный commit:** 933ee5d1cd751d09c85a605a0249597539c92cec  
-**Последняя успешная проверка CI:** run #267 для partial-report PR; run #268 проверяет squash-коммит в main.
+**Последняя успешная проверка CI:** run [#270](https://github.com/HelterFall/God/actions/runs/44420979612) успешно проверил main commit `2edc55c85e4409a8a72844ad36e670925e704ae5` (JVM tests, debug APK и artifact upload).
 
 ## 1. Итог
 
@@ -13,7 +13,7 @@
 - 77 методов с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
-- run #267 успешно выполнил Kotlin unit tests, сборку APK и загрузку artifact после добавления partial report.
+- run [#270](https://github.com/HelterFall/God/actions/runs/44420979612) успешно выполнил Kotlin unit tests, сборку APK и загрузку artifact на актуальном main; этот запуск подтверждает тот же кодовый baseline, что и merged PR #2, плюс последующие изменения документации.
 
 Это подтверждает работу изолированных JVM-тестов и сборку Android debug APK после успешного CI. Но **это не является доказательством корректности полного сканирования игры**. Реальные игровые файлы, Android SAF, UI, полный `GameScanner.scan()`, cancellation и Android export/provider lifecycle по-прежнему не покрыты интеграционными тестами. Запись отчёта проверяется `ReportExporterTest`, а coordinator и partial report — отдельными JVM-тестами.
 
