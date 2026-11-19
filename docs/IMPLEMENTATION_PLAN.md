@@ -3,14 +3,14 @@
 **Дата:** 19 ноября 2026 года  
 **Базовая ветка:** main  
 **Текущий source baseline:** 933ee5d1cd751d09c85a605a0249597539c92cec  
-**Контрольная точка документации:** 933ee5d1cd751d09c85a605a0249597539c92cec  
-**Последняя успешная проверка CI:** run #267 успешно проверил partial-report PR (JVM tests, debug APK и artifact upload); run #268 проверяет squash-коммит в main.  
+**Проверенная ревизия main для этого аудита:** 2edc55c85e4409a8a72844ad36e670925e704ae5  
+**Последняя успешная проверка CI:** run [#270](https://github.com/HelterFall/God/actions/runs/44420979612) завершился успешно на main commit `2edc55c85e4409a8a72844ad36e670925e704ae5`: JVM unit tests, `assembleDebug` и загрузка APK artifact.  
 **Текущая тестовая база:** 15 JVM test files / 77 @Test methods; добавлены пять тестов `PartialReportBuilderTest`. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. Последний подтверждённый CI перед partial-report работой — run #264 (JVM tests, debug APK и artifact upload успешны). `ReportExporter` и `ScanCoordinator` уже реализованы; текущий шаг сохраняет inventory-only отчёт при отмене. Это не означает, что глубокое исследование игры уже реализовано.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и inventory-only partial report при отмене уже реализованы; partial-report изменение влито в main через PR #2. Актуальный main успешно проверен run #270 (JVM tests, debug APK и artifact upload). Следующий тестовый этап — QA-01: сквозная проверка `GameScanner.scan()` на контролируемом дереве файлов. Это не означает, что глубокое исследование игры уже реализовано.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -100,7 +100,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-**Текущая база:** 15 test files / 77 @Test methods, JUnit 4.13.2. Run #267 подтвердил tests, APK build и artifact upload для partial-report реализации. Интеграционные/Android tests по-прежнему нужны.
+**Текущая база:** 15 test files / 77 @Test methods, JUnit 4.13.2. Run [#270](https://github.com/HelterFall/God/actions/runs/44420979612) подтвердил JVM tests, debug APK build и artifact upload на проверенном main. Интеграционные/Android tests по-прежнему нужны.
 
 ## 3. Последовательность реализации
 
