@@ -1,18 +1,15 @@
 package com.ramen.god
 
-import android.content.ContentResolver
-import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Locale
 
-private data class ScanEntry(val path: String, val name: String, val directory: Boolean, val size: Long, val uri: Uri)
+private data class ScanEntry(val path: String, val name: String, val directory: Boolean, val size: Long, val node: ScanNode)
 data class ScanResult(val markdown: String, val json: String, val isPartial: Boolean = false)
 class ScanCancelledException : Exception()
 
-class GameScanner(private val contentResolver: ContentResolver) {
+class GameScanner(private val fileAccess: ScanFileAccess) {
     private val entries = mutableListOf<ScanEntry>()
     private val warnings = mutableListOf<String>()
     private val peResults = linkedMapOf<String, PeInfo>()
@@ -52,7 +49,7 @@ class GameScanner(private val contentResolver: ContentResolver) {
     }
 
     fun scan(
-        root: DocumentFile,
+        root: ScanNode,
         shouldCancel: () -> Boolean,
         onProgress: (Int, String) -> Unit
     ): ScanResult {
@@ -147,7 +144,7 @@ class GameScanner(private val contentResolver: ContentResolver) {
             var diagnostic: String? = null
             try {
                 val readLimit = if (deepMetadataRead) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
-                val prefix = readPrefix(entry.uri, readLimit)
+                val prefix = readPrefix(entry.node, readLimit)
                 if (prefix == null) {
                     diagnostic = "не удалось открыть файл для чтения"
                 } else {
@@ -232,7 +229,7 @@ class GameScanner(private val contentResolver: ContentResolver) {
         )
 
     private fun walk(
-        dir: DocumentFile,
+        dir: ScanNode,
         parent: String,
         depth: Int,
         shouldCancel: () -> Boolean,
@@ -264,8 +261,8 @@ class GameScanner(private val contentResolver: ContentResolver) {
             val name = child.name ?: "(unnamed)"
             val path = if (parent.isEmpty()) name else parent + "/" + name
             val isDir = child.isDirectory
-            val size = if (isDir) 0L else child.length().coerceAtLeast(0L)
-            entries.add(ScanEntry(path, name, isDir, size, child.uri))
+            val size = if (isDir) 0L else child.size.coerceAtLeast(0L)
+            entries.add(ScanEntry(path, name, isDir, size, child))
             onProgress(entries.size, path)
             if (!isDir) totalBytes += size
             if (isDir) walk(child, path, depth + 1, shouldCancel, onProgress)
@@ -412,7 +409,7 @@ class GameScanner(private val contentResolver: ContentResolver) {
                     it.name.equals("globalgamemanagers.assets", true)
             }.take(2).forEach { entry ->
                 try {
-                    val bytes = readPrefix(entry.uri, MAX_GGM_READ) ?: return@forEach
+                    val bytes = readPrefix(entry.node, MAX_GGM_READ) ?: return@forEach
                     val text = String(bytes, Charsets.ISO_8859_1)
                     UnityVersionResolver.extractVersions(text).take(8).forEach { version ->
                         evidence.add(UnityVersionEvidence(
@@ -478,7 +475,7 @@ class GameScanner(private val contentResolver: ContentResolver) {
                     }
                     attemptedMetadata.add(targetEntry.path)
                     extraMetadataReads++
-                    val prefix = readPrefix(targetEntry.uri, MAX_UNITY_METADATA_READ)
+                    val prefix = readPrefix(targetEntry.node, MAX_UNITY_METADATA_READ)
                     if (prefix != null) {
                         if (targetHeader == null) {
                             targetHeader = UnityFileHeaderParser.parse(prefix, targetEntry.size)
@@ -561,7 +558,7 @@ class GameScanner(private val contentResolver: ContentResolver) {
                 return@forEach
             }
             try {
-                val input = contentResolver.openInputStream(first.targetEntry.uri)
+                val input = fileAccess.openInputStream(first.targetEntry.node)
                 if (input == null) {
                     group.forEach { request ->
                         val bindings = updatedBindings[request.ownerPath] ?: return@forEach
@@ -683,7 +680,7 @@ class GameScanner(private val contentResolver: ContentResolver) {
         var updated = metadata
         if (targets.isNotEmpty()) {
             updated = try {
-                val input = contentResolver.openInputStream(entry.uri)
+                val input = fileAccess.openInputStream(entry.node)
                     ?: return readUnitySceneRecords(entry, header, metadata)
                 val result = input.use { stream ->
                     MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
@@ -745,7 +742,7 @@ class GameScanner(private val contentResolver: ContentResolver) {
             return metadata.copy(sceneDecodeNote = reason)
         }
         return try {
-            val input = contentResolver.openInputStream(entry.uri)
+            val input = fileAccess.openInputStream(entry.node)
                 ?: return metadata.copy(sceneDecodeNote = "Не удалось открыть файл для чтения scene objects.")
             val result = input.use { stream ->
                 UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
@@ -760,11 +757,11 @@ class GameScanner(private val contentResolver: ContentResolver) {
 
     private fun readPeInfo(entry: ScanEntry): PeInfo? {
         return try {
-            var data = readPrefix(entry.uri, MAX_PE_READ) ?: return null
+            var data = readPrefix(entry.node, MAX_PE_READ) ?: return null
             var info = PeParser.parse(data) ?: return null
             val metadataEnd = info.clrMetadataOffset?.toLong()?.plus(info.clrMetadataSize ?: 0L)
             if (info.managed && metadataEnd != null && metadataEnd > data.size.toLong()) {
-                val expanded = readPrefix(entry.uri, MAX_CLR_PE_READ)
+                val expanded = readPrefix(entry.node, MAX_CLR_PE_READ)
                 if (expanded != null) {
                     data = expanded
                     info = PeParser.parse(data) ?: info
@@ -794,8 +791,8 @@ class GameScanner(private val contentResolver: ContentResolver) {
         }
     }
 
-    private fun readPrefix(uri: Uri, maximum: Int): ByteArray? {
-        val input = contentResolver.openInputStream(uri) ?: return null
+    private fun readPrefix(node: ScanNode, maximum: Int): ByteArray? {
+        val input = fileAccess.openInputStream(node) ?: return null
         input.use { stream ->
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(16 * 1024)
