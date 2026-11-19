@@ -40,8 +40,9 @@ class GameScannerIntegrationTest {
         assertFalse(result.isPartial)
         assertTrue(result.markdown.contains("# Unity Game Architecture Report"))
         assertTrue(result.markdown.contains("Indexed entries: 4"))
-        assertEquals(listOf(1, 2, 3, 4), progress.map { it.first })
-        assertEquals("readme.txt", progress.last().second)
+        assertEquals(listOf(1, 2, 3, 4, 4), progress.map { it.first })
+        assertEquals("readme.txt", progress[3].second)
+        assertEquals("Инвентаризация завершена; анализирую PE-файлы", progress.last().second)
 
         val report = JSONObject(result.json)
         assertEquals(23, report.getInt("schemaVersion"))
