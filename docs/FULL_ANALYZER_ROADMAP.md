@@ -167,7 +167,7 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | Приоритет | Работа | Результат |
 |---|---|---|
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
-| P1 | FileAccess abstraction, random access, streaming, cancellation и partial report | Надёжный полный обход |
+| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; inventory-only partial report уже реализован, но отмена внутри provider reads и analyzer-level partial results остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
 | P1 | Per-file IDs/statuses и streaming report pipeline поверх существующего JSON files[] inventory | Ничего не теряется между анализаторами |
 | P2 | PE/native dependency graph | Понимание нативных границ |
