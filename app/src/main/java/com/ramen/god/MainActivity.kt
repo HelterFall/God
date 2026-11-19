@@ -148,8 +148,8 @@ class MainActivity : Activity() {
             try {
                 val root = DocumentFile.fromTreeUri(appContext, tree)
                     ?: error("Не удалось открыть выбранную папку.")
-                val result = GameScanner(appContext.contentResolver).scan(
-                    root,
+                val result = GameScanner(SafScanFileAccess(appContext.contentResolver)).scan(
+                    SafScanNode(root),
                     shouldCancel = { job.isCancelled }
                 ) { count, path ->
                     if (count % 128 == 0 && !job.isCancelled) {
