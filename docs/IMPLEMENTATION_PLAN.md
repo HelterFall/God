@@ -2,15 +2,15 @@
 
 **Дата:** 19 ноября 2026 года  
 **Базовая ветка:** main  
-**Текущий source baseline:** 933ee5d1cd751d09c85a605a0249597539c92cec  
-**Проверенная ревизия main для этого аудита:** 2edc55c85e4409a8a72844ad36e670925e704ae5  
-**Последняя успешная проверка CI:** run [#270](https://github.com/HelterFall/God/actions/runs/44420979612) завершился успешно на main commit `2edc55c85e4409a8a72844ad36e670925e704ae5`: JVM unit tests, `assembleDebug` и загрузка APK artifact.  
-**Текущая тестовая база:** 15 JVM test files / 77 @Test methods; добавлены пять тестов `PartialReportBuilderTest`. Android instrumentation и end-to-end scanner tests пока отсутствуют.  
+**Текущий source baseline:** f0da77b9c5efc3f11074ecc8389d269ee651da4c
+**Проверенная ревизия main для этого аудита:** f0da77b9c5efc3f11074ecc8389d269ee651da4c
+**Последняя успешная проверка CI:** run [#275](https://github.com/HelterFall/God/actions/runs/44432016114) прошёл на main commit `f0da77b9c5efc3f11074ecc8389d269ee651da4c`: 79 JVM tests, `assembleDebug` и загрузка APK artifact.
+**Текущая тестовая база:** 16 JVM test files / 79 @Test methods; `PartialReportBuilderTest` — 5, `GameScannerIntegrationTest` — 2. Android instrumentation и реальные игровые fixtures пока отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и inventory-only partial report при отмене уже реализованы; partial-report изменение влито в main через PR #2. Актуальный main успешно проверен run #270 (JVM tests, debug APK и artifact upload). Следующий тестовый этап — QA-01: сквозная проверка `GameScanner.scan()` на контролируемом дереве файлов. Это не означает, что глубокое исследование игры уже реализовано.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и inventory-only partial report уже реализованы. PR #4 добавил базовые `ScanNode`/`ScanFileAccess`, отдельный SAF-адаптер и два первых сквозных JVM-теста настоящего `GameScanner.scan()` на in-memory tree; run #274 проверил PR, а main run #275 успешно прошёл после merge. QA-01 остаётся открытым для успешных PE/CLR/Unity parser paths, resolver stages, реальных бинарных fixtures и Android SAF. Это не означает, что глубокое исследование игры уже реализовано.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -84,11 +84,11 @@ God уже умеет выполнять ограниченную инвента
 
 ### P1 — исправить до расширения функциональности
 
-- [ ] **QA-01 — scanner integration coverage.** Нет теста полного GameScanner.scan(): inventory → candidate selection → analyzers → coverage → JSON/Markdown. Выделить testable file tree/access interfaces и добавить end-to-end fixture.
+- [ ] **QA-01 — scanner integration coverage (начальный срез реализован).** Два теста `GameScannerIntegrationTest` запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/progress, PE candidate selection и failure accounting, `ScanCoverage`, JSON/Markdown; второй тест проверяет partial inventory при отмене обхода. Осталось расширить успешные PE/CLR/Unity parsing, resolver stages, read errors/limits и real binary/Android SAF fixtures.
 - [ ] **QA-02 — scan lifecycle/cancellation race.** Реализированы single-job `ScanCoordinator`, job-scoped cancellation, Activity-safe worker и inventory-only partial report при отмене на проверяемых этапах. Пять тестов `PartialReportBuilderTest` проверяют метки partial/cancelled, полный JSON inventory, escaping и Markdown cap. Осталось: Android lifecycle/SAF instrumentation, cancellation внутри длинных provider reads и сохранение job/report после Activity recreation.
 - [x] **QA-03 — export false success.** Исправлено: `ReportExporter` отклоняет null stream и передаёт ошибки открытия, записи и закрытия; пять JVM-тестов проверяют эти сценарии, UTF-8 и закрытие потока.
 - [ ] **QA-04 — Android SAF tests.** Нет instrumentation tests для реальных document providers, URI permissions, stream errors, Activity recreation и export destination.
-- [ ] **QA-05 — real binary fixtures.** Текущие 77 @Test в основном используют synthetic byte arrays и вручную созданные model objects. Добавить небольшой набор реально созданных/легально распространяемых PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
+- [ ] **QA-05 — real binary fixtures.** Текущие 79 @Test используют преимущественно synthetic byte arrays/model objects и одно in-memory scanner tree; добавить реальные PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
 - [ ] **QA-06 — positive PE imports coverage.** Текущий PeParserTest не создаёт настоящий Import Directory с секцией и не проверяет успешно извлечённые DLL names; ARM64 и malformed import descriptors тоже не покрыты.
 - [ ] **QA-07 — parser compatibility matrix.** Уточнить и расширить проверки CLR signatures/metadata, Unity header versions, SerializedFile v19–v26, TypeTree/shared subtree и scene graph limits. Synthetic tests оставить, но сверять их с реальными samples.
 - [ ] **QA-08 — binary robustness.** Добавить property/fuzz tests для offsets, lengths, counts, overflow, malformed heaps, truncated streams и compression/container boundaries.
@@ -100,7 +100,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-**Текущая база:** 15 test files / 77 @Test methods, JUnit 4.13.2. Run [#270](https://github.com/HelterFall/God/actions/runs/44420979612) подтвердил JVM tests, debug APK build и artifact upload на проверенном main. Интеграционные/Android tests по-прежнему нужны.
+**Текущая база:** 16 test files / 79 @Test methods, JUnit 4.13.2. Run [#275](https://github.com/HelterFall/God/actions/runs/44432016114) подтвердил JVM tests, debug APK build и artifact upload на main. Есть начальные scanner integration tests; реальные fixtures и Android tests по-прежнему нужны.
 
 ## 3. Последовательность реализации
 
@@ -152,16 +152,19 @@ God уже умеет выполнять ограниченную инвента
 **Приоритет:** P0  
 **Зависимости:** этап 1.
 
-Сейчас GameScanner использует DocumentFile и отдельный readPrefix(uri, maximum), который открывает ContentResolver InputStream и копит ограниченный ByteArrayOutputStream. Это bounded prefix read, но не общий файловый API и не random access.
+В `GameScanner` теперь используется read-only контракт `ScanNode`/`ScanFileAccess`: имя, тип записи, размер, список дочерних элементов и sequential `InputStream`. `SafScanNode`/`SafScanFileAccess` оборачивают Android `DocumentFile`/`ContentResolver`, поэтому `GameScanner` больше не зависит от Android SAF API. `readPrefix` всё ещё накапливает ограниченный префикс в `ByteArrayOutputStream`; range/positional reads и cancellation-aware read пока отсутствуют.
 
 **Задачи:**
-- [ ] Ввести FileAccess / ReadableEntry abstraction на базе уже используемых SAF URI: relative path, size, stream и capability flags.
-- [ ] Поддержать sequential stream и отдельную операцию positional read, если SAF provider действительно её предоставляет.
+- [x] Ввести базовые `ScanNode`/`ScanFileAccess` и SAF-адаптер; fake in-memory implementation используется в scanner integration tests.
+- [ ] Расширить контракт до `ReadableEntry` с relative path, metadata/capabilities и индивидуальным статусом доступа.
+- [x] Поддержать sequential `InputStream` через `ScanFileAccess`.
+- [ ] Добавить positional/range reads там, где их реально поддерживает SAF provider.
 - [ ] Для provider без seek использовать честный sequential fallback; не обещать random access, которого нет.
 - [ ] Расширить существующий shouldCancel callback до job-scoped cancellation token, передаваемого в операции чтения и декомпрессии.
 - [ ] Проверять offset, длины, integer overflow и границы диапазонов до чтения.
 - [ ] Не делать полную копию файла в RAM ради чтения небольшого участка.
-- [ ] Добавить fake in-memory и file-backed test implementations.
+- [x] Добавить fake in-memory implementation и использовать её в `GameScannerIntegrationTest`.
+- [ ] Добавить file-backed test implementation и сценарии разных stream/provider capabilities.
 
 **Критерий завершения:** PE и Unity header parser читают данные через общий интерфейс; тесты покрывают range read, EOF, truncated input, provider без seek, cancellation и oversized range.
 
@@ -191,9 +194,9 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Добавить прогресс по стадиям и анализаторам; текущий счётчик/путь отражает в основном обход папок.
 - [ ] Сохранять результат/состояние scan при пересоздании Activity; сейчас сохраняется URI папки, но не отчёт и не состояние задания.
 
-**Обязательные оставшиеся тесты:** Activity destruction/recreation, SAF provider cancellation и partial report из реального fake tree; проверить, что уже собранный inventory сохраняется, а analyzer coverage честно обозначает пропуски.
+**Обязательные оставшиеся тесты:** Activity destruction/recreation и SAF provider cancellation; fake-tree integration tests уже проверяют inventory и точный partial-report snapshot. Расширить тесты на успешные parser/resolver paths, ошибки чтения и resource limits.
 
-**Критерий завершения:** на fake tree отмена создаёт проверяемый partial report с точным inventory; один активный job; lifecycle и provider tests подтверждают корректную остановку и отсутствие утечки Activity.
+**Выполнено частично:** fake-tree tests проверяют inventory и точный snapshot при отмене. **Критерий полного завершения:** один активный job; Android lifecycle/provider tests подтверждают корректную остановку и отсутствие утечки Activity.
 
 ### Этап 4 — потоковое сохранение отчёта
 
@@ -388,9 +391,10 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Текущая тестовая база:** 15 JVM test files / 77 @Test methods. Существующие тесты покрывают отдельные parser/resolver functions на synthetic data; нет end-to-end GameScanner tests, Android instrumentation tests, real binary fixtures, fuzz/property tests или coverage reports. См. [test audit](TEST_AUDIT_2026-11-19.md).
+**Текущая тестовая база:** 16 JVM test files / 79 @Test methods. Есть начальные fake-tree tests полного `GameScanner.scan()`, но нет real binary fixtures, Android instrumentation, fuzz/property tests или coverage reports. См. [test audit](TEST_AUDIT_2026-11-19.md).
 
-- [ ] Добавить scanner integration tests для inventory, candidate selection, ScanCoverage, report JSON/Markdown и partial failures.
+- [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
+- [ ] Расширить scanner integration coverage на успешные parser/resolver paths, ограничения, read errors и реальные fixtures.
 - [x] JVM tests для scan locking, job-scoped cancellation и pure partial-report builder; Android Activity/SAF instrumentation остаются.
 - [ ] Добавить tests для export null stream/write/close failures.
 - [ ] Добавить настоящие legal/redistributable PE/CLR/Unity fixtures и golden reports.
@@ -420,7 +424,7 @@ God уже умеет выполнять ограниченную инвента
 
 1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и inventory-only partial report; 11 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
 2. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
-3. **FileAccess:** добавить read-only abstraction поверх текущего readPrefix и протестировать stream/positional-read-capability/non-seekable/EOF/cancel.
+3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23, добавить JSON Schema/manifest.
 6. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
