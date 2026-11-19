@@ -127,7 +127,8 @@ RamenUnity — отдельный проект с другой задачей. G
 
 - MainActivity.kt — Android UI, выбор папки через SAF и экспорт.
 - ReportExporter.kt — безопасная запись отчётов в SAF output stream с обработкой ошибок.
-- GameScanner.kt — текущая orchestration инвентаризации, эвристик и ограниченных анализаторов.
+- GameScanner.kt — orchestration инвентаризации, эвристик и ограниченных анализаторов без прямой зависимости от Android SAF API.
+- ScanFiles.kt — read-only `ScanNode`/`ScanFileAccess` и SAF-адаптеры для `DocumentFile`/`ContentResolver`.
 - ScanCoordinator.kt — single-job locking и job-scoped cancellation.
 - PartialReportBuilder.kt — честный inventory-only отчёт при отмене.
 - ScanCoverage.kt — счётчики покрытия и статусы анализаторов.
