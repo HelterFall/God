@@ -183,12 +183,12 @@ P1/P2 обозначают приоритет исследования и раз
 
 ## 5. Acceptance criteria
 
-### Текущий уровень проверок (source baseline cb69a25)
+### Текущий уровень проверок (source baseline f0da77b)
 
-- 12 JVM test files / 61 @Test methods.
-- CI run #250 прошёл `:app:testDebugUnitTest` и `:app:assembleDebug`.
+- 16 JVM test files / 79 @Test methods; добавлены 2 `GameScannerIntegrationTest` на in-memory tree.
+- Main CI run [#275](https://github.com/HelterFall/God/actions/runs/44432016114) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
 - Parser tests в основном используют synthetic inputs.
-- End-to-end GameScanner, Android SAF instrumentation, реальных Unity fixtures, fuzz/property и coverage metrics пока нет.
+- Начальная fake-tree integration coverage `GameScanner.scan()` уже есть; широкая матрица analyzer/resolver paths, Android SAF instrumentation, реальные Unity fixtures, fuzz/property и coverage metrics пока отсутствуют.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
