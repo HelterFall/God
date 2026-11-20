@@ -128,10 +128,12 @@ internal object PeParser {
         val symbols = mutableListOf<PeImportedSymbol>()
         val notes = mutableListOf<String>()
         var descriptorTerminated = false
+        var descriptorTableTruncated = false
 
         for (descriptorIndex in 0 until MAX_IMPORT_DESCRIPTORS) {
             val descriptorOffsetLong = start.toLong() + descriptorIndex.toLong() * 20L
             if (descriptorOffsetLong > Int.MAX_VALUE || !has(bytes, descriptorOffsetLong.toInt(), 20)) {
+                descriptorTableTruncated = true
                 notes.add("import descriptor table is truncated")
                 break
             }
@@ -165,9 +167,11 @@ internal object PeParser {
             val pointerSize = if (is64Bit) 8 else 4
             val ordinalFlag = if (is64Bit) Long.MIN_VALUE else 0x80000000L
             var thunkTerminated = false
+            var thunkTableTruncated = false
             for (thunkIndex in 0 until MAX_THUNKS_PER_DLL) {
                 val thunkOffsetLong = thunkStart.toLong() + thunkIndex.toLong() * pointerSize
                 if (thunkOffsetLong > Int.MAX_VALUE || !has(bytes, thunkOffsetLong.toInt(), pointerSize)) {
+                    thunkTableTruncated = true
                     notes.add("thunk table for $dllName is truncated")
                     break
                 }
@@ -207,11 +211,11 @@ internal object PeParser {
                     notes.add("import-by-name record for $dllName has an empty name")
                 }
             }
-            if (!thunkTerminated) {
+            if (!thunkTerminated && !thunkTableTruncated) {
                 notes.add("thunk table for $dllName reached the $MAX_THUNKS_PER_DLL entry limit")
             }
         }
-        if (!descriptorTerminated && notes.none { it.contains("descriptor") || it.contains("truncated") }) {
+        if (!descriptorTerminated && !descriptorTableTruncated) {
             notes.add("import descriptor table reached the $MAX_IMPORT_DESCRIPTORS entry limit")
         }
         return ImportParseResult(dllNames.toList(), symbols, notes.distinct().take(16).joinToString("; ").ifBlank { null })
