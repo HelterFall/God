@@ -26,11 +26,59 @@ class PeParserTest {
     }
 
     @Test
+    fun extractsDllNamesFromImportDirectoryMappedThroughSection() {
+        val info = PeParser.parse(peWithImports())
+        requireNotNull(info)
+
+        assertEquals("x86-64", info.machine)
+        assertFalse(info.managed)
+        assertEquals(listOf("KERNEL32.dll", "USER32.dll"), info.imports)
+        assertNull(info.note)
+    }
+
+    @Test
     fun detectsClrDirectory() {
         val info = PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x2000))
         requireNotNull(info)
         assertEquals("x86-64", info.machine)
         assertTrue(info.managed)
+    }
+
+    private fun peWithImports(): ByteArray {
+        val bytes = ByteArray(1024)
+        val pe = 0x80
+        val optional = pe + 24
+        val optionalSize = 240
+        val section = optional + optionalSize
+
+        bytes[0] = 0x4d
+        bytes[1] = 0x5a
+        put32(bytes, 0x3c, pe)
+        bytes[pe] = 0x50
+        bytes[pe + 1] = 0x45
+        put16(bytes, pe + 4, 0x8664) // IMAGE_FILE_MACHINE_AMD64
+        put16(bytes, pe + 6, 1) // one section
+        put16(bytes, pe + 20, optionalSize)
+        put16(bytes, optional, 0x20b) // PE32+ optional header
+
+        // IMAGE_DIRECTORY_ENTRY_IMPORT: RVA 0x1000, mapped by .rdata.
+        put32(bytes, optional + 120, 0x1000)
+
+        // One section: RVA 0x1000..0x11ff maps to file offset 0x200..0x3ff.
+        put32(bytes, section + 8, 0x200) // VirtualSize
+        put32(bytes, section + 12, 0x1000) // VirtualAddress
+        put32(bytes, section + 16, 0x200) // SizeOfRawData
+        put32(bytes, section + 20, 0x200) // PointerToRawData
+
+        // Two IMAGE_IMPORT_DESCRIPTOR records followed by the zero terminator.
+        put32(bytes, 0x20c, 0x1040) // KERNEL32.dll name RVA
+        put32(bytes, 0x210, 0x1080) // FirstThunk
+        put32(bytes, 0x220, 0x1050) // USER32.dll name RVA
+        put32(bytes, 0x224, 0x1090) // FirstThunk
+
+        "KERNEL32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x240)
+        "USER32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x250)
+        return bytes
     }
 
     private fun minimalPe(machine: Int, clrRva: Int = 0): ByteArray {
