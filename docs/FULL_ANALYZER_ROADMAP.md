@@ -183,12 +183,12 @@ P1/P2 обозначают приоритет исследования и раз
 
 ## 5. Acceptance criteria
 
-### Текущий уровень проверок (source baseline 8b6af8b)
+### Текущий уровень проверок (source baseline 2ff2572)
 
-- 16 JVM test files / 87 @Test methods; `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases; 4 `GameScannerIntegrationTest` проверяют PE/CLR/SerializedFile scanner report paths и cancellation.
-- Main CI run [#314](https://github.com/HelterFall/God/actions/runs/44791697010) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact на merge commit `8b6af8b0c7f12683e8e6cf7ac48e67846b299d87`; PR #17 run #313 также прошёл.
+- 16 JVM test files / 88 @Test methods; `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases; 5 `GameScannerIntegrationTest` проверяют PE/CLR/SerializedFile/ambiguous external MonoScript scanner report paths и cancellation.
+- Main CI run [#318](https://github.com/HelterFall/God/actions/runs/44795474501) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact на merge commit `2ff25721cedc33ac15ce51a67284cf8b903918f9`; PR #19 run #317 также прошёл.
 - Parser tests в основном используют synthetic inputs; PE coverage включает PE32/PE32+ named/ordinal thunks, ARM64 recognition и negative Import Directory/DLL-name RVA fixtures.
-- Fake-tree integration coverage `GameScanner.scan()` теперь включает PE imports, успешный synthetic CLR metadata path и synthetic Unity SerializedFile v22 metadata path до JSON/Markdown и analyzer coverage, а также cancellation; широкая матрица Unity analyzer/resolver paths, Android SAF instrumentation, реальные compiler-produced/Unity fixtures, fuzz/property и coverage metrics пока отсутствуют.
+- Fake-tree integration coverage `GameScanner.scan()` теперь включает PE imports, успешный synthetic CLR metadata path, synthetic Unity SerializedFile v22 metadata path и ambiguous external MonoScript basename no-guess resolution до JSON/Markdown и analyzer coverage, а также cancellation; успешный payload parse внешнего MonoScript, широкая матрица Unity analyzer/resolver paths, Android SAF instrumentation, реальные compiler-produced/Unity fixtures, fuzz/property и coverage metrics пока отсутствуют.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
