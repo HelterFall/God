@@ -4,7 +4,7 @@
 **Базовая ветка:** main  
 **Текущий source baseline:** 253534cb77e6407669dd71bc646fc0aa4a557c9e
 **Проверенная ревизия main для этого аудита:** 253534cb77e6407669dd71bc646fc0aa4a557c9e
-**Последняя успешная проверка CI:** **Последняя успешная проверка CI:** main run [#302](https://github.com/HelterFall/God/actions/runs/44789275792) успешно проверил merge commit `253534cb77e6407669dd71bc646fc0aa4a557c9e`: JVM tests, `assembleDebug` и загрузка APK artifact. PR run #301 также прошёл.
+**Последняя успешная проверка CI:** main run [#302](https://github.com/HelterFall/God/actions/runs/44789275792) успешно проверил merge commit `253534cb77e6407669dd71bc646fc0aa4a557c9e`: JVM tests, `assembleDebug` и загрузка APK artifact. PR run #301 также прошёл.
 **Текущая тестовая база:** 16 JVM test files / 86 @Test methods; `PeParserTest` — 9, `GameScannerIntegrationTest` — 3, `PartialReportBuilderTest` — 5. CLR scanner integration fixture синтетический; реальные binary fixtures и Android instrumentation пока отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
