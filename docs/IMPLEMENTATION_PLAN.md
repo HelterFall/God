@@ -397,7 +397,8 @@ God уже умеет выполнять ограниченную инвента
 **Текущая тестовая база:** 16 JVM test files / 86 @Test methods. Scanner fake-tree tests проверяют PE DLL/function/ordinal imports и успешный synthetic CLR metadata path в JSON/Markdown; PeParser tests дополнительно покрывают ARM64 recognition и два malformed RVA сценария. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
-- [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).\n- [ ] Расширить scanner integration coverage на успешные Unity parser/resolver paths, ограничения, read errors и реальные fixtures.
+- [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
+- [ ] Расширить scanner integration coverage на успешные Unity parser/resolver paths, ограничения, read errors и реальные fixtures.
 - [x] JVM tests для scan locking, job-scoped cancellation и pure partial-report builder; Android Activity/SAF instrumentation остаются.
 - [ ] Добавить tests для export null stream/write/close failures.
 - [ ] Добавить настоящие legal/redistributable PE/CLR/Unity fixtures и golden reports.
