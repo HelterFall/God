@@ -188,6 +188,8 @@ internal object PeParser {
                     continue
                 }
 
+                // IMAGE_THUNK_DATA contains an RVA to IMAGE_IMPORT_BY_NAME
+                // when the high-bit ordinal flag is not set.
                 if (thunkValue > 0xffffffffL) {
                     notes.add("invalid import-by-name RVA in thunk table for $dllName")
                     continue
