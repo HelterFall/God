@@ -1092,7 +1092,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         appendLine("- Исходные файлы читаются на месте через SAF: не копируются, не изменяются и не запускаются.")
         appendLine("- Mono/IL2CPP классифицируется по структуре и является эвристикой.")
         appendLine("- CLR metadata inventory читает Assembly, TypeDef и AssemblyRef; метод-тела IL, атрибуты и P/Invoke-сигнатуры пока не анализируются.")
-        appendLine("- Таблица импортов показывает статические импорты PE; динамические LoadLibrary и P/Invoke полностью не покрываются.")
+        appendLine("- Статическая Import Table показывает DLL, имена импортируемых функций и ordinal imports в пределах bounded PE/thunk windows; динамическая загрузка библиотек и CLR P/Invoke полностью не покрываются.")
         appendLine("- Версия Unity определяется по globalgamemanagers SerializedFile metadata, UnityFS engine version или ограниченному текстовому поиску; playerVersion не считается точной версией движка.")
         appendLine("- Если основные источники противоречат друг другу, unityVersion остаётся null, а evidence сохраняется в отчёте.")
     }
