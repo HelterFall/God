@@ -411,6 +411,77 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun reportsUnityProviderReadFailureWithoutHidingInventoryOrCoverage() {
+        val root = MemoryScanNode(
+            name = "UnreadableUnityFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "Data",
+                    true,
+                    children = listOf(
+                        MemoryScanNode(
+                            "globalgamemanagers",
+                            false,
+                            byteArrayOf(1, 2, 3),
+                            failOnOpen = true
+                        ),
+                        MemoryScanNode("readme.txt", false, "inventory survives".toByteArray())
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+
+        val report = JSONObject(result.json)
+        val coverage = report.getJSONObject("scanCoverage")
+        assertEquals("partial", coverage.getString("status"))
+        assertEquals("completed", coverage.getJSONObject("inventory").getString("status"))
+        assertEquals(3, coverage.getJSONObject("inventory").getInt("entriesDiscovered"))
+
+        val analyzers = coverage.getJSONArray("analyzers")
+        val headerCoverage = (0 until analyzers.length())
+            .map { analyzers.getJSONObject(it) }
+            .first { it.getString("id") == "unity_file_headers" }
+        assertEquals(1, headerCoverage.getInt("candidateCount"))
+        assertEquals(1, headerCoverage.getInt("attemptedCount"))
+        assertEquals(0, headerCoverage.getInt("parsedCount"))
+        assertEquals(1, headerCoverage.getInt("failedCount"))
+        assertEquals("failed", headerCoverage.getString("status"))
+
+        val metadataCoverage = (0 until analyzers.length())
+            .map { analyzers.getJSONObject(it) }
+            .first { it.getString("id") == "serialized_file_metadata" }
+        assertEquals(1, metadataCoverage.getInt("candidateCount"))
+        assertEquals(0, metadataCoverage.getInt("attemptedCount"))
+        assertEquals(0, metadataCoverage.getInt("parsedCount"))
+        assertEquals(1, metadataCoverage.getInt("skippedCount"))
+        assertEquals("partial", metadataCoverage.getString("status"))
+
+        val files = report.getJSONArray("files")
+        assertTrue((0 until files.length()).any {
+            files.getJSONObject(it).getString("path") == "Data/readme.txt"
+        })
+        assertEquals(0, report.getJSONArray("unityFileHeaders").length())
+        assertEquals(0, report.getJSONArray("unityMetadata").length())
+        val warnings = report.getJSONArray("warnings")
+        assertTrue((0 until warnings.length()).any {
+            warnings.getString(it).contains(
+                "Unity-анализ Data/globalgamemanagers: synthetic provider read failure"
+            )
+        })
+        assertTrue(result.markdown.contains("## Scan coverage"))
+        assertTrue(result.markdown.contains("- unity_file_headers: failed; candidates=1; attempted=1; parsed=0"))
+        assertTrue(result.markdown.contains("- serialized_file_metadata: partial; candidates=1; attempted=0; parsed=0"))
+        assertTrue(result.markdown.contains("synthetic provider read failure"))
+    }
+
+    @Test
     fun returnsPartialReportWithExactlyTheInventoryCollectedBeforeCancellation() {
         val root = MemoryScanNode(
             name = "FixtureGame",
@@ -754,7 +825,8 @@ private class MemoryScanNode(
     override val name: String?,
     override val isDirectory: Boolean,
     val contents: ByteArray = byteArrayOf(),
-    private val children: List<MemoryScanNode> = emptyList()
+    private val children: List<MemoryScanNode> = emptyList(),
+    val failOnOpen: Boolean = false
 ) : ScanNode {
     override val size: Long
         get() = if (isDirectory) 0L else contents.size.toLong()
@@ -766,6 +838,7 @@ private class MemoryScanFileAccess : ScanFileAccess {
     override fun openInputStream(node: ScanNode): InputStream? {
         val file = node as? MemoryScanNode
             ?: throw IllegalArgumentException("Unknown in-memory scan node.")
+        if (file.failOnOpen) throw IllegalStateException("synthetic provider read failure")
         return if (file.isDirectory) null else ByteArrayInputStream(file.contents)
     }
 }
