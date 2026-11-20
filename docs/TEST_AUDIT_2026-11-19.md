@@ -2,20 +2,20 @@
 
 **Дата:** 21 ноября 2026 года  
 **Проверенная ветка:** `main`  
-**Проверенный commit:** 8b6af8b0c7f12683e8e6cf7ac48e67846b299d87
-**Последняя успешная проверка CI:** Main run [#314](https://github.com/HelterFall/God/actions/runs/44791697010) успешно проверил merge commit `8b6af8b0c7f12683e8e6cf7ac48e67846b299d87` (87 JVM tests по source annotations, debug APK и artifact upload); PR #17 run #313 также прошёл.
+**Проверенный commit:** 2ff25721cedc33ac15ce51a67284cf8b903918f9
+**Последняя успешная проверка CI:** Main run [#318](https://github.com/HelterFall/God/actions/runs/44795474501) успешно проверил merge commit `2ff25721cedc33ac15ce51a67284cf8b903918f9` (88 JVM tests по source annotations, debug APK и artifact upload); PR #19 run #317 также прошёл.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
 - 16 JVM test files;
-- 87 методов с аннотацией `@Test`;
+- 88 методов с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Четыре теста запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE candidate/import reporting; успешный bounded CLR metadata parse до JSON/Markdown и `ScanCoverage`; успешный synthetic Unity SerializedFile v22 parse до JSON/Markdown, Unity version evidence и header/metadata coverage; partial inventory при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
+Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Пять тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE candidate/import reporting; успешный bounded CLR metadata parse до JSON/Markdown и `ScanCoverage`; успешный synthetic Unity SerializedFile v22 parse до JSON/Markdown, Unity version evidence и header/metadata coverage; external MonoScript basename ambiguity отражается как `external-file-name-ambiguous` без выбранного target path; partial inventory при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -30,7 +30,7 @@
 | ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap и полный список в JSON |
-| GameScannerIntegrationTest | 4 | Fake tree: inventory/progress, PE success/failure/import reporting, successful CLR metadata path, successful Unity SerializedFile v22 metadata path with Unity version and analyzer coverage, partial inventory on cancellation |
+| GameScannerIntegrationTest | 5 | Fake tree: inventory/progress, PE success/failure/import reporting, successful CLR metadata path, successful Unity SerializedFile v22 metadata path with Unity version and analyzer coverage, ambiguous external MonoScript basename is not guessed, partial inventory on cancellation |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -40,7 +40,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **87 тестовых методов в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Всего: **88 тестовых методов в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -55,14 +55,14 @@
 
 ## 3. Подтверждённые пробелы тестового покрытия
 
-### QA-01 — CLR и базовый SerializedFile scanner paths покрыты; матрица сканера остаётся неполной
+### QA-01 — CLR, SerializedFile и ambiguous external MonoScript scanner paths покрыты; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` запускает настоящий `GameScanner.scan()` на in-memory `ScanNode` дереве. Первый тест проверяет directory traversal, inventory/progress, PE candidate selection, один успешно разобранный и один неуспешный PE, `ScanCoverage`, schemaVersion=24, JSON files[], DLL names в `nativeImports`, named/ordinal symbols в `nativeImportSymbols` и Markdown-раздел imported symbols. Второй тест создаёт synthetic PE32+ managed image с CLR metadata root и проверяет путь `GameScanner.scan()` → `ClrMetadataParser` → assembly identity/Module/TypeDef → JSON/Markdown и completed coverage `clr_metadata`. Третий тест создаёт synthetic SerializedFile v22 и проверяет путь `GameScanner.scan()` → header/metadata parsers → Unity version evidence → JSON/Markdown и completed coverage `unity_file_headers`/`serialized_file_metadata`. Четвёртый тест отменяет обход и проверяет partial inventory snapshot.
+`GameScannerIntegrationTest` запускает настоящий `GameScanner.scan()` на in-memory `ScanNode` дереве. Первый тест проверяет inventory/progress, PE candidate selection и import reporting. Второй тест создаёт synthetic PE32+ managed image с CLR metadata root и проверяет assembly identity/Module/TypeDef, JSON/Markdown и completed coverage `clr_metadata`. Третий тест создаёт synthetic SerializedFile v22 и проверяет header/metadata parsing, Unity version evidence, JSON/Markdown и completed coverage `unity_file_headers`/`serialized_file_metadata`. Четвёртый тест создаёт owner SerializedFile с MonoBehaviour scriptTypeIndex, внешней fileID/path и двумя кандидатами с одинаковым basename; сканер сохраняет `external-file-name-ambiguous` и не выбирает target path. Пятый тест отменяет обход и проверяет partial inventory snapshot.
 
 **Пока не покрыто:**
 
 - реальные compiler-produced PE/CLR fixtures; CLR scanner integration пока подтверждён только синтетическим managed PE;
-- реальные Unity SerializedFiles/TypeTrees и совместимость нескольких версий; UnityFS block/directory reading и дальнейшие resolver stages;
+- реальные Unity SerializedFiles/TypeTrees и совместимость нескольких версий; успешный внешний MonoScript payload parse и разрешение к реальному target; UnityFS block/directory reading и дальнейшие resolver stages;
 - все лимиты, недоступные каталоги, ошибки/обрывы потоков и non-seekable providers;
 - реальные binary fixtures, Android SAF provider и Activity lifecycle.
 
@@ -177,13 +177,13 @@
 
 Проверенный актуальный main run:
 
-https://github.com/HelterFall/God/actions/runs/44791697010
+https://github.com/HelterFall/God/actions/runs/44795474501
 
-- Commit: `8b6af8b0c7f12683e8e6cf7ac48e67846b299d87`.
+- Commit: `2ff25721cedc33ac15ce51a67284cf8b903918f9`.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Текущая база — 87 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
+- Текущая база — 88 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
