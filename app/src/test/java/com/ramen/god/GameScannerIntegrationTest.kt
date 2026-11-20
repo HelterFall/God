@@ -1,10 +1,12 @@
 package com.ramen.god
 
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -112,6 +114,64 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun reportsSuccessfulClrMetadataThroughScannerCoverageAndBothReports() {
+        val root = MemoryScanNode(
+            name = "MonoFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "Managed",
+                    true,
+                    children = listOf(
+                        MemoryScanNode("Assembly-CSharp.dll", false, managedPeWithMetadata())
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+
+        assertFalse(result.isPartial)
+        assertTrue(result.markdown.contains("## CLR managed assembly metadata"))
+        assertTrue(result.markdown.contains("Managed/Assembly-CSharp.dll: Assembly-CSharp"))
+        assertTrue(result.markdown.contains("Game.PlayerController"))
+
+        val report = JSONObject(result.json)
+        val managed = report.getJSONArray("managedPeAssemblies")
+        assertEquals(1, managed.length())
+        assertEquals("Managed/Assembly-CSharp.dll", managed.getString(0))
+
+        val metadata = report.getJSONArray("managedAssemblyMetadata")
+        assertEquals(1, metadata.length())
+        val assembly = metadata.getJSONObject(0)
+        assertEquals("Managed/Assembly-CSharp.dll", assembly.getString("path"))
+        assertEquals("Assembly-CSharp", assembly.getString("name"))
+        assertEquals("1.2.3.4", assembly.getString("version"))
+        assertEquals("Sample.dll", assembly.getString("moduleName"))
+        assertEquals("parsed", assembly.getString("status"))
+        assertEquals(1, assembly.getInt("typeCount"))
+        val types = assembly.getJSONArray("types")
+        assertEquals(1, types.length())
+        assertEquals("PlayerController", types.getJSONObject(0).getString("name"))
+        assertEquals("Game", types.getJSONObject(0).getString("namespace"))
+
+        val analyzers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
+        val clr = (0 until analyzers.length())
+            .map { analyzers.getJSONObject(it) }
+            .first { it.getString("id") == "clr_metadata" }
+        assertEquals(1, clr.getInt("candidateCount"))
+        assertEquals(1, clr.getInt("attemptedCount"))
+        assertEquals(1, clr.getInt("parsedCount"))
+        assertEquals(0, clr.getInt("partialCount"))
+        assertEquals(0, clr.getInt("failedCount"))
+        assertEquals("completed", clr.getString("status"))
+    }
+
+    @Test
     fun returnsPartialReportWithExactlyTheInventoryCollectedBeforeCancellation() {
         val root = MemoryScanNode(
             name = "FixtureGame",
@@ -166,18 +226,16 @@ private fun minimalNativePe(): ByteArray {
     put32(bytes, optional + 120, 0x1000)
 
     // Map RVA 0x1000..0x11ff to file offsets 0x200..0x3ff.
-    put32(bytes, section + 8, 0x200) // VirtualSize
-    put32(bytes, section + 12, 0x1000) // VirtualAddress
-    put32(bytes, section + 16, 0x200) // SizeOfRawData
-    put32(bytes, section + 20, 0x200) // PointerToRawData
+    put32(bytes, section + 8, 0x200)
+    put32(bytes, section + 12, 0x1000)
+    put32(bytes, section + 16, 0x200)
+    put32(bytes, section + 20, 0x200)
 
-    // Two IMAGE_IMPORT_DESCRIPTOR entries and an implicit zero terminator.
-    put32(bytes, 0x20c, 0x1040) // KERNEL32.dll name RVA
-    put32(bytes, 0x210, 0x1080) // FirstThunk
-    put32(bytes, 0x220, 0x1050) // USER32.dll name RVA
-    put32(bytes, 0x224, 0x10c0) // FirstThunk
+    put32(bytes, 0x20c, 0x1040)
+    put32(bytes, 0x210, 0x1080)
+    put32(bytes, 0x220, 0x1050)
+    put32(bytes, 0x224, 0x10c0)
 
-    // FirstThunk is used as the lookup-table fallback when OriginalFirstThunk is zero.
     put64(bytes, 0x280, 0x10a0L)
     put64(bytes, 0x288, Long.MIN_VALUE or 7L)
     put64(bytes, 0x290, 0L)
@@ -191,6 +249,122 @@ private fun minimalNativePe(): ByteArray {
     "KERNEL32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x240)
     "USER32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x250)
     return bytes
+}
+
+private fun managedPeWithMetadata(): ByteArray {
+    val metadata = minimalClrMetadataRoot()
+    val bytes = ByteArray(0x800)
+    val pe = 0x80
+    val optional = pe + 24
+    val optionalSize = 240
+    val section = optional + optionalSize
+    val clrHeaderOffset = 0x200
+    val metadataOffset = clrHeaderOffset + 72
+
+    bytes[0] = 0x4d
+    bytes[1] = 0x5a
+    put32(bytes, 0x3c, pe)
+    bytes[pe] = 0x50
+    bytes[pe + 1] = 0x45
+    put16(bytes, pe + 4, 0x8664)
+    put16(bytes, pe + 6, 1)
+    put16(bytes, pe + 20, optionalSize)
+    put16(bytes, optional, 0x20b)
+
+    // IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR (index 14).
+    put32(bytes, optional + 224, 0x1000)
+    put32(bytes, optional + 228, 72)
+
+    put32(bytes, section + 8, 0x600)
+    put32(bytes, section + 12, 0x1000)
+    put32(bytes, section + 16, 0x600)
+    put32(bytes, section + 20, 0x200)
+
+    // IMAGE_COR20_HEADER and its metadata directory.
+    put32(bytes, clrHeaderOffset, 72)
+    put16(bytes, clrHeaderOffset + 4, 2)
+    put16(bytes, clrHeaderOffset + 6, 5)
+    put32(bytes, clrHeaderOffset + 8, 0x1000 + 72)
+    put32(bytes, clrHeaderOffset + 12, metadata.size)
+    put32(bytes, clrHeaderOffset + 16, 1)
+    metadata.copyInto(bytes, metadataOffset)
+    return bytes
+}
+
+private fun minimalClrMetadataRoot(): ByteArray {
+    val strings = ByteArrayOutputStream()
+    strings.write(0)
+    fun addString(value: String): Int {
+        val index = strings.size()
+        strings.write(value.toByteArray(Charsets.UTF_8))
+        strings.write(0)
+        return index
+    }
+    val moduleName = addString("Sample.dll")
+    val typeName = addString("PlayerController")
+    val namespace = addString("Game")
+    val assemblyName = addString("Assembly-CSharp")
+    val stringHeap = strings.toByteArray()
+
+    val tables = ByteArrayOutputStream().apply {
+        u32le(0)
+        write(2); write(0); write(0); write(1)
+        u64le((1L shl 0) or (1L shl 2) or (1L shl 32))
+        u64le(0)
+        u32le(1); u32le(1); u32le(1)
+        // Module row.
+        u16le(0); u16le(moduleName); u16le(0); u16le(0); u16le(0)
+        // TypeDef row: public class Game.PlayerController.
+        u32le(1); u16le(typeName); u16le(namespace); u16le(0); u16le(1); u16le(1)
+        // Assembly row: Assembly-CSharp, Version=1.2.3.4.
+        u32le(0); u16le(1); u16le(2); u16le(3); u16le(4); u32le(0)
+        u16le(0); u16le(assemblyName); u16le(0)
+    }.toByteArray()
+    val blobHeap = byteArrayOf(0)
+
+    fun paddedNameSize(name: String): Int = ((name.length + 1 + 3) / 4) * 4
+    val streamHeadersSize = 8 + paddedNameSize("#~") +
+        8 + paddedNameSize("#Strings") + 8 + paddedNameSize("#Blob")
+    val prefixSize = 28
+    val tablesOffset = prefixSize + streamHeadersSize
+    val stringsOffset = tablesOffset + tables.size
+    val blobsOffset = stringsOffset + stringHeap.size
+
+    val root = ByteArrayOutputStream().apply {
+        u32le(0x424a5342L)
+        u16le(1); u16le(1); u32le(0)
+        u32le(8)
+        write(byteArrayOf('v'.code.toByte(), '4'.code.toByte(), '.'.code.toByte(), '0'.code.toByte(), 0, 0, 0, 0))
+        u16le(0); u16le(3)
+        streamHeader(tablesOffset, tables.size, "#~")
+        streamHeader(stringsOffset, stringHeap.size, "#Strings")
+        streamHeader(blobsOffset, blobHeap.size, "#Blob")
+        write(tables)
+        write(stringHeap)
+        write(blobHeap)
+    }.toByteArray()
+    return root
+}
+
+private fun ByteArrayOutputStream.streamHeader(offset: Int, size: Int, name: String) {
+    u32le(offset.toLong())
+    u32le(size.toLong())
+    write(name.toByteArray(Charsets.US_ASCII))
+    write(0)
+    while (this.size() % 4 != 0) write(0)
+}
+
+private fun ByteArrayOutputStream.u16le(value: Int) {
+    write(value and 0xff)
+    write((value ushr 8) and 0xff)
+}
+
+private fun ByteArrayOutputStream.u32le(value: Long) {
+    for (index in 0 until 4) write((value ushr (8 * index)).toInt() and 0xff)
+}
+
+private fun ByteArrayOutputStream.u64le(value: Long) {
+    for (index in 0 until 8) write((value ushr (8 * index)).toInt() and 0xff)
 }
 
 private fun put16(bytes: ByteArray, offset: Int, value: Int) {
