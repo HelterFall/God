@@ -2,15 +2,15 @@
 
 **Дата:** 20 ноября 2026 года  
 **Базовая ветка:** main  
-**Текущий source baseline:** 20d933692d0cb530afbec95e54e72e38044c34fe
-**Проверенная ревизия main для этого аудита:** 20d933692d0cb530afbec95e54e72e38044c34fe
-**Последняя успешная проверка CI:** run [#288](https://github.com/HelterFall/God/actions/runs/44687783215) успешно проверил main commit `20d933692d0cb530afbec95e54e72e38044c34fe`: JVM tests, `assembleDebug` и загрузка APK artifact.
-**Текущая тестовая база:** 16 JVM test files / 80 @Test methods. `GameScannerIntegrationTest` проверяет inventory, PE selection, cancellation и перенос DLL imports в JSON/Markdown; `PeParserTest` отдельно проверяет PE32+ Import Directory. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
+**Текущий source baseline:** c6d992f28baae68b59caaa7102da46bcc7011c55
+**Проверенная ревизия main для этого аудита:** c6d992f28baae68b59caaa7102da46bcc7011c55
+**Последняя успешная проверка CI:** run [#293](https://github.com/HelterFall/God/actions/runs/44689310917) успешно проверил main commit `c6d992f28baae68b59caaa7102da46bcc7011c55`: 82 JVM tests, `assembleDebug` и загрузка APK artifact.
+**Текущая тестовая база:** 16 JVM test files / 82 @Test methods; `PeParserTest` — 6, `GameScannerIntegrationTest` — 2, `PartialReportBuilderTest` — 5. Реальные binary fixtures и Android instrumentation пока отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и inventory-only partial report уже реализованы. PR #4 добавил `ScanNode`/`ScanFileAccess`, SAF-адаптер и сквозные тесты `GameScanner.scan()`; PR #6 расширил их проверкой успешного и неуспешного PE-кандидатов; PR #7 добавил положительный parser-level Import Directory test; PR #9 проверяет, что DLL imports доходят до `nativeImports` JSON и Markdown. Main CI run #288 успешно проверил текущее состояние. QA-01 остаётся открытым для CLR/Unity parser paths, resolver stages, реальных бинарных fixtures и Android SAF. Это не означает, что глубокое исследование игры уже реализовано.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и inventory-only partial report уже реализованы. PR #11 добавил bounded PE function/ordinal import parsing для PE32/PE32+ и вывод символов в JSON `nativeImportSymbols` и Markdown; main CI run #293 успешно проверил merge-коммит. QA-01 остаётся открытым для CLR/Unity parser paths, resolver stages, реальных бинарных fixtures и Android SAF. Это не означает, что глубокое исследование игры уже реализовано.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -32,7 +32,7 @@ God уже умеет выполнять ограниченную инвента
 - Не запускать игровые EXE/DLL, не исполнять CIL и не менять оригиналы файлов.
 - Не считать строку, AssemblyRef, импорт или статический call site доказательством runtime-использования. У каждого уровня — собственный тип evidence.
 - Сначала проверить и переиспользовать существующие ScanCoverage, ScanEntry, ScanResult и parser-specific data classes. Не создавать дубликаты уже работающих моделей.
-- JSON Schema и manifest нужны для целостности, воспроизводимости и будущей автоматизации отчётов. Уже существующий schemaVersion=23 считать текущей версией структуры JSON; не вводить второй номер версии с тем же смыслом.
+- JSON Schema и manifest нужны для целостности, воспроизводимости и будущей автоматизации отчётов. Уже существующий schemaVersion=24 считать текущей версией структуры JSON; не вводить второй номер версии с тем же смыслом.
 - Не создавать обязательный импортёр или runtime/API-связь с Ramen или RamenUnity.
 - Сначала довести Mono/SerializedFile путь до полезной глубины и получить реальные fixtures. IL2CPP развивать отдельной веткой, не смешивая его с готовностью Mono.
 
@@ -56,7 +56,7 @@ God уже умеет выполнять ограниченную инвента
 ### Уже существующие форматы и экспорт
 
 - [x] Экспорт Markdown и JSON.
-- [x] JSON включает schemaVersion=23, scanCoverage и массив files для всех собранных inventory entries.
+- [x] JSON включает schemaVersion=24, scanCoverage, files, `nativeImports` и bounded `nativeImportSymbols` для прочитанных PE thunk tables.
 - [x] Markdown tree имеет отдельный предел 20 000 строк.
 - [x] Текущие Markdown и JSON сначала формируются в памяти как строки; потокового ReportWriter пока нет.
 - [x] Экспорт открывает пользовательский destination через SAF.
@@ -68,7 +68,7 @@ God уже умеет выполнять ограниченную инвента
 
 - [x] Unity build inventory и эвристическая классификация Mono/IL2CPP.
 - [x] Multi-source Unity version evidence с разрешением конфликтов без угадывания.
-- [x] PE headers, машинная архитектура x86/x86-64/ARM64, ограниченное чтение sections/RVA и имена DLL из static Import Table.
+- [x] PE headers, машинная архитектура x86/x86-64/ARM64, bounded sections/RVA и static Import/Thunk Table: DLL names, named functions, hints и ordinal imports; OriginalFirstThunk с FirstThunk fallback.
 - [x] CLR directory recognition и ограниченная CLR metadata: Assembly identity, Module, TypeDef, поля, методы, AssemblyRef и распространённые signatures.
 - [x] Привязка полей/методов к TypeDef и ограниченное сопоставление MonoScript identity с managed TypeDef.
 - [x] Unity SerializedFile headers и metadata v19–v26 в ограниченных окнах.
@@ -77,19 +77,19 @@ God уже умеет выполнять ограниченную инвента
 - [x] Ограниченный decoder GameObject/Transform/MonoBehaviour и локальный GameObject–Transform–Component scene graph.
 - [x] Распознавание UnityFS header.
 
-**Не подразумевается как завершённое:** распаковка UnityFS/AssetBundle/ZIP, полноценная PE function import/export analysis, P/Invoke map и IL bodies, IL2CPP metadata parsing, полный scene graph и asset payload decoding, общий cross-domain dependency graph и Porting Dossier generator.
+**Не подразумевается как завершённое:** распаковка UnityFS/AssetBundle/ZIP, полная PE import/export analysis (delay/forwarded exports и широкий compatibility matrix), CLR P/Invoke map и IL bodies, IL2CPP metadata parsing, полный scene graph и asset payload decoding, общий cross-domain dependency graph и Porting Dossier generator.
 ## 2.2. Проблемы, выявленные аудитом тестирования и качества
 
 Полная матрица тестов, проверенные CI steps и технические детали: [TEST_AUDIT_2026-11-19.md](TEST_AUDIT_2026-11-19.md).
 
 ### P1 — исправить до расширения функциональности
 
-- [ ] **QA-01 — scanner integration coverage (начальный срез реализован).** Два теста `GameScannerIntegrationTest` запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/progress, PE candidate selection, success/failure accounting, `ScanCoverage`, `nativeImports` в JSON, DLL import section в Markdown и partial inventory при отмене обхода. Осталось расширить CLR/Unity parsing, resolver stages, read errors/limits и real binary/Android SAF fixtures.
+- [ ] **QA-01 — scanner integration coverage (начальный срез реализован).** Два теста `GameScannerIntegrationTest` запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/progress, PE candidate success/failure, `ScanCoverage`, `nativeImports` и `nativeImportSymbols` в JSON, DLL/function/ordinal imports в Markdown и partial inventory при отмене обхода. Осталось расширить CLR/Unity parsing, resolver stages, read errors/limits и real binary/Android SAF fixtures.
 - [ ] **QA-02 — scan lifecycle/cancellation race.** Реализированы single-job `ScanCoordinator`, job-scoped cancellation, Activity-safe worker и inventory-only partial report при отмене на проверяемых этапах. Пять тестов `PartialReportBuilderTest` проверяют метки partial/cancelled, полный JSON inventory, escaping и Markdown cap. Осталось: Android lifecycle/SAF instrumentation, cancellation внутри длинных provider reads и сохранение job/report после Activity recreation.
 - [x] **QA-03 — export false success.** Исправлено: `ReportExporter` отклоняет null stream и передаёт ошибки открытия, записи и закрытия; пять JVM-тестов проверяют эти сценарии, UTF-8 и закрытие потока.
 - [ ] **QA-04 — Android SAF tests.** Нет instrumentation tests для реальных document providers, URI permissions, stream errors, Activity recreation и export destination.
-- [ ] **QA-05 — real binary fixtures.** Текущие 80 @Test используют преимущественно synthetic byte arrays/model objects и одно in-memory scanner tree; добавить реальные PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
-- [ ] **QA-06 — PE imports coverage (DLL-name path покрыт unit и integration tests).** `PeParserTest` строит synthetic x86-64 PE32+ и проверяет `KERNEL32.dll`/`USER32.dll`; `GameScannerIntegrationTest` проверяет перенос этих имён в `nativeImports` JSON с `referencedByCount` и в Markdown. Осталось: function thunks/ordinals, malformed descriptor/RVA cases, ARM64, delay imports и реальные PE fixtures.
+- [ ] **QA-05 — real binary fixtures.** Текущие 82 @Test используют преимущественно synthetic byte arrays/model objects и одно in-memory scanner tree; добавить реальные PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
+- [ ] **QA-06 — bounded PE imports реализованы; широкая матрица остаётся открытой.** `PeParserTest` проверяет PE32/PE32+, named imports с Hint, ordinal imports, OriginalFirstThunk и FirstThunk fallback, а также truncated thunk table. `GameScannerIntegrationTest` проверяет вывод DLL names и function/ordinal symbols в JSON/Markdown. Осталось: malformed descriptor/RVA matrix, ARM64-specific samples, delay imports, exports/forwarded exports и реальные PE fixtures.
 - [ ] **QA-07 — parser compatibility matrix.** Уточнить и расширить проверки CLR signatures/metadata, Unity header versions, SerializedFile v19–v26, TypeTree/shared subtree и scene graph limits. Synthetic tests оставить, но сверять их с реальными samples.
 - [ ] **QA-08 — binary robustness.** Добавить property/fuzz tests для offsets, lengths, counts, overflow, malformed heaps, truncated streams и compression/container boundaries.
 
@@ -100,7 +100,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-**Текущая база:** 16 test files / 80 @Test methods, JUnit 4.13.2. Run [#288](https://github.com/HelterFall/God/actions/runs/44687783215) подтвердил JVM tests, debug APK build и artifact upload на main. Сквозной fake-tree сценарий теперь проверяет и путь PE imports до JSON/Markdown; реальные fixtures и Android tests по-прежнему нужны.
+**Текущая база:** 16 test files / 82 @Test methods, JUnit 4.13.2. Run [#293](https://github.com/HelterFall/God/actions/runs/44689310917) подтвердил JVM tests, debug APK build и artifact upload на main. Реальные fixtures и Android tests по-прежнему нужны.
 
 ## 3. Последовательность реализации
 
@@ -203,13 +203,13 @@ God уже умеет выполнять ограниченную инвента
 **Приоритет:** P0  
 **Зависимости:** этапы 1–3.
 
-Экспорт Markdown и JSON уже работает. JSON содержит schemaVersion=23 и files[] с собранными inventory entries. Но buildMarkdown/buildJson возвращают большие строки, а MainActivity хранит обе строки в памяти до экспорта. Отдельного ReportWriter, JSON Schema и manifest пока нет.
+Экспорт Markdown и JSON уже работает. JSON schemaVersion=24 содержит files[], analyzer coverage, DLL-level nativeImports и bounded nativeImportSymbols. Но buildMarkdown/buildJson возвращают большие строки, а MainActivity хранит обе строки в памяти до экспорта. Но buildMarkdown/buildJson возвращают большие строки, а MainActivity хранит обе строки в памяти до экспорта. Отдельного ReportWriter, JSON Schema и manifest пока нет.
 
 **Задачи:**
 - [ ] Создать отдельный ReportWriter, не связанный с UI и GameScanner.
 - [ ] Записывать крупные секции потоково, не собирая весь отчёт в одну большую строку.
 - [ ] Разделить краткое резюме и подробные данные (inventory/findings/graph edges), сохранив текущие Markdown/JSON outputs как совместимый переходный формат.
-- [ ] Формализовать существующий schemaVersion=23 как версию структуры JSON: определить правила bump/backward compatibility. Не вводить второй report format version с тем же смыслом.
+- [ ] Формализовать правила bump/backward compatibility для schemaVersion=24 как версии структуры JSON: определить правила bump/backward compatibility. Не вводить второй report format version с тем же смыслом.
 - [ ] Добавить JSON Schema и тест валидации текущего и будущего report format.
 - [ ] Добавить manifest с версией God/analyzer, schemaVersion, временем, coverage и hashes частей отчёта.
 - [ ] Проверять null output stream и ошибки записи; сейчас openOutputStream()?.use(...) может завершиться без записи, но UI всё равно сообщает «Отчёт сохранён».
@@ -258,15 +258,17 @@ God уже умеет выполнять ограниченную инвента
 - [x] PE/DOS/PE signature recognition и machine architecture x86, x86-64, ARM64.
 - [x] Ограниченное чтение section headers и RVA-to-file-offset mapping для текущего bounded buffer.
 - [x] Определение CLR directory и базового CLR metadata locator.
-- [x] Чтение имён DLL из static Import Table в пределах доступного окна чтения.
+- [x] Чтение DLL names и bounded named/ordinal symbols из static Import/Thunk Tables, включая OriginalFirstThunk/FirstThunk fallback.
 
-**Ограничение текущего импорта:** PeInfo.imports содержит имена импортируемых DLL, а не полные имена импортируемых функций; экспорты и delay imports не анализируются. PE parser получает prefix до 1 MiB, а managed PE может перечитываться до 4 MiB.
+**Ограничение текущего импорта:** `PeInfo.imports` содержит DLL names, а `PeInfo.importedSymbols` — bounded named function/ordinal records с Hint для named imports. PE parser получает prefix до 1 MiB, а managed PE может перечитываться до 4 MiB; exports, forwarded exports и delay imports пока не читаются.
 
 **Что добавить:**
 - [ ] Расширить чтение PE sections/data directories с positional reads, чтобы не зависеть от небольшого prefix.
-- [ ] Import Table с function names, ordinal imports и подробными thunk records.
+- [x] Import/Thunk Table: function names, ordinal imports, hints, PE32/PE32+ thunk width и bounded truncation diagnostics.
+- [ ] Расширить модель/диагностику для malformed descriptor/RVA cases и нестандартных layout variants.
 - [x] Добавить positive PE32+ fixture с секцией и Import Directory; тест проверяет извлечение DLL names `KERNEL32.dll` и `USER32.dll`.
-- [ ] Проверить function thunks, ordinal imports, malformed descriptors/RVA и ARM64.
+- [x] Проверить named function и ordinal thunk entries для PE32/PE32+.
+- [ ] Расширить malformed descriptors/RVA matrix и добавить ARM64/real PE fixtures.
 - [ ] Delay Import Table.
 - [ ] Export Table и forwarded exports.
 - [ ] Сопоставлять import DLL с найденными файлами, в том числе внутри поддерживаемых containers.
@@ -400,8 +402,8 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Добавить tests для export null stream/write/close failures.
 - [ ] Добавить настоящие legal/redistributable PE/CLR/Unity fixtures и golden reports.
 - [ ] Android instrumentation tests для SAF permissions, provider stream behavior, Activity recreation и export.
-- [x] Positive PE Import Directory test для извлечения DLL names.
-- [ ] Function/ordinal/malformed PE import matrix и расширенная Unity version/layout matrix.
+- [x] PE Import/Thunk tests: DLL names, function names, hints, ordinals и parser-to-report JSON/Markdown path.
+- [ ] Malformed PE descriptor/RVA matrix, delay imports, exports и расширенная Unity version/layout matrix.
 - [ ] Property/fuzz tests и regression corpus для parser boundaries.
 - [ ] JUnit XML и code coverage report; установить порог только после baseline измерения.
 - [ ] Quick/Standard/Deep scan profiles.
@@ -428,7 +430,7 @@ God уже умеет выполнять ограниченную инвента
 2. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
-5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=23, добавить JSON Schema/manifest.
+5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.
 6. **ZIP vertical slice:** открыть один archive entry виртуально и передать его существующему Unity header/SerializedFile parser.
 7. **UnityFS vertical slice:** прочитать block table, один entry и SerializedFile внутри него.
 8. Только после успешных вертикальных срезов расширять PE/CLR/IL и остальные Unity decoders.
