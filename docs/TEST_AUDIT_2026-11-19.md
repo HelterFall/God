@@ -3,7 +3,7 @@
 **Дата:** 21 ноября 2026 года  
 **Проверенная ветка:** `main`  
 **Проверенный commit:** 253534cb77e6407669dd71bc646fc0aa4a557c9e
-**Последняя успешная проверка CI:** PR run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) успешно проверил код PR #15 (86 JVM tests по source annotations, debug APK и artifact upload); post-merge main run #302 выполняется.
+**Последняя успешная проверка CI:** Main run [#302](https://github.com/HelterFall/God/actions/runs/44789275792) успешно проверил merge commit `253534cb77e6407669dd71bc646fc0aa4a557c9e` (86 JVM tests по source annotations, debug APK и artifact upload); PR run #301 также прошёл.
 
 ## 1. Итог
 
