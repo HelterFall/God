@@ -2,18 +2,18 @@
 
 **Дата:** 20 ноября 2026 года  
 **Проверенная ветка:** `main`  
-**Проверенный commit:** c6d992f28baae68b59caaa7102da46bcc7011c55
-**Последняя успешная проверка CI:** run [#293](https://github.com/HelterFall/God/actions/runs/44689310917) успешно проверил main commit `c6d992f28baae68b59caaa7102da46bcc7011c55` (82 JVM tests, debug APK и artifact upload).
+**Проверенный commit:** a648f4e366b684e59262dafffa21982c28160782
+**Последняя успешная проверка CI:** run [#298](https://github.com/HelterFall/God/actions/runs/44690329544) успешно проверил main commit `a648f4e366b684e59262dafffa21982c28160782` (85 JVM tests, debug APK и artifact upload).
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
 - 16 JVM test files;
-- 82 метода с аннотацией `@Test`;
+- 85 методов с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
-- PR #11 run [#292](https://github.com/HelterFall/God/actions/runs/44689135831) прошёл с PE32/PE32+ named/ordinal import parsing; main run [#293](https://github.com/HelterFall/God/actions/runs/44689310917) подтвердил post-merge состояние. Предыдущие PR #7/#9 закрывали DLL-name parser и scanner-to-report path.
+- PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; main run [#298](https://github.com/HelterFall/God/actions/runs/44690329544) подтвердил post-merge состояние. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
 Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Два теста запускают настоящий `GameScanner.scan()` на in-memory tree и проверяют основной путь inventory → PE candidate → coverage → JSON/Markdown, а также partial inventory при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
@@ -26,7 +26,7 @@
 | ClrMetadataParserTest | 3 | Синтетический CLR metadata root, identity/types/fields/methods/AssemblyRef, некорректный signature и bounded window |
 | ClrSignatureParserTest | 6 | Primitive field/method signatures, одномерный массив, generic VAR/MVAR, truncated/unknown signatures |
 | MonoScriptParserTest | 5 | Little/big endian payload, чтение object из stream, malformed/out-of-range и traversal limit |
-| PeParserTest | 6 | Non-PE/truncated input, x86 PE, CLR directory, DLL-name Import Directory, PE32/PE32+ named/ordinal thunks, Hint, OFT/FirstThunk fallback и truncated thunk diagnostics |
+| PeParserTest | 9 | Non-PE/truncated input, x86 PE, CLR directory, DLL Import Directory, PE32/PE32+ named/ordinal thunks, Hint, OFT/FirstThunk fallback, truncated thunk, ARM64 recognition, invalid Import Directory RVA и unreadable DLL-name RVA |
 | ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap и полный список в JSON |
@@ -40,7 +40,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **82 тестовых метода в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Всего: **85 тестовых методов в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -126,7 +126,7 @@
 
 `PeParserTest` содержит синтетические PE32+ и PE32 fixtures: named imports с Hint, ordinal imports, корректная ширина thunk entries, приоритет `OriginalFirstThunk` и fallback на `FirstThunk`. Отдельный тест проверяет diagnostic для truncated thunk table и сохранение уже прочитанных symbols. `GameScannerIntegrationTest` подтверждает, что DLL names доходят до `nativeImports`, а function/ordinal records — до `nativeImportSymbols` и Markdown.
 
-Пока не покрыты ARM64-specific real samples, широкая malformed descriptor/RVA matrix, delay imports, exports/forwarded exports и настоящие PE fixtures. Статический import не доказывает runtime load/use; dynamic loading и CLR P/Invoke остаются отдельными задачами.
+Покрыты синтетическое ARM64 machine recognition, Import Directory RVA вне readable sections и unreadable DLL-name RVA с продолжением последующих корректных descriptors. Пока не покрыты ARM64 real samples, широкая malformed descriptor/thunk matrix, delay imports, exports/forwarded exports и настоящие PE fixtures. Статический import не доказывает runtime load/use; dynamic loading и CLR P/Invoke остаются отдельными задачами.
 
 ### QA-07 — parser boundary coverage неполон
 
@@ -179,11 +179,11 @@
 
 https://github.com/HelterFall/God/actions/runs/44687783215
 
-- Commit: `c6d992f28baae68b59caaa7102da46bcc7011c55`.
+- Commit: `a648f4e366b684e59262dafffa21982c28160782`.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Текущая база — 82 метода `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
+- Текущая база — 85 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
