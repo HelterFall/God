@@ -62,7 +62,7 @@ class PeParserTest {
 
     @Test
     fun reportsTruncatedThunkTableWithoutLosingOtherImports() {
-        val bytes = peWithImports()
+        val bytes = peWithImports().copyOf(0x400)
         // Put the first thunk at the end of the section: one entry fits,
         // but the next pointer falls outside the file's readable section.
         put32(bytes, 0x210, 0x11f8)
@@ -162,11 +162,11 @@ class PeParserTest {
         put32(bytes, section + 20, 0x200)
 
         // OriginalFirstThunk is non-zero and must take precedence over FirstThunk.
-        put32(bytes, 0x200, 0x1020)
+        put32(bytes, 0x200, 0x1030)
         put32(bytes, 0x20c, 0x1040)
         put32(bytes, 0x210, 0x1060)
-        put32(bytes, 0x220, 0x10a0)
-        put32(bytes, 0x224, 0x8000002aL.toLong().toInt())
+        put32(bytes, 0x230, 0x10a0)
+        put32(bytes, 0x234, 0x8000002aL.toLong().toInt())
 
         put16(bytes, 0x2a0, 3)
         "GetTickCount".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x2a2)
