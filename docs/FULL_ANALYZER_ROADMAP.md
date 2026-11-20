@@ -183,12 +183,12 @@ P1/P2 обозначают приоритет исследования и раз
 
 ## 5. Acceptance criteria
 
-### Текущий уровень проверок (source baseline d51c8e5)
+### Текущий уровень проверок (source baseline 2409e81)
 
-- 16 JVM test files / 89 @Test methods; `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases; 6 `GameScannerIntegrationTest` проверяют PE/CLR/SerializedFile/external MonoScript scanner report paths и cancellation.
-- Main CI run [#323](https://github.com/HelterFall/God/actions/runs/44796881629) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact на merge commit `d51c8e5c25621c4719c7c4b221ba921ed486415f`; PR #21 run #322 также прошёл.
+- 16 JVM test files / 90 @Test methods; `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases; 7 `GameScannerIntegrationTest` проверяют PE/CLR/SerializedFile/external MonoScript/provider-read-failure scanner paths и cancellation.
+- Main CI run [#327](https://github.com/HelterFall/God/actions/runs/44798382360) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact на merge commit `2409e81ea7d3fe5cbfe7b958018ba2226a9fbb49`; PR #23 run #326 также прошёл.
 - Parser tests в основном используют synthetic inputs; PE coverage включает PE32/PE32+ named/ordinal thunks, ARM64 recognition и negative Import Directory/DLL-name RVA fixtures.
-- Fake-tree integration coverage `GameScanner.scan()` теперь включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous external MonoScript no-guess resolution и успешный unique external MonoScript payload decode до JSON/Markdown и analyzer coverage, а также cancellation; широкая Unity version/TypeTree/scene-PPtr matrix, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
+- Fake-tree integration coverage `GameScanner.scan()` теперь включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, а также Unity provider open failure, отражённый в предупреждениях и analyzer coverage; широкая Unity version/TypeTree/scene-PPtr matrix, truncated stream/provider failure matrix, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
