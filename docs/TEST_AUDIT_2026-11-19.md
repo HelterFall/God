@@ -2,18 +2,18 @@
 
 **Дата:** 20 ноября 2026 года  
 **Проверенная ветка:** `main`  
-**Проверенный commit:** 20d933692d0cb530afbec95e54e72e38044c34fe
-**Последняя успешная проверка CI:** run [#288](https://github.com/HelterFall/God/actions/runs/44687783215) успешно проверил main commit `20d933692d0cb530afbec95e54e72e38044c34fe` (JVM tests, debug APK и artifact upload).
+**Проверенный commit:** c6d992f28baae68b59caaa7102da46bcc7011c55
+**Последняя успешная проверка CI:** run [#293](https://github.com/HelterFall/God/actions/runs/44689310917) успешно проверил main commit `c6d992f28baae68b59caaa7102da46bcc7011c55` (82 JVM tests, debug APK и artifact upload).
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
 - 16 JVM test files;
-- 80 методов с аннотацией `@Test`;
+- 82 метода с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
-- PR #7 run [#280](https://github.com/HelterFall/God/actions/runs/44687008776) прошёл с parser-level PE Import Directory test; PR #9 run [#286](https://github.com/HelterFall/God/actions/runs/44687667549) прошёл с parser-to-report integration test; main run #288 подтвердил post-merge состояние.
+- PR #11 run [#292](https://github.com/HelterFall/God/actions/runs/44689135831) прошёл с PE32/PE32+ named/ordinal import parsing; main run [#293](https://github.com/HelterFall/God/actions/runs/44689310917) подтвердил post-merge состояние. Предыдущие PR #7/#9 закрывали DLL-name parser и scanner-to-report path.
 
 Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Два теста запускают настоящий `GameScanner.scan()` на in-memory tree и проверяют основной путь inventory → PE candidate → coverage → JSON/Markdown, а также partial inventory при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
@@ -26,7 +26,7 @@
 | ClrMetadataParserTest | 3 | Синтетический CLR metadata root, identity/types/fields/methods/AssemblyRef, некорректный signature и bounded window |
 | ClrSignatureParserTest | 6 | Primitive field/method signatures, одномерный массив, generic VAR/MVAR, truncated/unknown signatures |
 | MonoScriptParserTest | 5 | Little/big endian payload, чтение object из stream, malformed/out-of-range и traversal limit |
-| PeParserTest | 4 | Non-PE/truncated input, x86 PE, CLR directory и DLL-name extraction из PE32+ Import Directory |
+| PeParserTest | 6 | Non-PE/truncated input, x86 PE, CLR directory, DLL-name Import Directory, PE32/PE32+ named/ordinal thunks, Hint, OFT/FirstThunk fallback и truncated thunk diagnostics |
 | ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap и полный список в JSON |
@@ -40,7 +40,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **80 тестовых методов в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Всего: **82 тестовых метода в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -57,7 +57,7 @@
 
 ### QA-01 — начальная fake-tree integration coverage добавлена; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` запускает настоящий `GameScanner.scan()` на in-memory `ScanNode` дереве. Первый тест проверяет directory traversal, inventory/progress, PE candidate selection, один успешно разобранный и один неуспешный PE, `ScanCoverage`, schemaVersion=23, JSON files[], передачу DLL names в `nativeImports` с `referencedByCount` и соответствующий Markdown-раздел. Второй тест отменяет обход посреди дерева и проверяет, что partial report включает уже посещённые entries, но не более поздние.
+`GameScannerIntegrationTest` запускает настоящий `GameScanner.scan()` на in-memory `ScanNode` дереве. Первый тест проверяет directory traversal, inventory/progress, PE candidate selection, один успешно разобранный и один неуспешный PE, `ScanCoverage`, schemaVersion=24, JSON files[], передачу DLL names в `nativeImports`, named/ordinal symbols в `nativeImportSymbols` и соответствующий Markdown-раздел imported symbols. Второй тест отменяет обход посреди дерева и проверяет, что partial report включает уже посещённые entries, но не более поздние.
 
 **Пока не покрыто:**
 
@@ -122,11 +122,11 @@
 
 **Риск:** синтетический тест может повторять те же предположения, что и parser, и тем самым подтверждать внутренне согласованную, но неверную интерпретацию формата.
 
-### QA-06 — базовый DLL-name Import Directory path проверяется; расширенная матрица остаётся открытой
+### QA-06 — bounded function/ordinal Import Table реализована; расширенная матрица остаётся открытой
 
-Четвёртый тест `PeParserTest` строит синтетический x86-64 PE32+ с одной секцией, которая отображает Import Directory RVA в raw file offsets. Два дескриптора и завершающий нулевой дескриптор проверяют получение `KERNEL32.dll` и `USER32.dll` в ожидаемом порядке. Отдельно `GameScannerIntegrationTest` проверяет, что эти имена доходят до JSON/Markdown отчёта.
+`PeParserTest` содержит синтетические PE32+ и PE32 fixtures: named imports с Hint, ordinal imports, корректная ширина thunk entries, приоритет `OriginalFirstThunk` и fallback на `FirstThunk`. Отдельный тест проверяет diagnostic для truncated thunk table и сохранение уже прочитанных symbols. `GameScannerIntegrationTest` подтверждает, что DLL names доходят до `nativeImports`, а function/ordinal records — до `nativeImportSymbols` и Markdown.
 
-Пока не покрыты ARM64, malformed descriptor/RVA cases, function thunks, ordinal imports, delay imports и реальные PE fixtures. Текущий parser возвращает имена DLL, а не полные имена импортируемых функций.
+Пока не покрыты ARM64-specific real samples, широкая malformed descriptor/RVA matrix, delay imports, exports/forwarded exports и настоящие PE fixtures. Статический import не доказывает runtime load/use; dynamic loading и CLR P/Invoke остаются отдельными задачами.
 
 ### QA-07 — parser boundary coverage неполон
 
@@ -179,11 +179,11 @@
 
 https://github.com/HelterFall/God/actions/runs/44687783215
 
-- Commit: `20d933692d0cb530afbec95e54e72e38044c34fe`.
+- Commit: `c6d992f28baae68b59caaa7102da46bcc7011c55`.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Текущая база — 80 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
+- Текущая база — 82 метода `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
