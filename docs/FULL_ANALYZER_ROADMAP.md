@@ -186,7 +186,7 @@ P1/P2 обозначают приоритет исследования и раз
 ### Текущий уровень проверок (source baseline 253534c)
 
 - 16 JVM test files / 86 @Test methods; `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases; 3 `GameScannerIntegrationTest` проверяют PE/CLR scanner report paths и cancellation.
-- PR CI run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact для нового CLR scanner integration; post-merge main run #302 выполняется.
+- Main CI run [#302](https://github.com/HelterFall/God/actions/runs/44789275792) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact на merge commit `253534cb77e6407669dd71bc646fc0aa4a557c9e`; PR run #301 также прошёл.
 - Parser tests в основном используют synthetic inputs; PE coverage включает PE32/PE32+ named/ordinal thunks, ARM64 recognition и negative Import Directory/DLL-name RVA fixtures.
 - Fake-tree integration coverage `GameScanner.scan()` теперь включает PE imports, успешный synthetic CLR metadata path до JSON/Markdown и `ScanCoverage`, а также cancellation; широкая матрица Unity analyzer/resolver paths, Android SAF instrumentation, реальные compiler-produced/Unity fixtures, fuzz/property и coverage metrics пока отсутствуют.
 
