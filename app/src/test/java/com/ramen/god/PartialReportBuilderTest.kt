@@ -12,7 +12,7 @@ class PartialReportBuilderTest {
         assertTrue(result.markdown.contains("CANCELLED — PARTIAL REPORT"))
         assertTrue(result.json.contains("\"scanStatus\":\"cancelled\""))
         assertTrue(result.json.contains("\"partial\":true"))
-        assertTrue(result.json.contains("\"schemaVersion\":23"))
+        assertTrue(result.json.contains("\"schemaVersion\":24"))
     }
 
     @Test
