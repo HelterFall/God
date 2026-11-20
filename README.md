@@ -97,19 +97,19 @@ RamenUnity — отдельный проект с другой задачей. G
 - Выбирать папку через SAF и обходить её с ограничениями по количеству записей и глубине.
 - Находить характерные Unity-файлы и оценивать Mono/IL2CPP по структурным признакам.
 - Собирать evidence версии Unity из нескольких источников и не выбирать версию наугад при конфликте.
-- Распознавать PE, архитектуры x86/x86-64/ARM64, CLR directory и имена DLL из ограниченной статической Import Table.
+- Распознавать PE, архитектуры x86/x86-64/ARM64, CLR directory, DLL imports, имена импортируемых функций и ordinal imports из ограниченных PE thunk tables.
 - Читать ограниченный набор CLR metadata: Assembly identity, Module, TypeDef, поля, методы, AssemblyRef и распространённые сигнатуры.
 - Распознавать SerializedFile и UnityFS, читать ограниченную metadata SerializedFile v19–v26.
 - Извлекать ограниченные MonoScript/MonoBehaviour сведения, часть TypeTree и PPtr-ссылок.
 - Строить ограниченный локальный граф GameObject–Transform–Component.
 - Базовый прогресс обхода папок (путь и счётчик, UI обновляется каждые 128 записей) и запрос отмены анализа.
-- Экспортировать Markdown и JSON schemaVersion 23 с начальной ScanCoverage; JSON files[] содержит все entries, собранные обходом в пределах текущих лимитов.
+- Экспортировать Markdown и JSON schemaVersion 24 с начальной ScanCoverage; JSON files[] содержит все entries, а `nativeImportSymbols` — прочитанные DLL/function/ordinal imports в пределах текущих лимитов.
 
 ### Главные ограничения текущего MVP
 
 - UnityFS распознаётся по заголовку, но содержимое и AssetBundle entries пока не распаковываются.
 - Полноценная поддержка ZIP и других вложенных контейнеров отсутствует.
-- PE-анализ ограничен выборкой файлов и не строит полный граф нативных зависимостей; Import Table пока даёт имена DLL, но не имена функций, ordinals или delay imports.
+- PE-анализ ограничен выборкой файлов и bounded read windows; Import/Thunk tables дают DLL names, имена функций, hints и ordinal imports. Exports, forwarded exports, delay imports и полный граф нативных зависимостей пока не реализованы.
 - CLR анализ пока не является полным исследованием IL, P/Invoke и достижимости вызовов.
 - IL2CPP metadata parser отсутствует.
 - SerializedFile, TypeTree, сцены и объектные payload декодируются ограниченно; текущий граф сцены не гарантированно полный.
