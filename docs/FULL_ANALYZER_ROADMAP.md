@@ -183,11 +183,11 @@ P1/P2 обозначают приоритет исследования и раз
 
 ## 5. Acceptance criteria
 
-### Текущий уровень проверок (source baseline 20d9336)
+### Текущий уровень проверок (source baseline c6d992f)
 
-- 16 JVM test files / 80 @Test methods; 2 `GameScannerIntegrationTest` проверяют in-memory tree, positive PE import parsing и вывод `nativeImports` в JSON/Markdown.
-- Main CI run [#288](https://github.com/HelterFall/God/actions/runs/44687783215) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
-- Parser tests в основном используют synthetic inputs; PE import test проверяет синтетический PE32+ с section header и двумя DLL descriptors.
+- 16 JVM test files / 82 @Test methods; `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, а 2 `GameScannerIntegrationTest` проверяют их вывод в `nativeImports`/`nativeImportSymbols` JSON и Markdown.
+- Main CI run [#293](https://github.com/HelterFall/God/actions/runs/44689310917) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+- Parser tests в основном используют synthetic inputs; PE imports покрыты синтетическими PE32/PE32+ named/ordinal thunk fixtures, включая truncated-table diagnostics.
 - Начальная fake-tree integration coverage `GameScanner.scan()` уже есть; широкая матрица analyzer/resolver paths, Android SAF instrumentation, реальные Unity fixtures, fuzz/property и coverage metrics пока отсутствуют.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
