@@ -1,19 +1,19 @@
 # God — аудит тестирования и качества
 
-**Дата:** 19 ноября 2026 года  
+**Дата:** 20 ноября 2026 года  
 **Проверенная ветка:** `main`  
-**Проверенный commit:** f0da77b9c5efc3f11074ecc8389d269ee651da4c
-**Последняя успешная проверка CI:** run [#275](https://github.com/HelterFall/God/actions/runs/44432016114) успешно проверил main commit `f0da77b9c5efc3f11074ecc8389d269ee651da4c` (79 JVM tests, debug APK и artifact upload).
+**Проверенный commit:** 26cfc1eb7793d5298c18f628b6dd9f5c70645072c
+**Последняя успешная проверка CI:** run [#281](https://github.com/HelterFall/God/actions/runs/44687129190) успешно проверил main commit `26cfc1eb7793d5298c18f628b6dd9f5c70645072` (JVM tests, debug APK и artifact upload).
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
 - 16 JVM test files;
-- 79 методов с аннотацией `@Test`;
+- 80 методов с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
-- run [#274](https://github.com/HelterFall/God/actions/runs/44431813324) успешно выполнил Kotlin unit tests, сборку APK и upload artifact для PR #4; main run #275 повторил успешную проверку после merge.
+- PR #7 run [#280](https://github.com/HelterFall/God/actions/runs/44687008776) прошёл с новым PE Import Directory test; main run [#281](https://github.com/HelterFall/God/actions/runs/44687129190) повторил успешную проверку после merge.
 
 Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Два теста запускают настоящий `GameScanner.scan()` на in-memory tree и проверяют основной путь inventory → PE candidate → coverage → JSON/Markdown, а также partial inventory при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
@@ -26,7 +26,7 @@
 | ClrMetadataParserTest | 3 | Синтетический CLR metadata root, identity/types/fields/methods/AssemblyRef, некорректный signature и bounded window |
 | ClrSignatureParserTest | 6 | Primitive field/method signatures, одномерный массив, generic VAR/MVAR, truncated/unknown signatures |
 | MonoScriptParserTest | 5 | Little/big endian payload, чтение object из stream, malformed/out-of-range и traversal limit |
-| PeParserTest | 3 | Non-PE/truncated input, x86 PE и CLR directory |
+| PeParserTest | 4 | Non-PE/truncated input, x86 PE, CLR directory и DLL-name extraction из PE32+ Import Directory |
 | ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap и полный список в JSON |
@@ -40,7 +40,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **79 тестовых методов в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Всего: **80 тестовых методов в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -66,7 +66,7 @@
 - все лимиты, недоступные каталоги, ошибки/обрывы потоков и non-seekable providers;
 - реальные binary fixtures, Android SAF provider и Activity lifecycle.
 
-**Риск:** начальный fake-tree test ловит ошибки orchestration inventory → PE → coverage → report, но не подтверждает точность остальных анализаторов или поведение настоящих Android document providers.
+**Риск:** начальный fake-tree test ловит ошибки orchestration inventory → PE → coverage → report, а synthetic import fixture проверяет один PE32+ section/RVA путь; они не подтверждают все варианты PE или поведение настоящих Android document providers.
 
 ### QA-02 — JVM lifecycle и partial report укреплены; Android lifecycle tests всё ещё отсутствуют
 
@@ -122,11 +122,11 @@
 
 **Риск:** синтетический тест может повторять те же предположения, что и parser, и тем самым подтверждать внутренне согласованную, но неверную интерпретацию формата.
 
-### QA-06 — PE parser почти не проверен на рабочие imports
+### QA-06 — базовый DLL-name Import Directory path проверяется; расширенная матрица остаётся открытой
 
-Сейчас `PeParserTest` содержит три теста: non-PE/truncated, x86 architecture и CLR directory. Нет положительного теста, который создаёт секции и Import Directory и проверяет извлечение имени импортируемой DLL. Не покрыты ARM64 и malformed import descriptor/RVA scenarios.
+Четвёртый тест `PeParserTest` строит синтетический x86-64 PE32+ с одной секцией, которая отображает Import Directory RVA в raw file offsets. Два дескриптора и завершающий нулевой дескриптор проверяют получение `KERNEL32.dll` и `USER32.dll` в ожидаемом порядке.
 
-Это особенно важно, потому что текущая PE функциональность включает чтение имён DLL из static Import Table.
+Пока не покрыты ARM64, malformed descriptor/RVA cases, function thunks, ordinal imports, delay imports и реальные PE fixtures. Текущий parser возвращает имена DLL, а не полные имена импортируемых функций.
 
 ### QA-07 — parser boundary coverage неполон
 
