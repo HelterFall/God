@@ -40,7 +40,7 @@ internal object PartialReportBuilder {
         }
         val json = buildString {
             append("{")
-            append("\"schemaVersion\":23,")
+            append("\"schemaVersion\":24,")
             append("\"rootName\":${jsonString(rootName)},")
             append("\"generatedAt\":${jsonString(java.time.Instant.now().toString())},")
             append("\"scanStatus\":\"cancelled\",")

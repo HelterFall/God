@@ -46,7 +46,7 @@ class GameScannerIntegrationTest {
         assertEquals("Инвентаризация завершена; анализирую PE-файлы", progress.last().second)
 
         val report = JSONObject(result.json)
-        assertEquals(23, report.getInt("schemaVersion"))
+        assertEquals(24, report.getInt("schemaVersion"))
         assertEquals(5, report.getInt("entryCount"))
 
         val files = report.getJSONArray("files")
@@ -87,6 +87,28 @@ class GameScannerIntegrationTest {
         assertTrue(result.markdown.contains("## Static native DLL imports"))
         assertTrue(result.markdown.contains("kernel32.dll"))
         assertTrue(result.markdown.contains("user32.dll"))
+
+        val importedSymbols = report.getJSONArray("nativeImportSymbols")
+        val symbolDescriptions = (0 until importedSymbols.length()).map { index ->
+            val symbol = importedSymbols.getJSONObject(index)
+            val name = if (symbol.isNull("name")) {
+                "ordinal #${symbol.getInt("ordinal")}"
+            } else {
+                symbol.getString("name")
+            }
+            "${symbol.getString("dll").lowercase()}!$name"
+        }.toSet()
+        assertEquals(
+            setOf("kernel32.dll!CreateFileW", "kernel32.dll!ordinal #7", "user32.dll!MessageBoxW"),
+            symbolDescriptions
+        )
+        val hints = (0 until importedSymbols.length()).mapNotNull { index ->
+            importedSymbols.getJSONObject(index).takeIf { !it.isNull("hint") }?.getInt("hint")
+        }.toSet()
+        assertEquals(setOf(5, 1), hints)
+        assertTrue(result.markdown.contains("CreateFileW"))
+        assertTrue(result.markdown.contains("ordinal #7"))
+        assertTrue(result.markdown.contains("MessageBoxW"))
     }
 
     @Test
@@ -153,8 +175,19 @@ private fun minimalNativePe(): ByteArray {
     put32(bytes, 0x20c, 0x1040) // KERNEL32.dll name RVA
     put32(bytes, 0x210, 0x1080) // FirstThunk
     put32(bytes, 0x220, 0x1050) // USER32.dll name RVA
-    put32(bytes, 0x224, 0x1090) // FirstThunk
+    put32(bytes, 0x224, 0x10c0) // FirstThunk
 
+    // FirstThunk is used as the lookup-table fallback when OriginalFirstThunk is zero.
+    put64(bytes, 0x280, 0x10a0L)
+    put64(bytes, 0x288, Long.MIN_VALUE or 7L)
+    put64(bytes, 0x290, 0L)
+    put64(bytes, 0x2c0, 0x10d0L)
+    put64(bytes, 0x2c8, 0L)
+
+    put16(bytes, 0x2a0, 5)
+    "CreateFileW".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x2a2)
+    put16(bytes, 0x2d0, 1)
+    "MessageBoxW".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x2d2)
     "KERNEL32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x240)
     "USER32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x250)
     return bytes
@@ -167,6 +200,10 @@ private fun put16(bytes: ByteArray, offset: Int, value: Int) {
 
 private fun put32(bytes: ByteArray, offset: Int, value: Int) {
     for (i in 0 until 4) bytes[offset + i] = (value ushr (8 * i)).toByte()
+}
+
+private fun put64(bytes: ByteArray, offset: Int, value: Long) {
+    for (i in 0 until 8) bytes[offset + i] = (value ushr (8 * i)).toByte()
 }
 
 private class MemoryScanNode(

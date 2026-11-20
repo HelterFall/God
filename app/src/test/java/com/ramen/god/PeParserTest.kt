@@ -33,7 +33,52 @@ class PeParserTest {
         assertEquals("x86-64", info.machine)
         assertFalse(info.managed)
         assertEquals(listOf("KERNEL32.dll", "USER32.dll"), info.imports)
+        assertEquals(
+            listOf(
+                PeImportedSymbol("KERNEL32.dll", name = "CreateFileW", hint = 5),
+                PeImportedSymbol("KERNEL32.dll", ordinal = 7),
+                PeImportedSymbol("USER32.dll", name = "MessageBoxW", hint = 1)
+            ),
+            info.importedSymbols
+        )
         assertNull(info.note)
+    }
+
+    @Test
+    fun reads32BitNamedAndOrdinalImportsFromOriginalFirstThunk() {
+        val info = PeParser.parse(pe32WithImports())
+        requireNotNull(info)
+
+        assertEquals("x86", info.machine)
+        assertEquals(listOf("KERNEL32.dll"), info.imports)
+        assertEquals(
+            listOf(
+                PeImportedSymbol("KERNEL32.dll", name = "GetTickCount", hint = 3),
+                PeImportedSymbol("KERNEL32.dll", ordinal = 42)
+            ),
+            info.importedSymbols
+        )
+    }
+
+    @Test
+    fun reportsTruncatedThunkTableWithoutLosingOtherImports() {
+        val bytes = peWithImports().copyOf(0x400)
+        // Put the first thunk at the end of the section: one entry fits,
+        // but the next pointer falls outside the file's readable section.
+        put32(bytes, 0x210, 0x11f8)
+        put64(bytes, 0x3f8, 0x10a0L)
+
+        val info = PeParser.parse(bytes)
+        requireNotNull(info)
+
+        assertTrue(info.note.orEmpty().contains("thunk table for KERNEL32.dll is truncated"))
+        assertEquals(
+            listOf(
+                PeImportedSymbol("KERNEL32.dll", name = "CreateFileW", hint = 5),
+                PeImportedSymbol("USER32.dll", name = "MessageBoxW", hint = 1)
+            ),
+            info.importedSymbols
+        )
     }
 
     @Test
@@ -74,10 +119,58 @@ class PeParserTest {
         put32(bytes, 0x20c, 0x1040) // KERNEL32.dll name RVA
         put32(bytes, 0x210, 0x1080) // FirstThunk
         put32(bytes, 0x220, 0x1050) // USER32.dll name RVA
-        put32(bytes, 0x224, 0x1090) // FirstThunk
+        put32(bytes, 0x224, 0x10c0) // FirstThunk
 
+        // OriginalFirstThunk is zero, so the parser must use FirstThunk.
+        put64(bytes, 0x280, 0x10a0L)
+        put64(bytes, 0x288, Long.MIN_VALUE or 7L) // import by ordinal 7
+        put64(bytes, 0x290, 0L)
+        put64(bytes, 0x2c0, 0x10d0L)
+        put64(bytes, 0x2c8, 0L)
+
+        put16(bytes, 0x2a0, 5)
+        "CreateFileW".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x2a2)
+        put16(bytes, 0x2d0, 1)
+        "MessageBoxW".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x2d2)
         "KERNEL32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x240)
         "USER32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x250)
+        return bytes
+    }
+
+    private fun pe32WithImports(): ByteArray {
+        val bytes = ByteArray(1024)
+        val pe = 0x80
+        val optional = pe + 24
+        val optionalSize = 224
+        val section = optional + optionalSize
+        val directory = optional + 96
+
+        bytes[0] = 0x4d
+        bytes[1] = 0x5a
+        put32(bytes, 0x3c, pe)
+        bytes[pe] = 0x50
+        bytes[pe + 1] = 0x45
+        put16(bytes, pe + 4, 0x014c) // IMAGE_FILE_MACHINE_I386
+        put16(bytes, pe + 6, 1)
+        put16(bytes, pe + 20, optionalSize)
+        put16(bytes, optional, 0x10b) // PE32
+        put32(bytes, directory + 8, 0x1000)
+
+        put32(bytes, section + 8, 0x200)
+        put32(bytes, section + 12, 0x1000)
+        put32(bytes, section + 16, 0x200)
+        put32(bytes, section + 20, 0x200)
+
+        // OriginalFirstThunk is non-zero and must take precedence over FirstThunk.
+        put32(bytes, 0x200, 0x1030)
+        put32(bytes, 0x20c, 0x1040)
+        put32(bytes, 0x210, 0x1060)
+        put32(bytes, 0x230, 0x10a0)
+        put32(bytes, 0x234, 0x8000002aL.toLong().toInt())
+
+        put16(bytes, 0x2a0, 3)
+        "GetTickCount".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x2a2)
+        "KERNEL32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x240)
         return bytes
     }
 
@@ -103,5 +196,9 @@ class PeParserTest {
 
     private fun put32(bytes: ByteArray, offset: Int, value: Int) {
         for (i in 0 until 4) bytes[offset + i] = (value ushr (8 * i)).toByte()
+    }
+
+    private fun put64(bytes: ByteArray, offset: Int, value: Long) {
+        for (i in 0 until 8) bytes[offset + i] = (value ushr (8 * i)).toByte()
     }
 }

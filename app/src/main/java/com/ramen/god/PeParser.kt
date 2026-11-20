@@ -1,5 +1,12 @@
 package com.ramen.god
 
+internal data class PeImportedSymbol(
+    val dllName: String,
+    val name: String? = null,
+    val ordinal: Int? = null,
+    val hint: Int? = null
+)
+
 internal data class PeInfo(
     val machine: String,
     val managed: Boolean,
@@ -8,11 +15,23 @@ internal data class PeInfo(
     val clrMetadataOffset: Int? = null,
     val clrMetadataSize: Long? = null,
     val clrRuntimeVersion: String? = null,
-    val clrFlags: Long? = null
+    val clrFlags: Long? = null,
+    val importedSymbols: List<PeImportedSymbol> = emptyList()
 )
 
 internal object PeParser {
     private data class Section(val virtualSize: Long, val virtualAddress: Long, val rawSize: Long, val rawPointer: Long)
+    private data class ImportParseResult(
+        val dllNames: List<String>,
+        val symbols: List<PeImportedSymbol>,
+        val note: String? = null
+    )
+
+    private const val MAX_SECTIONS = 96
+    private const val MAX_IMPORT_DESCRIPTORS = 512
+    private const val MAX_THUNKS_PER_DLL = 4096
+    private const val MAX_DLL_NAME_BYTES = 260
+    private const val MAX_FUNCTION_NAME_BYTES = 512
 
     fun parse(bytes: ByteArray): PeInfo? {
         if (bytes.size < 64 || u8(bytes, 0) != 0x4d || u8(bytes, 1) != 0x5a) return null
@@ -34,11 +53,12 @@ internal object PeParser {
             0xaa64 -> "ARM64"
             else -> "unknown (0x" + machineCode.toString(16) + ")"
         }
-        val directory = when (u16(bytes, optional)) {
-            0x10b -> optional + 96
-            0x20b -> optional + 112
+        val is64Bit = when (u16(bytes, optional)) {
+            0x10b -> false
+            0x20b -> true
             else -> return PeInfo(machine, false, emptyList(), "unknown optional header")
         }
+        val directory = if (is64Bit) optional + 112 else optional + 96
         if (!has(bytes, directory, 15 * 8)) return PeInfo(machine, false, emptyList(), "data directories truncated")
 
         val importRva = u32(bytes, directory + 8)
@@ -46,7 +66,7 @@ internal object PeParser {
         val clrDirectorySize = u32(bytes, directory + 14 * 8 + 4)
         val sectionsStart = optional + optionalSize
         val sections = mutableListOf<Section>()
-        for (index in 0 until minOf(sectionCount, 96)) {
+        for (index in 0 until minOf(sectionCount, MAX_SECTIONS)) {
             val offset = sectionsStart + index * 40
             if (!has(bytes, offset, 40)) break
             sections.add(Section(
@@ -55,8 +75,17 @@ internal object PeParser {
             ))
         }
 
-        val imports = if (importRva == 0L) emptyList() else parseImports(bytes, importRva, sections)
-        val note = if (importRva != 0L && imports.isEmpty()) "import table outside read window or undecodable" else null
+        val importData = if (importRva == 0L) {
+            ImportParseResult(emptyList(), emptyList())
+        } else {
+            parseImports(bytes, importRva, sections, is64Bit)
+        }
+        val note = when {
+            importData.note != null -> importData.note
+            importRva != 0L && importData.dllNames.isEmpty() -> "import table outside read window or undecodable"
+            else -> null
+        }
+
         var metadataOffset: Int? = null
         var metadataSize: Long? = null
         var runtimeVersion: String? = null
@@ -73,25 +102,123 @@ internal object PeParser {
                 if (has(bytes, clrOffset, 20)) clrFlags = u32(bytes, clrOffset + 16)
             }
         }
-        return PeInfo(machine, clrRva != 0L, imports, note, metadataOffset, metadataSize, runtimeVersion, clrFlags)
+        return PeInfo(
+            machine = machine,
+            managed = clrRva != 0L,
+            imports = importData.dllNames,
+            note = note,
+            clrMetadataOffset = metadataOffset,
+            clrMetadataSize = metadataSize,
+            clrRuntimeVersion = runtimeVersion,
+            clrFlags = clrFlags,
+            importedSymbols = importData.symbols
+        )
     }
 
-    private fun parseImports(bytes: ByteArray, rva: Long, sections: List<Section>): List<String> {
-        val start = rvaToOffset(rva, sections) ?: return emptyList()
-        val result = linkedSetOf<String>()
-        var cursor = start
-        repeat(512) {
-            if (!has(bytes, cursor, 20)) return result.toList()
-            val fields = (0..4).map { u32(bytes, cursor + it * 4) }
-            if (fields.all { it == 0L }) return result.toList()
-            val nameOffset = rvaToOffset(fields[3], sections)
-            if (nameOffset != null) {
-                val name = readCString(bytes, nameOffset, 260)
-                if (name.isNotBlank()) result.add(name)
+    private fun parseImports(
+        bytes: ByteArray,
+        rva: Long,
+        sections: List<Section>,
+        is64Bit: Boolean
+    ): ImportParseResult {
+        val start = rvaToOffset(rva, sections)
+            ?: return ImportParseResult(emptyList(), emptyList(), "import directory RVA is outside readable sections")
+
+        val dllNames = linkedSetOf<String>()
+        val symbols = mutableListOf<PeImportedSymbol>()
+        val notes = mutableListOf<String>()
+        var descriptorTerminated = false
+        var descriptorTableTruncated = false
+
+        for (descriptorIndex in 0 until MAX_IMPORT_DESCRIPTORS) {
+            val descriptorOffsetLong = start.toLong() + descriptorIndex.toLong() * 20L
+            if (descriptorOffsetLong > Int.MAX_VALUE || !has(bytes, descriptorOffsetLong.toInt(), 20)) {
+                descriptorTableTruncated = true
+                notes.add("import descriptor table is truncated")
+                break
             }
-            cursor += 20
+            val descriptorOffset = descriptorOffsetLong.toInt()
+            val fields = (0..4).map { u32(bytes, descriptorOffset + it * 4) }
+            if (fields.all { it == 0L }) {
+                descriptorTerminated = true
+                break
+            }
+
+            val originalFirstThunkRva = fields[0]
+            val nameRva = fields[3]
+            val firstThunkRva = fields[4]
+            val nameOffset = rvaToOffset(nameRva, sections)
+            val dllName = nameOffset?.let { readCString(bytes, it, MAX_DLL_NAME_BYTES) }.orEmpty()
+            if (dllName.isBlank()) {
+                notes.add("import descriptor has an unreadable DLL name")
+                continue
+            }
+            dllNames.add(dllName)
+
+            // OriginalFirstThunk is the lookup table. Some binaries leave it
+            // empty; in that case the on-disk FirstThunk is the fallback.
+            val lookupTableRva = if (originalFirstThunkRva != 0L) originalFirstThunkRva else firstThunkRva
+            val thunkStart = rvaToOffset(lookupTableRva, sections)
+            if (thunkStart == null) {
+                notes.add("thunk table for $dllName is outside readable sections")
+                continue
+            }
+
+            val pointerSize = if (is64Bit) 8 else 4
+            val ordinalFlag = if (is64Bit) Long.MIN_VALUE else 0x80000000L
+            var thunkTerminated = false
+            var thunkTableTruncated = false
+            for (thunkIndex in 0 until MAX_THUNKS_PER_DLL) {
+                val thunkOffsetLong = thunkStart.toLong() + thunkIndex.toLong() * pointerSize
+                if (thunkOffsetLong > Int.MAX_VALUE || !has(bytes, thunkOffsetLong.toInt(), pointerSize)) {
+                    thunkTableTruncated = true
+                    notes.add("thunk table for $dllName is truncated")
+                    break
+                }
+                val thunkOffset = thunkOffsetLong.toInt()
+                val thunkValue = if (is64Bit) u64(bytes, thunkOffset) else u32(bytes, thunkOffset)
+                if (thunkValue == 0L) {
+                    thunkTerminated = true
+                    break
+                }
+
+                if ((thunkValue and ordinalFlag) != 0L) {
+                    symbols.add(
+                        PeImportedSymbol(
+                            dllName = dllName,
+                            ordinal = (thunkValue and 0xffffL).toInt()
+                        )
+                    )
+                    continue
+                }
+
+                // IMAGE_THUNK_DATA contains an RVA to IMAGE_IMPORT_BY_NAME
+                // when the high-bit ordinal flag is not set.
+                if (thunkValue > 0xffffffffL) {
+                    notes.add("invalid import-by-name RVA in thunk table for $dllName")
+                    continue
+                }
+                val importByNameOffset = rvaToOffset(thunkValue, sections)
+                if (importByNameOffset == null || !has(bytes, importByNameOffset, 2)) {
+                    notes.add("import-by-name record for $dllName is outside readable sections")
+                    continue
+                }
+                val hint = u16(bytes, importByNameOffset)
+                val functionName = readCString(bytes, importByNameOffset + 2, MAX_FUNCTION_NAME_BYTES)
+                if (functionName.isNotBlank()) {
+                    symbols.add(PeImportedSymbol(dllName = dllName, name = functionName, hint = hint))
+                } else {
+                    notes.add("import-by-name record for $dllName has an empty name")
+                }
+            }
+            if (!thunkTerminated && !thunkTableTruncated) {
+                notes.add("thunk table for $dllName reached the $MAX_THUNKS_PER_DLL entry limit")
+            }
         }
-        return result.toList()
+        if (!descriptorTerminated && !descriptorTableTruncated) {
+            notes.add("import descriptor table reached the $MAX_IMPORT_DESCRIPTORS entry limit")
+        }
+        return ImportParseResult(dllNames.toList(), symbols, notes.distinct().take(16).joinToString("; ").ifBlank { null })
     }
 
     private fun rvaToOffset(rva: Long, sections: List<Section>): Int? {
@@ -124,4 +251,12 @@ internal object PeParser {
     private fun u32(bytes: ByteArray, offset: Int): Long =
         u8(bytes, offset).toLong() or (u8(bytes, offset + 1).toLong() shl 8) or
             (u8(bytes, offset + 2).toLong() shl 16) or (u8(bytes, offset + 3).toLong() shl 24)
+
+    private fun u64(bytes: ByteArray, offset: Int): Long {
+        var value = 0L
+        for (index in 0 until 8) {
+            value = value or (u8(bytes, offset + index).toLong() shl (index * 8))
+        }
+        return value
+    }
 }
