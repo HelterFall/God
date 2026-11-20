@@ -91,8 +91,11 @@ class GameScannerIntegrationTest {
         val importedSymbols = report.getJSONArray("nativeImportSymbols")
         val symbolDescriptions = (0 until importedSymbols.length()).map { index ->
             val symbol = importedSymbols.getJSONObject(index)
-            val name = symbol.optString("name").takeIf { it.isNotBlank() }
-                ?: "ordinal #${symbol.getInt("ordinal")}"
+            val name = if (symbol.isNull("name")) {
+                "ordinal #${symbol.getInt("ordinal")}"
+            } else {
+                symbol.getString("name")
+            }
             "${symbol.getString("dll").lowercase()}!$name"
         }.toSet()
         assertEquals(
