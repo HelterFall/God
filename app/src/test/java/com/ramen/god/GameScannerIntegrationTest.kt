@@ -75,6 +75,18 @@ class GameScannerIntegrationTest {
         assertEquals("partial", pe.getString("status"))
         val nativeBinaries = report.getJSONArray("nativePeBinaries")
         assertEquals("UnityPlayer.dll", nativeBinaries.getString(0))
+
+        val nativeImports = report.getJSONArray("nativeImports")
+        val importedDllNames = (0 until nativeImports.length())
+            .map { nativeImports.getJSONObject(it).getString("dll") }
+            .toSet()
+        assertEquals(setOf("kernel32.dll", "user32.dll"), importedDllNames)
+        assertTrue((0 until nativeImports.length()).all {
+            nativeImports.getJSONObject(it).getInt("referencedByCount") == 1
+        })
+        assertTrue(result.markdown.contains("## Static native DLL imports"))
+        assertTrue(result.markdown.contains("kernel32.dll"))
+        assertTrue(result.markdown.contains("user32.dll"))
     }
 
     @Test
@@ -112,16 +124,39 @@ class GameScannerIntegrationTest {
 }
 
 private fun minimalNativePe(): ByteArray {
-    val bytes = ByteArray(512)
+    val bytes = ByteArray(1024)
+    val pe = 0x80
+    val optional = pe + 24
+    val optionalSize = 240
+    val section = optional + optionalSize
+
     bytes[0] = 0x4d
     bytes[1] = 0x5a
-    put32(bytes, 0x3c, 0x80)
-    bytes[0x80] = 0x50
-    bytes[0x81] = 0x45
-    put16(bytes, 0x84, 0x8664)
-    put16(bytes, 0x86, 0)
-    put16(bytes, 0x94, 224)
-    put16(bytes, 0x98, 0x10b)
+    put32(bytes, 0x3c, pe)
+    bytes[pe] = 0x50
+    bytes[pe + 1] = 0x45
+    put16(bytes, pe + 4, 0x8664) // IMAGE_FILE_MACHINE_AMD64
+    put16(bytes, pe + 6, 1) // one section
+    put16(bytes, pe + 20, optionalSize)
+    put16(bytes, optional, 0x20b) // PE32+
+
+    // IMAGE_DIRECTORY_ENTRY_IMPORT points to RVA 0x1000 in .rdata.
+    put32(bytes, optional + 120, 0x1000)
+
+    // Map RVA 0x1000..0x11ff to file offsets 0x200..0x3ff.
+    put32(bytes, section + 8, 0x200) // VirtualSize
+    put32(bytes, section + 12, 0x1000) // VirtualAddress
+    put32(bytes, section + 16, 0x200) // SizeOfRawData
+    put32(bytes, section + 20, 0x200) // PointerToRawData
+
+    // Two IMAGE_IMPORT_DESCRIPTOR entries and an implicit zero terminator.
+    put32(bytes, 0x20c, 0x1040) // KERNEL32.dll name RVA
+    put32(bytes, 0x210, 0x1080) // FirstThunk
+    put32(bytes, 0x220, 0x1050) // USER32.dll name RVA
+    put32(bytes, 0x224, 0x1090) // FirstThunk
+
+    "KERNEL32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x240)
+    "USER32.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x250)
     return bytes
 }
 
