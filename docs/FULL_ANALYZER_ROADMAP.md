@@ -1,6 +1,6 @@
 # God — дорожная карта автономного Unity Intelligence Analyzer
 
-**Дата актуализации:** 19 ноября 2026 года  
+**Дата актуализации:** 20 ноября 2026 года
 **Назначение:** построить автономный инструмент исследования Unity-игр, который формирует доказательное техническое досье и карту переноса.
 
 ## 1. Главная цель
@@ -183,11 +183,11 @@ P1/P2 обозначают приоритет исследования и раз
 
 ## 5. Acceptance criteria
 
-### Текущий уровень проверок (source baseline f0da77b)
+### Текущий уровень проверок (source baseline 26cfc1e)
 
-- 16 JVM test files / 79 @Test methods; добавлены 2 `GameScannerIntegrationTest` на in-memory tree.
-- Main CI run [#275](https://github.com/HelterFall/God/actions/runs/44432016114) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
-- Parser tests в основном используют synthetic inputs.
+- 16 JVM test files / 80 @Test methods; добавлены 2 `GameScannerIntegrationTest` на in-memory tree и положительный PE32+ Import Directory DLL-name test.
+- Main CI run [#281](https://github.com/HelterFall/God/actions/runs/44687129190) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+- Parser tests в основном используют synthetic inputs; PE import test проверяет синтетический PE32+ с section header и двумя DLL descriptors.
 - Начальная fake-tree integration coverage `GameScanner.scan()` уже есть; широкая матрица analyzer/resolver paths, Android SAF instrumentation, реальные Unity fixtures, fuzz/property и coverage metrics пока отсутствуют.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
