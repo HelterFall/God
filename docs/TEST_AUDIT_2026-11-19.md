@@ -2,8 +2,8 @@
 
 **Дата:** 20 ноября 2026 года  
 **Проверенная ветка:** `main`  
-**Проверенный commit:** 26cfc1eb7793d5298c18f628b6dd9f5c70645072c
-**Последняя успешная проверка CI:** run [#281](https://github.com/HelterFall/God/actions/runs/44687129190) успешно проверил main commit `26cfc1eb7793d5298c18f628b6dd9f5c70645072` (JVM tests, debug APK и artifact upload).
+**Проверенный commit:** 20d933692d0cb530afbec95e54e72e38044c34fe
+**Последняя успешная проверка CI:** run [#288](https://github.com/HelterFall/God/actions/runs/44687783215) успешно проверил main commit `20d933692d0cb530afbec95e54e72e38044c34fe` (JVM tests, debug APK и artifact upload).
 
 ## 1. Итог
 
@@ -13,7 +13,7 @@
 - 80 методов с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
-- PR #7 run [#280](https://github.com/HelterFall/God/actions/runs/44687008776) прошёл с новым PE Import Directory test; main run [#281](https://github.com/HelterFall/God/actions/runs/44687129190) повторил успешную проверку после merge.
+- PR #7 run [#280](https://github.com/HelterFall/God/actions/runs/44687008776) прошёл с parser-level PE Import Directory test; PR #9 run [#286](https://github.com/HelterFall/God/actions/runs/44687667549) прошёл с parser-to-report integration test; main run #288 подтвердил post-merge состояние.
 
 Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Два теста запускают настоящий `GameScanner.scan()` на in-memory tree и проверяют основной путь inventory → PE candidate → coverage → JSON/Markdown, а также partial inventory при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
@@ -30,7 +30,7 @@
 | ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap и полный список в JSON |
-| GameScannerIntegrationTest | 2 | Fake tree: inventory/progress, PE candidate and failed accounting, ScanCoverage, Markdown/JSON and partial inventory on cancellation |
+| GameScannerIntegrationTest | 2 | Fake tree: inventory/progress, PE success/failure accounting, `ScanCoverage`, `nativeImports` JSON and Markdown, partial inventory on cancellation |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -57,7 +57,7 @@
 
 ### QA-01 — начальная fake-tree integration coverage добавлена; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` запускает настоящий `GameScanner.scan()` на in-memory `ScanNode` дереве. Первый тест проверяет directory traversal, inventory/progress, PE candidate selection и accounting неудачного PE parse, `ScanCoverage`, schemaVersion=23, JSON files[] и Markdown. Второй тест отменяет обход посреди дерева и проверяет, что partial report включает уже посещённые entries, но не более поздние.
+`GameScannerIntegrationTest` запускает настоящий `GameScanner.scan()` на in-memory `ScanNode` дереве. Первый тест проверяет directory traversal, inventory/progress, PE candidate selection, один успешно разобранный и один неуспешный PE, `ScanCoverage`, schemaVersion=23, JSON files[], передачу DLL names в `nativeImports` с `referencedByCount` и соответствующий Markdown-раздел. Второй тест отменяет обход посреди дерева и проверяет, что partial report включает уже посещённые entries, но не более поздние.
 
 **Пока не покрыто:**
 
@@ -66,7 +66,7 @@
 - все лимиты, недоступные каталоги, ошибки/обрывы потоков и non-seekable providers;
 - реальные binary fixtures, Android SAF provider и Activity lifecycle.
 
-**Риск:** начальный fake-tree test ловит ошибки orchestration inventory → PE → coverage → report, а synthetic import fixture проверяет один PE32+ section/RVA путь; они не подтверждают все варианты PE или поведение настоящих Android document providers.
+**Риск:** fake-tree test ловит ошибки orchestration inventory → PE → report, включая перенос DLL-name imports; synthetic PE32+ fixture не подтверждает все варианты PE, а тесты не заменяют реальные игровые бинарники или Android document providers.
 
 ### QA-02 — JVM lifecycle и partial report укреплены; Android lifecycle tests всё ещё отсутствуют
 
@@ -124,7 +124,7 @@
 
 ### QA-06 — базовый DLL-name Import Directory path проверяется; расширенная матрица остаётся открытой
 
-Четвёртый тест `PeParserTest` строит синтетический x86-64 PE32+ с одной секцией, которая отображает Import Directory RVA в raw file offsets. Два дескриптора и завершающий нулевой дескриптор проверяют получение `KERNEL32.dll` и `USER32.dll` в ожидаемом порядке.
+Четвёртый тест `PeParserTest` строит синтетический x86-64 PE32+ с одной секцией, которая отображает Import Directory RVA в raw file offsets. Два дескриптора и завершающий нулевой дескриптор проверяют получение `KERNEL32.dll` и `USER32.dll` в ожидаемом порядке. Отдельно `GameScannerIntegrationTest` проверяет, что эти имена доходят до JSON/Markdown отчёта.
 
 Пока не покрыты ARM64, malformed descriptor/RVA cases, function thunks, ordinal imports, delay imports и реальные PE fixtures. Текущий parser возвращает имена DLL, а не полные имена импортируемых функций.
 
@@ -175,17 +175,16 @@
 
 ## 4. Проверка последнего CI
 
-Проверенный run:
+Проверенный main run:
 
-https://github.com/HelterFall/God/actions/runs/44398435979
+https://github.com/HelterFall/God/actions/runs/44687783215
 
-- Commit: `7e737eb6f7f4da28879937ffaf064aa1cdb76d05`.
-- Step `Run JVM parser tests and build debug APK`: success.
-- В log есть `compileDebugUnitTestKotlin`, `testDebugUnitTest`, `assembleDebug` и `BUILD SUCCESSFUL`.
-- Step `Upload APK`: success.
-- Workflow не публикует в log сводку вида «61 tests passed» и не загружает JUnit XML. Число 61 получено подсчётом `@Test` методов в 12 test source files, а не из отдельного test report artifact.
-
-После source baseline `cb69a25` в main менялась документация; успешный CI для документальных commit повторно проверяет тот же кодовый baseline, а не новые runtime-функции.
+- Commit: `20d933692d0cb530afbec95e54e72e38044c34fe`.
+- `:app:testDebugUnitTest`: success.
+- `:app:assembleDebug`: success.
+- `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
+- Текущая база — 80 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
+- CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
 
