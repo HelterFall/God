@@ -175,7 +175,7 @@ private fun minimalNativePe(): ByteArray {
     put32(bytes, 0x20c, 0x1040) // KERNEL32.dll name RVA
     put32(bytes, 0x210, 0x1080) // FirstThunk
     put32(bytes, 0x220, 0x1050) // USER32.dll name RVA
-    put32(bytes, 0x224, 0x1090) // FirstThunk
+    put32(bytes, 0x224, 0x10c0) // FirstThunk
 
     // FirstThunk is used as the lookup-table fallback when OriginalFirstThunk is zero.
     put64(bytes, 0x280, 0x10a0L)
