@@ -482,6 +482,55 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun preservesInventoryAndReportsPartialCoverageWhenDirectoryCannotBeListed() {
+        val root = MemoryScanNode(
+            name = "DirectoryReadFailureFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "Data",
+                    true,
+                    children = listOf(MemoryScanNode("hidden.asset", false, minimalUnitySerializedFile())),
+                    failOnList = true
+                ),
+                MemoryScanNode("readme.txt", false, "visible sibling".toByteArray())
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+
+        val report = JSONObject(result.json)
+        val coverage = report.getJSONObject("scanCoverage")
+        assertEquals("partial", coverage.getString("status"))
+        val inventory = coverage.getJSONObject("inventory")
+        assertEquals("partial", inventory.getString("status"))
+        assertEquals(2, inventory.getInt("entriesDiscovered"))
+        assertEquals(1, inventory.getInt("filesDiscovered"))
+        assertEquals(1, inventory.getInt("directoriesDiscovered"))
+        assertEquals(1, inventory.getInt("inaccessibleDirectoryCount"))
+
+        val files = report.getJSONArray("files")
+        val paths = (0 until files.length()).map { files.getJSONObject(it).getString("path") }
+        assertEquals(listOf("Data", "readme.txt"), paths)
+        assertTrue(paths.none { it.contains("hidden.asset") })
+
+        val warnings = report.getJSONArray("warnings")
+        assertTrue((0 until warnings.length()).any {
+            warnings.getString(it).contains(
+                "Не удалось прочитать каталог Data: synthetic directory listing failure"
+            )
+        })
+        assertTrue(result.markdown.contains("- Inventory status: partial"))
+        assertTrue(result.markdown.contains("Не удалось прочитать каталог Data: synthetic directory listing failure"))
+        assertTrue(result.markdown.contains("readme.txt"))
+        assertFalse(result.markdown.contains("hidden.asset"))
+    }
+
+    @Test
     fun returnsPartialReportWithExactlyTheInventoryCollectedBeforeCancellation() {
         val root = MemoryScanNode(
             name = "FixtureGame",
@@ -826,12 +875,16 @@ private class MemoryScanNode(
     override val isDirectory: Boolean,
     val contents: ByteArray = byteArrayOf(),
     private val children: List<MemoryScanNode> = emptyList(),
-    val failOnOpen: Boolean = false
+    val failOnOpen: Boolean = false,
+    val failOnList: Boolean = false
 ) : ScanNode {
     override val size: Long
         get() = if (isDirectory) 0L else contents.size.toLong()
 
-    override fun listFiles(): List<ScanNode> = children
+    override fun listFiles(): List<ScanNode> {
+        if (failOnList) throw IllegalStateException("synthetic directory listing failure")
+        return children
+    }
 }
 
 private class MemoryScanFileAccess : ScanFileAccess {
