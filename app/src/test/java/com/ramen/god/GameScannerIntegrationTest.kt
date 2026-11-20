@@ -25,6 +25,7 @@ class GameScannerIntegrationTest {
                 // Deliberately not a PE file: the scanner should report one
                 // attempted and failed PE candidate rather than hide the failure.
                 MemoryScanNode("Assembly-CSharp.dll", false, byteArrayOf(0, 1, 2, 3)),
+                MemoryScanNode("UnityPlayer.dll", false, minimalNativePe()),
                 MemoryScanNode("readme.txt", false, "hello".toByteArray())
             )
         )
@@ -39,27 +40,27 @@ class GameScannerIntegrationTest {
 
         assertFalse(result.isPartial)
         assertTrue(result.markdown.contains("# Unity Game Architecture Report"))
-        assertTrue(result.markdown.contains("Indexed entries: 4"))
-        assertEquals(listOf(1, 2, 3, 4, 4), progress.map { it.first })
-        assertEquals("readme.txt", progress[3].second)
+        assertTrue(result.markdown.contains("Indexed entries: 5"))
+        assertEquals(listOf(1, 2, 3, 4, 5, 5), progress.map { it.first })
+        assertEquals("readme.txt", progress[4].second)
         assertEquals("Инвентаризация завершена; анализирую PE-файлы", progress.last().second)
 
         val report = JSONObject(result.json)
         assertEquals(23, report.getInt("schemaVersion"))
-        assertEquals(4, report.getInt("entryCount"))
+        assertEquals(5, report.getInt("entryCount"))
 
         val files = report.getJSONArray("files")
         val paths = (0 until files.length()).map { files.getJSONObject(it).getString("path") }
         assertEquals(
-            listOf("Data", "Data/manifest.txt", "Assembly-CSharp.dll", "readme.txt"),
+            listOf("Data", "Data/manifest.txt", "Assembly-CSharp.dll", "UnityPlayer.dll", "readme.txt"),
             paths
         )
 
         val coverage = report.getJSONObject("scanCoverage")
         val inventory = coverage.getJSONObject("inventory")
         assertEquals("completed", inventory.getString("status"))
-        assertEquals(4, inventory.getInt("entriesDiscovered"))
-        assertEquals(3, inventory.getInt("filesDiscovered"))
+        assertEquals(5, inventory.getInt("entriesDiscovered"))
+        assertEquals(4, inventory.getInt("filesDiscovered"))
         assertEquals(1, inventory.getInt("directoriesDiscovered"))
         assertEquals("partial", coverage.getString("status"))
 
@@ -67,11 +68,13 @@ class GameScannerIntegrationTest {
         val pe = (0 until analyzers.length())
             .map { analyzers.getJSONObject(it) }
             .first { it.getString("id") == "pe" }
-        assertEquals(1, pe.getInt("candidateCount"))
-        assertEquals(1, pe.getInt("attemptedCount"))
-        assertEquals(0, pe.getInt("parsedCount"))
+        assertEquals(2, pe.getInt("candidateCount"))
+        assertEquals(2, pe.getInt("attemptedCount"))
+        assertEquals(1, pe.getInt("parsedCount"))
         assertEquals(1, pe.getInt("failedCount"))
-        assertEquals("failed", pe.getString("status"))
+        assertEquals("partial", pe.getString("status"))
+        val nativeBinaries = report.getJSONArray("nativePeBinaries")
+        assertEquals("UnityPlayer.dll", nativeBinaries.getString(0))
     }
 
     @Test
@@ -106,6 +109,29 @@ class GameScannerIntegrationTest {
         assertFalse(result.json.contains("later.txt"))
         assertTrue(result.json.contains("\"entryCount\":2"))
     }
+}
+
+private fun minimalNativePe(): ByteArray {
+    val bytes = ByteArray(512)
+    bytes[0] = 0x4d
+    bytes[1] = 0x5a
+    put32(bytes, 0x3c, 0x80)
+    bytes[0x80] = 0x50
+    bytes[0x81] = 0x45
+    put16(bytes, 0x84, 0x8664)
+    put16(bytes, 0x86, 0)
+    put16(bytes, 0x94, 224)
+    put16(bytes, 0x98, 0x10b)
+    return bytes
+}
+
+private fun put16(bytes: ByteArray, offset: Int, value: Int) {
+    bytes[offset] = value.toByte()
+    bytes[offset + 1] = (value ushr 8).toByte()
+}
+
+private fun put32(bytes: ByteArray, offset: Int, value: Int) {
+    for (i in 0 until 4) bytes[offset + i] = (value ushr (8 * i)).toByte()
 }
 
 private class MemoryScanNode(
