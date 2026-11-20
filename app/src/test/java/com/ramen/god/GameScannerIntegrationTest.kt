@@ -137,7 +137,7 @@ class GameScannerIntegrationTest {
 
         assertFalse(result.isPartial)
         assertTrue(result.markdown.contains("## CLR managed assembly metadata"))
-        assertTrue(result.markdown.contains("Assembly-CSharp:"))
+        assertTrue(result.markdown.contains("Managed/Assembly-CSharp.dll: Assembly-CSharp"))
         assertTrue(result.markdown.contains("Game.PlayerController"))
 
         val report = JSONObject(result.json)
