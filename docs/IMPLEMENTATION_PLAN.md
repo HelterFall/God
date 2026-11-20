@@ -1,16 +1,16 @@
 # God — план дальнейших действий
 
-**Дата:** 20 ноября 2026 года  
+**Дата:** 21 ноября 2026 года  
 **Базовая ветка:** main  
-**Текущий source baseline:** a648f4e366b684e59262dafffa21982c28160782
-**Проверенная ревизия main для этого аудита:** a648f4e366b684e59262dafffa21982c28160782
-**Последняя успешная проверка CI:** run [#298](https://github.com/HelterFall/God/actions/runs/44690329544) успешно проверил main commit `a648f4e366b684e59262dafffa21982c28160782`: 85 JVM tests, `assembleDebug` и загрузка APK artifact.
-**Текущая тестовая база:** 16 JVM test files / 85 @Test methods; `PeParserTest` — 9, `GameScannerIntegrationTest` — 2, `PartialReportBuilderTest` — 5. Реальные binary fixtures и Android instrumentation пока отсутствуют.
+**Текущий source baseline:** 253534cb77e6407669dd71bc646fc0aa4a557c9e
+**Проверенная ревизия main для этого аудита:** 253534cb77e6407669dd71bc646fc0aa4a557c9e
+**Последняя успешная проверка CI:** PR run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) успешно проверил код PR #15 (`7688533679f973555a8666a9895b46fe30356ba5`): JVM tests, `assembleDebug` и загрузка APK artifact. Post-merge main run #302 выполняется.
+**Текущая тестовая база:** 16 JVM test files / 86 @Test methods; `PeParserTest` — 9, `GameScannerIntegrationTest` — 3, `PartialReportBuilderTest` — 5. CLR scanner integration fixture синтетический; реальные binary fixtures и Android instrumentation пока отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и inventory-only partial report уже реализованы. PR #11 добавил bounded PE function/ordinal import parsing; PR #13 закрепил ARM64 recognition и негативные RVA-сценарии. Main CI run #298 подтвердил текущий merge-коммит. QA-01 остаётся открытым для CLR/Unity parser paths, resolver stages, реальных бинарных fixtures и Android SAF. Это не означает, что глубокое исследование игры уже реализовано.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage, анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и inventory-only partial report уже реализованы. PR #11 добавил bounded PE function/ordinal import parsing; PR #13 закрепил ARM64 recognition и негативные RVA-сценарии; PR #15 добавил успешный CLR metadata path в `GameScanner.scan()` с проверкой assembly identity, TypeDef, JSON/Markdown и analyzer coverage. PR CI #301 прошёл; post-merge main CI #302 ещё выполняется. QA-01 остаётся открытым для Unity parser paths, resolver stages, реальных бинарных fixtures и Android SAF. Это не означает, что глубокое исследование игры уже реализовано.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -397,7 +397,7 @@ God уже умеет выполнять ограниченную инвента
 **Текущая тестовая база:** 16 JVM test files / 85 @Test methods. Scanner fake-tree tests проверяют DLL/function/ordinal imports в JSON/Markdown; PeParser tests дополнительно покрывают ARM64 recognition и два malformed RVA сценария. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
-- [ ] Расширить scanner integration coverage на успешные parser/resolver paths, ограничения, read errors и реальные fixtures.
+- [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).\n- [ ] Расширить scanner integration coverage на успешные Unity parser/resolver paths, ограничения, read errors и реальные fixtures.
 - [x] JVM tests для scan locking, job-scoped cancellation и pure partial-report builder; Android Activity/SAF instrumentation остаются.
 - [ ] Добавить tests для export null stream/write/close failures.
 - [ ] Добавить настоящие legal/redistributable PE/CLR/Unity fixtures и golden reports.
