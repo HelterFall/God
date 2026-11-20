@@ -175,17 +175,16 @@
 
 ## 4. Проверка последнего CI
 
-Проверенный run:
+Проверенный main run:
 
-https://github.com/HelterFall/God/actions/runs/44398435979
+https://github.com/HelterFall/God/actions/runs/44687783215
 
-- Commit: `7e737eb6f7f4da28879937ffaf064aa1cdb76d05`.
-- Step `Run JVM parser tests and build debug APK`: success.
-- В log есть `compileDebugUnitTestKotlin`, `testDebugUnitTest`, `assembleDebug` и `BUILD SUCCESSFUL`.
-- Step `Upload APK`: success.
-- Workflow не публикует в log сводку вида «61 tests passed» и не загружает JUnit XML. Число 61 получено подсчётом `@Test` методов в 12 test source files, а не из отдельного test report artifact.
-
-После source baseline `cb69a25` в main менялась документация; успешный CI для документальных commit повторно проверяет тот же кодовый baseline, а не новые runtime-функции.
+- Commit: `20d933692d0cb530afbec95e54e72e38044c34fe`.
+- `:app:testDebugUnitTest`: success.
+- `:app:assembleDebug`: success.
+- `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
+- Текущая база — 80 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
+- CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
 
