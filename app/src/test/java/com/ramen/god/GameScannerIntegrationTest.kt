@@ -320,6 +320,97 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun resolvesExternalMonoScriptPayloadThroughScannerReportsAndCoverage() {
+        val externalPath = "archive:/CAB-123/sharedassets0.assets"
+        val targetPath = "Data/Resources/sharedassets0.assets"
+        val root = MemoryScanNode(
+            name = "ExternalMonoScriptFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "Data",
+                    true,
+                    children = listOf(
+                        MemoryScanNode(
+                            "globalgamemanagers",
+                            false,
+                            unitySerializedFileWithExternalMonoScriptReference(externalPath)
+                        ),
+                        MemoryScanNode(
+                            "Resources",
+                            true,
+                            children = listOf(
+                                MemoryScanNode(
+                                    "sharedassets0.assets",
+                                    false,
+                                    unitySerializedFileWithMonoScriptObject(
+                                        minimalMonoScriptPayload(
+                                            name = "HeroController",
+                                            className = "HeroController",
+                                            namespace = "Game",
+                                            assemblyName = "Assembly-CSharp",
+                                            executionOrder = -12
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+
+        assertFalse(result.isPartial)
+        assertTrue(result.markdown.contains("external-monoscript-decoded"))
+        assertTrue(result.markdown.contains("class=Game.HeroController"))
+        assertTrue(result.markdown.contains("assembly=Assembly-CSharp"))
+        assertTrue(result.markdown.contains("source=$targetPath"))
+
+        val report = JSONObject(result.json)
+        assertEquals("completed", report.getJSONObject("scanCoverage").getString("status"))
+        val metadata = report.getJSONArray("unityMetadata")
+        val owner = (0 until metadata.length())
+            .map { metadata.getJSONObject(it) }
+            .first { it.getString("path") == "Data/globalgamemanagers" }
+
+        val binding = owner.getJSONArray("scriptTypeBindings").getJSONObject(0)
+        assertEquals("external-monoscript-decoded", binding.getString("resolution"))
+        assertEquals(targetPath, binding.getString("matchedExternalFilePath"))
+        assertEquals("HeroController", binding.getString("monoScriptName"))
+        assertEquals("HeroController", binding.getString("className"))
+        assertEquals("Game", binding.getString("namespace"))
+        assertEquals("Assembly-CSharp", binding.getString("assemblyName"))
+        assertEquals(-12, binding.getInt("executionOrder"))
+
+        val scripts = owner.getJSONArray("monoScripts")
+        assertEquals(1, scripts.length())
+        assertEquals(77L, scripts.getJSONObject(0).getLong("pathId"))
+        assertEquals("HeroController", scripts.getJSONObject(0).getString("name"))
+        assertEquals(targetPath, scripts.getJSONObject(0).getString("sourceFilePath"))
+
+        val analyzers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
+        val headerCoverage = (0 until analyzers.length())
+            .map { analyzers.getJSONObject(it) }
+            .first { it.getString("id") == "unity_file_headers" }
+        assertEquals(2, headerCoverage.getInt("candidateCount"))
+        assertEquals(2, headerCoverage.getInt("parsedCount"))
+        assertEquals("completed", headerCoverage.getString("status"))
+
+        val metadataCoverage = (0 until analyzers.length())
+            .map { analyzers.getJSONObject(it) }
+            .first { it.getString("id") == "serialized_file_metadata" }
+        assertEquals(2, metadataCoverage.getInt("candidateCount"))
+        assertEquals(2, metadataCoverage.getInt("parsedCount"))
+        assertEquals("completed", metadataCoverage.getString("status"))
+    }
+
+    @Test
     fun returnsPartialReportWithExactlyTheInventoryCollectedBeforeCancellation() {
         val root = MemoryScanNode(
             name = "FixtureGame",
@@ -389,6 +480,63 @@ private fun unitySerializedFileWithExternalMonoScriptReference(externalPath: Str
     bytes[40] = 0
     metadata.copyInto(bytes, 48)
     return bytes
+}
+
+private fun unitySerializedFileWithMonoScriptObject(payload: ByteArray): ByteArray {
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5) // target platform
+        write(0) // TypeTree disabled
+        u32le(1) // serialized type count
+        u32le(115) // MonoScript class ID
+        write(0) // stripped
+        u16le(0xffff) // no script type index
+        write(ByteArray(16)) // old type hash
+        u32le(0) // type dependencies
+        u32le(1) // object count
+        u64le(77) // MonoScript path ID
+        u64le(0) // byte start within data section
+        u32le(payload.size.toLong())
+        u32le(0) // type index
+        u32le(0) // script type reference count
+        u32le(0) // external reference count
+        u32le(0) // SerializeReference type count
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val bytes = ByteArray(dataOffset + payload.size)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0
+    metadata.copyInto(bytes, 48)
+    payload.copyInto(bytes, dataOffset)
+    return bytes
+}
+
+private fun minimalMonoScriptPayload(
+    name: String,
+    className: String,
+    namespace: String,
+    assemblyName: String,
+    executionOrder: Int
+): ByteArray {
+    val output = ByteArrayOutputStream()
+    fun writeString(value: String, align: Boolean) {
+        val encoded = value.toByteArray(Charsets.UTF_8)
+        output.u32le(encoded.size.toLong())
+        output.write(encoded)
+        if (align) while (output.size() % 4 != 0) output.write(0)
+    }
+    writeString(name, align = true)
+    output.u32le(executionOrder.toLong())
+    output.write(ByteArray(16)) // properties hash
+    writeString(className, align = true)
+    writeString(namespace, align = true)
+    writeString(assemblyName, align = false)
+    return output.toByteArray()
 }
 
 private fun minimalUnitySerializedFile(): ByteArray {
