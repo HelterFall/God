@@ -61,6 +61,27 @@ class PeParserTest {
     }
 
     @Test
+    fun reportsTruncatedThunkTableWithoutLosingOtherImports() {
+        val bytes = peWithImports()
+        // Put the first thunk at the end of the section: one entry fits,
+        // but the next pointer falls outside the file's readable section.
+        put32(bytes, 0x210, 0x11f8)
+        put64(bytes, 0x3f8, 0x10a0L)
+
+        val info = PeParser.parse(bytes)
+        requireNotNull(info)
+
+        assertTrue(info.note.orEmpty().contains("thunk table for KERNEL32.dll is truncated"))
+        assertEquals(
+            listOf(
+                PeImportedSymbol("KERNEL32.dll", name = "CreateFileW", hint = 5),
+                PeImportedSymbol("USER32.dll", name = "MessageBoxW", hint = 1)
+            ),
+            info.importedSymbols
+        )
+    }
+
+    @Test
     fun detectsClrDirectory() {
         val info = PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x2000))
         requireNotNull(info)
