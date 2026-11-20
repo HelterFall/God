@@ -175,15 +175,15 @@
 
 ## 4. Проверка последнего CI
 
-Проверенный main run:
+Проверенный актуальный main run:
 
-https://github.com/HelterFall/God/actions/runs/44687783215
+https://github.com/HelterFall/God/actions/runs/44789275792
 
-- Commit: `a648f4e366b684e59262dafffa21982c28160782`.
+- Commit: `253534cb77e6407669dd71bc646fc0aa4a557c9e`.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Текущая база — 85 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
+- Текущая база — 86 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
