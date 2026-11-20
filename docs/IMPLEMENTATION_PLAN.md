@@ -203,13 +203,13 @@ God уже умеет выполнять ограниченную инвента
 **Приоритет:** P0  
 **Зависимости:** этапы 1–3.
 
-Экспорт Markdown и JSON уже работает. JSON schemaVersion=24 содержит files[], analyzer coverage, DLL-level nativeImports и bounded nativeImportSymbols. Но buildMarkdown/buildJson возвращают большие строки, а MainActivity хранит обе строки в памяти до экспорта. Но buildMarkdown/buildJson возвращают большие строки, а MainActivity хранит обе строки в памяти до экспорта. Отдельного ReportWriter, JSON Schema и manifest пока нет.
+Экспорт Markdown и JSON уже работает. JSON schemaVersion=24 содержит files[], analyzer coverage, DLL-level nativeImports и bounded nativeImportSymbols. Но buildMarkdown/buildJson возвращают большие строки, а MainActivity хранит обе строки в памяти до экспорта. Отдельного ReportWriter, JSON Schema и manifest пока нет.
 
 **Задачи:**
 - [ ] Создать отдельный ReportWriter, не связанный с UI и GameScanner.
 - [ ] Записывать крупные секции потоково, не собирая весь отчёт в одну большую строку.
 - [ ] Разделить краткое резюме и подробные данные (inventory/findings/graph edges), сохранив текущие Markdown/JSON outputs как совместимый переходный формат.
-- [ ] Формализовать правила bump/backward compatibility для schemaVersion=24 как версии структуры JSON: определить правила bump/backward compatibility. Не вводить второй report format version с тем же смыслом.
+- [ ] Формализовать правила bump/backward compatibility для schemaVersion=24 как версии структуры JSON. Не вводить второй report format version с тем же смыслом.
 - [ ] Добавить JSON Schema и тест валидации текущего и будущего report format.
 - [ ] Добавить manifest с версией God/analyzer, schemaVersion, временем, coverage и hashes частей отчёта.
 - [ ] Проверять null output stream и ошибки записи; сейчас openOutputStream()?.use(...) может завершиться без записи, но UI всё равно сообщает «Отчёт сохранён».
@@ -394,7 +394,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Текущая тестовая база:** 16 JVM test files / 80 @Test methods. Есть начальные fake-tree tests полного `GameScanner.scan()` и проверки DLL imports в итоговых JSON/Markdown, но нет real binary fixtures, Android instrumentation, fuzz/property tests или coverage reports. См. [test audit](TEST_AUDIT_2026-11-19.md).
+**Текущая тестовая база:** 16 JVM test files / 82 @Test methods. Есть начальные fake-tree tests полного `GameScanner.scan()` с DLL/function/ordinal imports в итоговых JSON/Markdown, но нет real binary fixtures, Android instrumentation, fuzz/property tests или coverage reports. См. [test audit](TEST_AUDIT_2026-11-19.md).
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [ ] Расширить scanner integration coverage на успешные parser/resolver paths, ограничения, read errors и реальные fixtures.
