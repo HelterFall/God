@@ -2,20 +2,20 @@
 
 **Дата:** 21 ноября 2026 года  
 **Проверенная ветка:** `main`  
-**Проверенный commit:** 2409e81ea7d3fe5cbfe7b958018ba2226a9fbb49
-**Последняя успешная проверка CI:** Main run [#327](https://github.com/HelterFall/God/actions/runs/44798382360) успешно проверил merge commit `2409e81ea7d3fe5cbfe7b958018ba2226a9fbb49` (90 JVM tests по source annotations, debug APK и artifact upload); PR #23 run #326 также прошёл.
+**Проверенный commit:** 513f1acbf7c08d6de93045d298db8ba0ab3bc517
+**Последняя успешная проверка CI:** Main run [#331](https://github.com/HelterFall/God/actions/runs/44799745772) успешно проверил merge commit `513f1acbf7c08d6de93045d298db8ba0ab3bc517` (91 JVM test по source annotations, debug APK и artifact upload); PR #25 run #330 также прошёл.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
 - 16 JVM test files;
-- 90 методов с аннотацией `@Test`;
+- 91 метод с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Семь тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE candidate/import reporting; CLR metadata; synthetic Unity SerializedFile v22 metadata и version evidence; ambiguous external MonoScript basename не выбирает target; unique external MonoScript payload декодируется и попадает в JSON/Markdown; ошибка открытия Unity provider stream сохраняет inventory и warning, но отмечает header analyzer как failed и metadata analyzer как partial/skipped; partial inventory при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
+Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Восемь тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE candidate/import reporting; CLR metadata; synthetic Unity SerializedFile v22 metadata и version evidence; ambiguous external MonoScript basename не выбирает target; unique external MonoScript payload декодируется и попадает в JSON/Markdown; ошибка открытия Unity provider stream сохраняет inventory и warning, но отмечает header analyzer как failed и metadata analyzer как partial/skipped; ошибка `listFiles()` у подкаталога сохраняет доступный sibling inventory, warning и `inventory.status=partial` с `inaccessibleDirectoryCount=1`; partial inventory при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -30,7 +30,7 @@
 | ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap и полный список в JSON |
-| GameScannerIntegrationTest | 7 | Fake tree: inventory/progress, PE success/failure/import reporting, successful CLR path, Unity SerializedFile v22 metadata/version, ambiguous external MonoScript basename is not guessed, unique external MonoScript payload decoded and bound, Unity provider open failure preserves inventory and records failed/partial coverage plus warning, partial inventory on cancellation |
+| GameScannerIntegrationTest | 8 | Fake tree: inventory/progress, PE success/failure/import reporting, CLR path, Unity SerializedFile v22 metadata/version, ambiguous external MonoScript no-guess, unique external MonoScript payload decoded/bound, Unity provider open failure with accurate failed/partial analyzer coverage, directory listing failure with retained sibling inventory and partial inventory status, cancellation |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -40,7 +40,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **90 тестовых методов в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Всего: **91 тестовый метод в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -57,13 +57,13 @@
 
 ### QA-01 — CLR, SerializedFile и external MonoScript scanner paths покрыты; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` запускает настоящий `GameScanner.scan()` на in-memory `ScanNode` дереве. Тесты проверяют: inventory/PE import reporting; synthetic CLR metadata до отчёта; synthetic SerializedFile v22 и Unity version evidence; no-guess поведение для ambiguous external MonoScript basename; unique external MonoScript payload decode и binding class/namespace/assembly/execution order; Unity provider open failure, при котором `unity_file_headers` завершает попытку статусом failed, `serialized_file_metadata` получает skipped/partial, inventory остаётся completed, а warning попадает в JSON/Markdown; partial inventory при отмене. Внешние MonoScript/SerializedFile тесты синтетические и не заменяют настоящие игровые samples.
+`GameScannerIntegrationTest` запускает настоящий `GameScanner.scan()` на in-memory `ScanNode` дереве. Тесты проверяют inventory/PE imports; synthetic CLR metadata; synthetic SerializedFile v22/version evidence; ambiguity no-guess и успешный unique external MonoScript payload; provider open failure, при котором Unity header analyzer отмечается failed, metadata analyzer — skipped/partial, inventory остаётся completed и warning сохраняется; directory listing failure с inventory partial/inaccessibleDirectoryCount=1, сохранением доступного sibling и исключением невидимых child entries; cancellation с partial inventory. Эти сценарии воспроизводимы на fake-tree и не заменяют Android SAF providers или реальные игровые binaries.
 
 **Пока не покрыто:**
 
 - реальные compiler-produced PE/CLR fixtures; CLR scanner integration пока подтверждён только синтетическим managed PE;
 - реальные Unity SerializedFiles/TypeTrees и совместимость нескольких версий; проверка external MonoScript binding на compiler-produced/real game files; полная scene/PPtr resolver matrix; UnityFS block/directory reading и дальнейшие resolver stages;
-- широкий набор лимитов, частичные/обрезанные stream reads, ошибки `listFiles`, несколько классов provider exceptions и non-seekable providers; одиночный failure при открытии Unity candidate stream теперь покрыт, но не вся матрица чтения;
+- широкий набор лимитов, частичные/обрезанные stream reads, ошибки чтения посреди stream, дополнительные классы provider exceptions и non-seekable providers; покрыты одиночный `openInputStream` failure и один `listFiles` failure, но не вся матрица чтения;
 - реальные binary fixtures, Android SAF provider и Activity lifecycle.
 
 **Риск:** fake-tree test ловит ошибки orchestration inventory → PE/CLR metadata → report, включая успешную передачу CLR assembly/type results и coverage. Синтетический metadata root может повторять предположения парсера; тест не заменяет реальные compiler-produced assemblies или Android document providers.
@@ -177,13 +177,13 @@
 
 Проверенный актуальный main run:
 
-https://github.com/HelterFall/God/actions/runs/44798382360
+https://github.com/HelterFall/God/actions/runs/44799745772
 
-- Commit: `2409e81ea7d3fe5cbfe7b958018ba2226a9fbb49`.
+- Commit: `513f1acbf7c08d6de93045d298db8ba0ab3bc517`.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Текущая база — 90 методов `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
+- Текущая база — 91 метод `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
