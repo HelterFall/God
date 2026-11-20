@@ -45,6 +45,45 @@ class PeParserTest {
     }
 
     @Test
+    fun detectsArm64MachineArchitectureInPe32PlusImage() {
+        val bytes = peWithImports()
+        put16(bytes, 0x84, 0xaa64)
+
+        val info = PeParser.parse(bytes)
+        requireNotNull(info)
+
+        assertEquals("ARM64", info.machine)
+        assertEquals(listOf("KERNEL32.dll", "USER32.dll"), info.imports)
+    }
+
+    @Test
+    fun reportsImportDirectoryRvaOutsideAvailableSections() {
+        val bytes = peWithImports()
+        put32(bytes, 0x110, 0x7000)
+
+        val info = PeParser.parse(bytes)
+        requireNotNull(info)
+
+        assertTrue(info.note.orEmpty().contains("import directory RVA is outside readable sections"))
+        assertTrue(info.imports.isEmpty())
+        assertTrue(info.importedSymbols.isEmpty())
+    }
+
+    @Test
+    fun skipsUnreadableDllNameButContinuesWithLaterDescriptors() {
+        val bytes = peWithImports()
+        // First descriptor's Name field points outside all readable sections.
+        put32(bytes, 0x20c, 0x7000)
+
+        val info = PeParser.parse(bytes)
+        requireNotNull(info)
+
+        assertTrue(info.note.orEmpty().contains("import descriptor has an unreadable DLL name"))
+        assertEquals(listOf("USER32.dll"), info.imports)
+        assertEquals(listOf(PeImportedSymbol("USER32.dll", name = "MessageBoxW", hint = 1)), info.importedSymbols)
+    }
+
+    @Test
     fun reads32BitNamedAndOrdinalImportsFromOriginalFirstThunk() {
         val info = PeParser.parse(pe32WithImports())
         requireNotNull(info)
