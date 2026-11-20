@@ -861,6 +861,17 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         if (importSummary.isEmpty()) appendLine("- Не удалось прочитать таблицы импортов")
         importSummary.forEach { appendLine("- " + it.key + " — используется в " + it.value + " бинарных файлах") }
         appendLine()
+        appendLine("## Imported native symbols")
+        val importedSymbols = peResults.flatMap { (sourcePath, info) ->
+            info.importedSymbols.map { symbol -> sourcePath to symbol }
+        }
+        if (importedSymbols.isEmpty()) appendLine("- Имена функций и ordinal imports не обнаружены в прочитанных PE-таблицах")
+        importedSymbols.forEach { (sourcePath, symbol) ->
+            val importedName = symbol.name ?: "ordinal #${symbol.ordinal ?: "?"}"
+            val hint = symbol.hint?.let { "; hint=$it" } ?: ""
+            appendLine("- $sourcePath: ${symbol.dllName}!$importedName$hint")
+        }
+        appendLine()
         appendLine("## PE details")
         if (peResults.isEmpty()) appendLine("- PE-заголовки не прочитаны")
         peResults.forEach { (path, info) ->
@@ -1093,7 +1104,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         unityMetadata: Map<String, UnityMetadataSummary>, coverage: ScanCoverage
     ): String {
         val root = JSONObject()
-        root.put("schemaVersion", 23)
+        root.put("schemaVersion", 24)
         root.put("rootName", rootName)
         root.put("generatedAt", java.time.Instant.now().toString())
         root.put("backendAssessment", backend)
@@ -1136,6 +1147,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         root.put("nativePeBinaries", JSONArray(nativeBinaries))
         root.put("nativeImports", JSONArray(importSummary.map {
             JSONObject().put("dll", it.key).put("referencedByCount", it.value)
+        }))
+        root.put("nativeImportSymbols", JSONArray(peResults.flatMap { (sourcePath, info) ->
+            info.importedSymbols.map { symbol ->
+                JSONObject()
+                    .put("sourcePath", sourcePath)
+                    .put("dll", symbol.dllName)
+                    .put("name", symbol.name ?: JSONObject.NULL)
+                    .put("ordinal", symbol.ordinal ?: JSONObject.NULL)
+                    .put("hint", symbol.hint ?: JSONObject.NULL)
+            }
         }))
         root.put("managedAssemblyMetadata", JSONArray(clrResults.map { (path, assembly) ->
             JSONObject().put("path", path)
