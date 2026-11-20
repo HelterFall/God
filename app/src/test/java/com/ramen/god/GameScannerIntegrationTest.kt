@@ -232,6 +232,94 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun doesNotGuessAmbiguousExternalMonoScriptFileFromDuplicateBasenames() {
+        val externalPath = "archive:/CAB-123/sharedassets0.assets"
+        val root = MemoryScanNode(
+            name = "ExternalReferenceFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "Data",
+                    true,
+                    children = listOf(
+                        MemoryScanNode(
+                            "globalgamemanagers",
+                            false,
+                            unitySerializedFileWithExternalMonoScriptReference(externalPath)
+                        ),
+                        MemoryScanNode(
+                            "Scenes",
+                            true,
+                            children = listOf(
+                                MemoryScanNode("sharedassets0.assets", false, minimalUnitySerializedFile())
+                            )
+                        ),
+                        MemoryScanNode(
+                            "Resources",
+                            true,
+                            children = listOf(
+                                MemoryScanNode("sharedassets0.assets", false, minimalUnitySerializedFile())
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+
+        assertFalse(result.isPartial)
+        assertTrue(result.markdown.contains("external-file-name-ambiguous"))
+        assertTrue(result.markdown.contains(externalPath))
+
+        val report = JSONObject(result.json)
+        assertEquals("completed", report.getJSONObject("scanCoverage").getString("status"))
+        val metadata = report.getJSONArray("unityMetadata")
+        val owner = (0 until metadata.length())
+            .map { metadata.getJSONObject(it) }
+            .first { it.getString("path") == "Data/globalgamemanagers" }
+        val references = owner.getJSONArray("externalReferences")
+        assertEquals(1, references.length())
+        assertEquals(1, references.getJSONObject(0).getInt("fileId"))
+        assertEquals(externalPath, references.getJSONObject(0).getString("path"))
+
+        val scriptBindings = owner.getJSONArray("scriptTypeBindings")
+        assertEquals(1, scriptBindings.length())
+        val binding = scriptBindings.getJSONObject(0)
+        assertEquals(114, binding.getInt("classId"))
+        assertEquals(0, binding.getInt("scriptTypeIndex"))
+        assertEquals(1, binding.getInt("fileId"))
+        assertEquals(77L, binding.getLong("pathId"))
+        assertEquals(externalPath, binding.getString("externalPath"))
+        assertEquals("external-file-name-ambiguous", binding.getString("resolution"))
+        assertTrue(binding.isNull("matchedExternalFilePath"))
+
+        val headers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
+            .let { analyzers ->
+                (0 until analyzers.length())
+                    .map { analyzers.getJSONObject(it) }
+                    .first { it.getString("id") == "unity_file_headers" }
+            }
+        assertEquals(3, headers.getInt("candidateCount"))
+        assertEquals(3, headers.getInt("parsedCount"))
+        assertEquals("completed", headers.getString("status"))
+
+        val metadataCoverage = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
+            .let { analyzers ->
+                (0 until analyzers.length())
+                    .map { analyzers.getJSONObject(it) }
+                    .first { it.getString("id") == "serialized_file_metadata" }
+            }
+        assertEquals(3, metadataCoverage.getInt("candidateCount"))
+        assertEquals(3, metadataCoverage.getInt("parsedCount"))
+        assertEquals("completed", metadataCoverage.getString("status"))
+    }
+
+    @Test
     fun returnsPartialReportWithExactlyTheInventoryCollectedBeforeCancellation() {
         val root = MemoryScanNode(
             name = "FixtureGame",
@@ -263,6 +351,44 @@ class GameScannerIntegrationTest {
         assertFalse(result.json.contains("later.txt"))
         assertTrue(result.json.contains("\"entryCount\":2"))
     }
+}
+
+private fun unitySerializedFileWithExternalMonoScriptReference(externalPath: String): ByteArray {
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5) // target platform
+        write(0) // TypeTree disabled
+        u32le(1) // serialized type count
+        u32le(114) // MonoBehaviour class ID
+        write(0) // stripped
+        u16le(0) // script type index
+        write(ByteArray(16)) // script ID
+        write(ByteArray(16)) // old type hash
+        u32le(0) // type dependencies
+        u32le(0) // object count
+        u32le(1) // script type reference count
+        u32le(1) // external file ID
+        u64le(77) // target MonoScript path ID
+        u32le(1) // external reference count
+        write("CAB-123".toByteArray(Charsets.US_ASCII))
+        write(0)
+        write(ByteArray(16)) // GUID
+        u32le(0) // external reference type
+        write(externalPath.toByteArray(Charsets.US_ASCII))
+        write(0)
+        u32le(0) // SerializeReference type count
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val bytes = ByteArray(dataOffset)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0
+    metadata.copyInto(bytes, 48)
+    return bytes
 }
 
 private fun minimalUnitySerializedFile(): ByteArray {
