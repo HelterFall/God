@@ -172,6 +172,66 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun reportsSuccessfulSerializedFileMetadataThroughScannerCoverageAndBothReports() {
+        val root = MemoryScanNode(
+            name = "UnityFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "Data",
+                    true,
+                    children = listOf(
+                        MemoryScanNode("globalgamemanagers", false, minimalUnitySerializedFile())
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+
+        assertFalse(result.isPartial)
+        assertTrue(result.markdown.contains("## Unity serialized files and bundles"))
+        assertTrue(result.markdown.contains("Data/globalgamemanagers: SerializedFile; format=22"))
+        assertTrue(result.markdown.contains("## Unity metadata (leading fields)"))
+        assertTrue(result.markdown.contains("Data/globalgamemanagers; Unity=2022.3.10f1"))
+
+        val report = JSONObject(result.json)
+        assertEquals("2022.3.10f1", report.getString("unityVersion"))
+        val metadata = report.getJSONArray("unityMetadata")
+        assertEquals(1, metadata.length())
+        val serializedFile = metadata.getJSONObject(0)
+        assertEquals("Data/globalgamemanagers", serializedFile.getString("path"))
+        assertEquals("2022.3.10f1", serializedFile.getString("unityVersion"))
+        assertEquals(5, serializedFile.getInt("targetPlatform"))
+        assertFalse(serializedFile.getBoolean("typeTreeEnabled"))
+        assertEquals(0, serializedFile.getInt("typeCount"))
+        assertEquals(0, serializedFile.getInt("objectCount"))
+
+        val analyzers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
+        val unityHeaders = (0 until analyzers.length())
+            .map { analyzers.getJSONObject(it) }
+            .first { it.getString("id") == "unity_file_headers" }
+        assertEquals(1, unityHeaders.getInt("candidateCount"))
+        assertEquals(1, unityHeaders.getInt("attemptedCount"))
+        assertEquals(1, unityHeaders.getInt("parsedCount"))
+        assertEquals("completed", unityHeaders.getString("status"))
+
+        val serializedMetadata = (0 until analyzers.length())
+            .map { analyzers.getJSONObject(it) }
+            .first { it.getString("id") == "serialized_file_metadata" }
+        assertEquals(1, serializedMetadata.getInt("candidateCount"))
+        assertEquals(1, serializedMetadata.getInt("attemptedCount"))
+        assertEquals(1, serializedMetadata.getInt("parsedCount"))
+        assertEquals(0, serializedMetadata.getInt("failedCount"))
+        assertEquals(0, serializedMetadata.getInt("limitedCount"))
+        assertEquals("completed", serializedMetadata.getString("status"))
+    }
+
+    @Test
     fun returnsPartialReportWithExactlyTheInventoryCollectedBeforeCancellation() {
         val root = MemoryScanNode(
             name = "FixtureGame",
@@ -202,6 +262,42 @@ class GameScannerIntegrationTest {
         assertTrue(result.json.contains("Assets/first.txt"))
         assertFalse(result.json.contains("later.txt"))
         assertTrue(result.json.contains("\"entryCount\":2"))
+    }
+}
+
+private fun minimalUnitySerializedFile(): ByteArray {
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5) // target platform
+        write(0) // TypeTree disabled
+        u32le(0) // serialized type count
+        u32le(0) // object count
+        u32le(0) // script type reference count
+        u32le(0) // external reference count
+        u32le(0) // SerializeReference type count
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val bytes = ByteArray(dataOffset)
+    put32be(bytes, 8, 22) // SerializedFile format version
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0 // little-endian metadata
+    metadata.copyInto(bytes, 48)
+    return bytes
+}
+
+private fun put32be(bytes: ByteArray, offset: Int, value: Int) {
+    for (index in 0 until 4) {
+        bytes[offset + index] = (value ushr (8 * (3 - index))).toByte()
+    }
+}
+
+private fun put64be(bytes: ByteArray, offset: Int, value: Long) {
+    for (index in 0 until 8) {
+        bytes[offset + index] = (value ushr (8 * (7 - index))).toByte()
     }
 }
 
