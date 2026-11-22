@@ -532,6 +532,17 @@ class GameScannerIntegrationTest {
         assertEquals("external-file-name-ambiguous", binding.getString("resolution"))
         assertTrue(binding.isNull("matchedExternalFilePath"))
 
+        val ownerFileId = (0 until report.getJSONArray("files").length())
+            .map { report.getJSONArray("files").getJSONObject(it) }
+            .first { it.getString("path") == "Data/globalgamemanagers" }
+            .getString("id")
+        val externalRun = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "external_mono_script_payload" }
+        assertEquals(ownerFileId, externalRun.getString("inputFileId"))
+        assertEquals("partial", externalRun.getString("status"))
+        assertTrue(externalRun.getString("reason").contains("external-file-name-ambiguous"))
+
         val headers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
             .let { analyzers ->
                 (0 until analyzers.length())
@@ -627,6 +638,17 @@ class GameScannerIntegrationTest {
         assertEquals(77L, scripts.getJSONObject(0).getLong("pathId"))
         assertEquals("HeroController", scripts.getJSONObject(0).getString("name"))
         assertEquals(targetPath, scripts.getJSONObject(0).getString("sourceFilePath"))
+
+        val ownerFileId = (0 until report.getJSONArray("files").length())
+            .map { report.getJSONArray("files").getJSONObject(it) }
+            .first { it.getString("path") == "Data/globalgamemanagers" }
+            .getString("id")
+        val externalRun = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "external_mono_script_payload" }
+        assertEquals(ownerFileId, externalRun.getString("inputFileId"))
+        assertEquals("analyzed", externalRun.getString("status"))
+        assertTrue(externalRun.isNull("reason"))
 
         val analyzers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
         val headerCoverage = (0 until analyzers.length())
