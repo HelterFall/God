@@ -33,14 +33,23 @@ class GameScannerIntegrationTest {
         )
         val progress = mutableListOf<Pair<Int, String>>()
 
-        val result = GameScanner(MemoryScanFileAccess()).scan(
+        val scanner = GameScanner(MemoryScanFileAccess())
+        val result = scanner.scan(
             root,
             shouldCancel = { false }
         ) { count, path ->
             progress += count to path
         }
+        val repeatedResult = scanner.scan(root, shouldCancel = { false }) { _, _ -> }
 
         assertFalse(result.isPartial)
+        val firstIds = JSONObject(result.json).getJSONArray("files").let { files ->
+            (0 until files.length()).map { files.getJSONObject(it).getString("id") }
+        }
+        val repeatedIds = JSONObject(repeatedResult.json).getJSONArray("files").let { files ->
+            (0 until files.length()).map { files.getJSONObject(it).getString("id") }
+        }
+        assertEquals(firstIds, repeatedIds)
         assertTrue(result.markdown.contains("# Unity Game Architecture Report"))
         assertTrue(result.markdown.contains("Indexed entries: 5"))
         assertEquals(listOf(1, 2, 3, 4, 5, 5), progress.map { it.first })
