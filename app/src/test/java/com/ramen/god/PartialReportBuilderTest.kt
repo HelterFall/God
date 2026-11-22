@@ -200,6 +200,103 @@ class PartialReportBuilderTest {
     }
 
     @Test
+    fun preservesExternalUnityPointerEvidenceInCancelledReport() {
+        val file = record("Data/globalgamemanagers", false, 512)
+        val scanId = "partial-external-pointer-scan"
+        val run = AnalyzerRun.create(
+            scanId = scanId,
+            analyzerId = "unity_external_pointers",
+            inputFileId = file.id,
+            status = AnalyzerRunStatus.PARTIAL,
+            reason = "One target PathID was outside the bounded object sample."
+        )
+        val findingId = Finding.create(
+            scanId = scanId,
+            findingKey = "external-pointer:10:components:1:99",
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            category = "unity.external-pointer",
+            title = "GameObject has-component external object",
+            summary = "GameObject PathID=10 field=components points to fileID=1, PathID=99.",
+            confidence = AnalysisConfidence.WEAK,
+            status = FindingStatus.PARTIAL,
+            reason = "Target was outside the bounded object sample."
+        ).id
+        val evidence = Evidence.create(
+            scanId = scanId,
+            evidenceKey = "external-pptr:10:components:1:99",
+            findingId = findingId,
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            method = EvidenceMethod.PARSED,
+            confidence = AnalysisConfidence.WEAK,
+            description = "Decoded GameObject.components external PPtr.",
+            locator = SourceLocator(unityFileId = 1, pathId = 99)
+        )
+        val sourceNode = GraphNode.create(
+            scanId = scanId,
+            nodeType = "unity-gameobject",
+            key = "PathID:10",
+            label = "GameObject PathID 10",
+            fileRecordId = file.id,
+            locator = SourceLocator(pathId = 10),
+            findingIds = listOf(findingId),
+            evidenceIds = listOf(evidence.id)
+        )
+        val edge = GraphEdge.create(
+            scanId = scanId,
+            edgeKey = "external-pointer:10:components:1:99",
+            sourceNodeId = sourceNode.id,
+            targetNodeId = null,
+            relationType = "has-component",
+            confidence = AnalysisConfidence.WEAK,
+            status = FindingStatus.PARTIAL,
+            evidenceIds = listOf(evidence.id),
+            findingIds = listOf(findingId),
+            analyzerRunId = run.id,
+            targetHint = "fileID=1, PathID=99 (pathID-not-in-object-sample)"
+        )
+        val finding = Finding.create(
+            scanId = scanId,
+            findingKey = "external-pointer:10:components:1:99",
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            category = "unity.external-pointer",
+            title = "GameObject has-component external object",
+            summary = "GameObject PathID=10 field=components points to fileID=1, PathID=99.",
+            confidence = AnalysisConfidence.WEAK,
+            status = FindingStatus.PARTIAL,
+            reason = "Target was outside the bounded object sample.",
+            evidenceIds = listOf(evidence.id),
+            graphNodeIds = listOf(sourceNode.id),
+            graphEdgeIds = listOf(edge.id)
+        )
+
+        val result = PartialReportBuilder.build(
+            rootName = "Game",
+            files = listOf(file),
+            totalBytes = 512,
+            scanId = scanId,
+            analyzerRuns = listOf(run),
+            findings = listOf(finding),
+            evidence = listOf(evidence),
+            graphNodes = listOf(sourceNode),
+            graphEdges = listOf(edge)
+        )
+
+        val report = JSONObject(result.json)
+        assertEquals("unity.external-pointer", report.getJSONArray("findings")
+            .getJSONObject(0).getString("category"))
+        assertEquals(evidence.id, report.getJSONArray("evidence").getJSONObject(0).getString("id"))
+        assertEquals(sourceNode.id, report.getJSONArray("graphNodes").getJSONObject(0).getString("id"))
+        val restoredEdge = report.getJSONArray("graphEdges").getJSONObject(0)
+        assertEquals("has-component", restoredEdge.getString("relationType"))
+        assertEquals("partial", restoredEdge.getString("status"))
+        assertTrue(restoredEdge.getString("targetHint").contains("PathID=99"))
+        assertTrue(result.markdown.contains("GameObject has-component external object"))
+    }
+
+    @Test
     fun markdownCapsLargeInventoryButJsonRetainsEveryEntry() {
         val files = (1..20_001).map { record("file-$it", false, 1) }
         val result = PartialReportBuilder.build("Game", files, files.size.toLong())
