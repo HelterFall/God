@@ -14,6 +14,7 @@ class AnalysisModelsTest {
             byteLength = 128,
             rva = 0x1_0000,
             metadataToken = 0x0600_0042,
+            unityFileId = 2,
             pathId = 9_223_372_036_854_000L,
             ilOffset = 0x2a
         )
@@ -24,6 +25,7 @@ class AnalysisModelsTest {
         assertEquals(4096L, restored.byteOffset)
         assertEquals(0x1_0000L, restored.rva)
         assertEquals(0x0600_0042L, restored.metadataToken)
+        assertEquals(2, restored.unityFileId)
         assertEquals(9_223_372_036_854_000L, restored.pathId)
         assertEquals(0x2aL, restored.ilOffset)
     }
@@ -110,6 +112,24 @@ class AnalysisModelsTest {
         assertEquals(first.id, repeated.id)
         assertNotEquals(first.id, anotherScan.id)
         assertNotEquals(first.id, anotherKey.id)
+    }
+
+    @Test
+    fun findingIdentityIncludesTheSourceFileAndAnalyzerRun() {
+        fun create(fileId: String, runId: String) = Finding.create(
+            scanId = "scan-a",
+            findingKey = "type:HeroController",
+            analyzerRunId = runId,
+            sourceFileId = fileId,
+            category = "managed-type",
+            title = "HeroController",
+            summary = "Type definition decoded."
+        )
+
+        val first = create("file:assembly-a", "run:clr-a")
+        val anotherFile = create("file:assembly-b", "run:clr-b")
+
+        assertNotEquals(first.id, anotherFile.id)
     }
 
     @Test
@@ -222,6 +242,51 @@ class AnalysisModelsTest {
         assertEquals(node, restored)
         assertNull(restored.fileRecordId)
         assertNull(restored.locator)
+    }
+
+    @Test
+    fun graphNodeIdentityIncludesItsOwningFileRecord() {
+        val first = GraphNode.create(
+            scanId = "scan-a",
+            nodeType = "unity-object",
+            key = "PathID=77",
+            label = "HeroController",
+            fileRecordId = "file:sharedassets0"
+        )
+        val anotherFile = GraphNode.create(
+            scanId = "scan-a",
+            nodeType = "unity-object",
+            key = "PathID=77",
+            label = "HeroController",
+            fileRecordId = "file:sharedassets1"
+        )
+
+        assertNotEquals(first.id, anotherFile.id)
+    }
+
+    @Test
+    fun graphEdgeIdentitySurvivesUnresolvedToResolvedTargetPromotion() {
+        val unresolved = GraphEdge.create(
+            scanId = "scan-a",
+            edgeKey = "pptr:source:field:path-77",
+            sourceNodeId = "node:source",
+            targetNodeId = null,
+            relationType = "references",
+            confidence = AnalysisConfidence.STRONG,
+            status = FindingStatus.UNRESOLVED,
+            targetHint = "PathID=77"
+        )
+        val resolved = GraphEdge.create(
+            scanId = "scan-a",
+            edgeKey = "pptr:source:field:path-77",
+            sourceNodeId = "node:source",
+            targetNodeId = "node:target",
+            relationType = "references",
+            confidence = AnalysisConfidence.CONFIRMED,
+            status = FindingStatus.DECODED
+        )
+
+        assertEquals(unresolved.id, resolved.id)
     }
 
     @Test
