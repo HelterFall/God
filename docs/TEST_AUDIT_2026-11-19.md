@@ -9,8 +9,8 @@
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 16 JVM test files;
-- 91 метод с аннотацией `@Test` (новые проверки диагностики добавлены в существующие тестовые методы);
+- 17 JVM test files в feature branch;
+- 92 метода с аннотацией `@Test` (основной `main` baseline до этой правки: 16 файлов / 91 метод);
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
@@ -30,6 +30,7 @@
 | ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap, полный список в JSON и structured `scan.cancelled` issue |
+| ScanIssueTest | 1 | Stable code/stage/severity/message serialization and null path |
 | GameScannerIntegrationTest | 8 | Fake tree: inventory/progress, PE success/failure/import reporting, CLR path, Unity SerializedFile v22 metadata/version, ambiguous external MonoScript no-guess, unique external MonoScript payload decoded/bound, provider and directory-listing failures with structured `ScanIssue` + legacy warning compatibility, cancellation |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
@@ -40,7 +41,7 @@
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-Всего: **91 тестовый метод в 16 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+В feature branch всего: **92 тестовых метода в 17 файлах**. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -183,7 +184,7 @@ https://github.com/HelterFall/God/actions/runs/44800837048
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Базовая main-версия содержит 91 метод `@Test` в 16 JVM test files. В feature branch typed-issue checks добавлены внутрь существующих методов, количество annotations не увеличивается.
+- Базовая main-версия содержит 91 метод `@Test` в 16 JVM test files; feature branch содержит 92 метода в 17 файлах из-за отдельного `ScanIssueTest`.
 - PR CI для branch `feat/typed-scan-issues` должен отдельно подтвердить новую модель и assertions.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
