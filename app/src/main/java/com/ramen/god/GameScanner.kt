@@ -901,12 +901,29 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         header: UnityFileHeader,
         metadata: UnityMetadataSummary
     ): UnityMetadataSummary {
-        val dataOffset = header.dataOffset ?: return metadata
+        val dataOffset = header.dataOffset
+        if (dataOffset == null) {
+            addAnalyzerRun(
+                "mono_script_payload",
+                entry,
+                AnalyzerRunStatus.SKIPPED,
+                "Unity header does not provide a data offset."
+            )
+            return readUnitySceneRecords(entry, header, metadata)
+        }
         val fileSize = header.fileSize ?: entry.size
         val littleEndian = when (header.endianness) {
             "Little Endian" -> true
             "Big Endian" -> false
-            else -> return metadata
+            else -> {
+                addAnalyzerRun(
+                    "mono_script_payload",
+                    entry,
+                    AnalyzerRunStatus.SKIPPED,
+                    "Unity header endianness is unknown."
+                )
+                return readUnitySceneRecords(entry, header, metadata)
+            }
         }
         val targets = metadata.scriptTypeBindings.mapNotNull { binding ->
             if (binding.fileId != 0 || binding.pathId == null ||
@@ -917,14 +934,38 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
         }.distinctBy { it.pathId }
 
-        var updated = metadata
-        if (targets.isNotEmpty()) {
-            updated = try {
-                val input = fileAccess.openInputStream(entry.node)
-                    ?: return readUnitySceneRecords(entry, header, metadata)
+        if (targets.isEmpty()) {
+            addAnalyzerRun(
+                "mono_script_payload",
+                entry,
+                AnalyzerRunStatus.SKIPPED,
+                "No local MonoScript object targets were present in the bounded metadata sample."
+            )
+            return readUnitySceneRecords(entry, header, metadata)
+        }
+
+        val runId = addAnalyzerRun("mono_script_payload", entry)
+        val updated = try {
+            val input = fileAccess.openInputStream(entry.node)
+            if (input == null) {
+                updateAnalyzerRun(
+                    runId,
+                    AnalyzerRunStatus.FAILED,
+                    "File provider returned no input stream for MonoScript payload."
+                )
+                val readNote = "MonoScript payload не прочитан: provider не вернул input stream."
+                metadata.copy(note = listOfNotNull(metadata.note, readNote).joinToString(" "))
+            } else {
                 val result = input.use { stream ->
                     MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
                 }
+                val status = when {
+                    result.note == null && result.skippedCount == 0 -> AnalyzerRunStatus.ANALYZED
+                    result.scripts.isNotEmpty() -> AnalyzerRunStatus.PARTIAL
+                    else -> AnalyzerRunStatus.FAILED
+                }
+                updateAnalyzerRun(runId, status, result.note)
+
                 val scripts = result.scripts.map { it.copy(sourceFilePath = entry.path) }
                 val byPathId = scripts.associateBy { it.pathId }
                 val updatedBindings = metadata.scriptTypeBindings.map { binding ->
@@ -944,10 +985,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     scriptTypeBindings = updatedBindings,
                     note = combinedNote.takeIf { it.isNotBlank() }
                 )
-            } catch (e: Exception) {
-                val readNote = "MonoScript payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
-                metadata.copy(note = listOfNotNull(metadata.note, readNote).joinToString(" "))
             }
+        } catch (e: Exception) {
+            val reason = e.message ?: e.javaClass.simpleName
+            updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
+            val readNote = "MonoScript payload не прочитан: $reason"
+            metadata.copy(note = listOfNotNull(metadata.note, readNote).joinToString(" "))
         }
         return readUnitySceneRecords(entry, header, updated)
     }
