@@ -48,10 +48,10 @@ God уже умеет выполнять ограниченную инвента
 - [x] JSON-поле files содержит все записи, собранные текущим обходом в пределах этих лимитов. Markdown-дерево отдельно ограничено 20 000 строк.
 - [x] Базовый callback прогресса во время инвентаризации; UI обновляет путь/счётчик каждые 128 записей.
 - [x] Кнопка запроса отмены и job-scoped cancellation через `ScanCoordinator`.
-- [x] При отмене на этапах inventory/PE/Unity/resolver возвращается явно помеченный partial report с уже собранным inventory; JSON сохраняет все entries, Markdown ограничен 20 000 строк.
+- [x] При отмене на этапах inventory/PE/Unity/resolver возвращается явно помеченный partial report с уже собранным inventory; JSON сохраняет все entries, Markdown ограничен 20 000 строк. Если анализ уже начался, `analyzerRuns[]` сохраняет завершённые и queued PE/CLR outcomes; Unity per-file outcomes пока следующий этап.
 - [x] Агрегированная ScanCoverage: inventory counters, PE/CLR/Unity analyzer candidate/attempt/parsed/partial/failed/limited/skipped counts и derived status.
 
-**Ограничения:** прогресс пока относится преимущественно к обходу папок. Partial report содержит inventory, но не включает незавершённые результаты анализаторов; в `scanCoverage` analyzer list пуст. Отмена проверяется на границах parser/resolver этапов, а не внутри каждого блокирующего provider read. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
+**Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report пока пуст; `analyzerRuns[]` сохраняет только PE/CLR outcomes, Unity header/SerializedFile будут подключены следующим шагом. Отмена проверяется на границах parser/resolver этапов, а не внутри каждого блокирующего provider read. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
 
 ### Уже существующие форматы и экспорт
 
@@ -122,7 +122,7 @@ God уже умеет выполнять ограниченную инвента
 
 В коде есть частные модели результатов парсеров, `FileRecord` для inventory, `ScanResult` и агрегированная `ScanCoverage`. `GameScanner` использует `ScanEntry` как связку записи и read-only `ScanNode`; не вводить второй инвентарь. Общий слой доказательных результатов расширять постепенно.
 
-**Текущий рабочий срез:** базовая модель `AnalyzerRun` и первый PE/CLR vertical slice реализованы в PR #30. Отдельные записи связаны с `FileRecord.id` через `inputFileId`; статусы `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed` не заменяют aggregate `ScanCoverage`. Partial report сохраняет уже выполненные и оставшиеся queued-записи. Следующий шаг — подключить Unity header/SerializedFile и остальные analyzer families.
+**Текущий рабочий срез:** базовая модель `AnalyzerRun` и PE/CLR vertical slice реализованы в PR #30. Следующий вертикальный срез — связать `unity_file_headers` и `serialized_file_metadata` с `FileRecord.id`: отдельно отражать header candidate limit, ошибку/успех распознавания, prerequisite skip и metadata deep-read limit. Не менять существующий `UnityFileHeaderParser`, `UnityMetadataParser` и aggregate `ScanCoverage`; затем отдельно подключать resolvers и остальные analyzer families.
 
 **Переиспользовать:**
 - `ScanEntry` уже использует `FileRecord`: SHA-256 ID, `parentId`, источник идентичности и `inventoryStatus`; приоритет — дополнять эту модель, не создавать второй список файлов.
