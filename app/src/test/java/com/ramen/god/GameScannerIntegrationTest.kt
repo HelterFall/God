@@ -259,6 +259,20 @@ class GameScannerIntegrationTest {
         assertEquals(0, serializedFile.getInt("typeCount"))
         assertEquals(0, serializedFile.getInt("objectCount"))
 
+        val inventoryFiles = report.getJSONArray("files")
+        val sourceFileId = (0 until inventoryFiles.length())
+            .map { inventoryFiles.getJSONObject(it) }
+            .first { it.getString("path") == "Data/globalgamemanagers" }
+            .getString("id")
+        val analyzerRuns = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val headerRun = analyzerRuns.first { it.getString("analyzerId") == "unity_file_headers" }
+        val metadataRun = analyzerRuns.first { it.getString("analyzerId") == "serialized_file_metadata" }
+        assertEquals(sourceFileId, headerRun.getString("inputFileId"))
+        assertEquals("analyzed", headerRun.getString("status"))
+        assertEquals(sourceFileId, metadataRun.getString("inputFileId"))
+        assertEquals("analyzed", metadataRun.getString("status"))
+
         val analyzers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
         val unityHeaders = (0 until analyzers.length())
             .map { analyzers.getJSONObject(it) }
@@ -277,6 +291,153 @@ class GameScannerIntegrationTest {
         assertEquals(0, serializedMetadata.getInt("failedCount"))
         assertEquals(0, serializedMetadata.getInt("limitedCount"))
         assertEquals("completed", serializedMetadata.getString("status"))
+    }
+
+    @Test
+    fun reportsUnsupportedSerializedFileMetadataVersionPerFile() {
+        val root = MemoryScanNode(
+            name = "UnsupportedUnityFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode("globalgamemanagers", false, minimalUnitySerializedFile(formatVersion = 18))
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val fileId = (0 until files.length())
+            .map { files.getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+            .getString("id")
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val headerRun = runs.first { it.getString("analyzerId") == "unity_file_headers" }
+        val metadataRun = runs.first { it.getString("analyzerId") == "serialized_file_metadata" }
+
+        assertEquals(fileId, headerRun.getString("inputFileId"))
+        assertEquals("analyzed", headerRun.getString("status"))
+        assertEquals(fileId, metadataRun.getString("inputFileId"))
+        assertEquals("unsupported", metadataRun.getString("status"))
+        assertTrue(metadataRun.getString("reason").contains("19-26"))
+    }
+
+    @Test
+    fun recordsSerializedMetadataAsSkippedWhenDeepReadWindowIsReached() {
+        val root = MemoryScanNode(
+            name = "UnityMetadataWindowFixture",
+            isDirectory = true,
+            children = (0 until 41).map { index ->
+                MemoryScanNode(
+                    "asset-%03d.assets".format(index),
+                    false,
+                    minimalUnitySerializedFile()
+                )
+            }
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val headerRuns = runs.filter { it.getString("analyzerId") == "unity_file_headers" }
+        val metadataRuns = runs.filter { it.getString("analyzerId") == "serialized_file_metadata" }
+
+        assertEquals(41, headerRuns.size)
+        assertTrue(headerRuns.all { it.getString("status") == "analyzed" })
+        assertEquals(41, metadataRuns.size)
+        assertEquals(40, metadataRuns.count { it.getString("status") == "analyzed" })
+        assertEquals(1, metadataRuns.count { it.getString("status") == "skipped" })
+        val limitedRun = metadataRuns.single { it.getString("status") == "skipped" }
+        assertEquals(
+            "asset-040.assets",
+            (0 until report.getJSONArray("files").length())
+                .map { report.getJSONArray("files").getJSONObject(it) }
+                .first { it.getString("id") == limitedRun.getString("inputFileId") }
+                .getString("path")
+        )
+        assertTrue(limitedRun.getString("reason").contains("first 40 candidates"))
+    }
+
+    @Test
+    fun recordsUnityHeaderCandidateLimitAndUninspectedMetadataAsSkipped() {
+        val root = MemoryScanNode(
+            name = "UnityHeaderLimitFixture",
+            isDirectory = true,
+            children = (0 until 501).map { index ->
+                MemoryScanNode("candidate-$index.assets", false, byteArrayOf(1, 2, 3))
+            }
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val headerRuns = runs.filter { it.getString("analyzerId") == "unity_file_headers" }
+        val metadataRuns = runs.filter { it.getString("analyzerId") == "serialized_file_metadata" }
+
+        assertEquals(501, headerRuns.size)
+        assertEquals(500, headerRuns.count { it.getString("status") == "failed" })
+        assertEquals(1, headerRuns.count { it.getString("status") == "skipped" })
+        assertEquals(501, metadataRuns.size)
+        assertEquals(501, metadataRuns.count { it.getString("status") == "skipped" })
+        val limitedHeader = headerRuns.single { it.getString("status") == "skipped" }
+        val limitedMetadata = metadataRuns.single {
+            it.getString("reason").contains("candidate limit reached")
+        }
+        assertEquals(
+            "candidate-500.assets",
+            (0 until report.getJSONArray("files").length())
+                .map { report.getJSONArray("files").getJSONObject(it) }
+                .first { it.getString("id") == limitedHeader.getString("inputFileId") }
+                .getString("path")
+        )
+        assertEquals(limitedHeader.getString("inputFileId"), limitedMetadata.getString("inputFileId"))
+    }
+
+    @Test
+    fun preservesQueuedUnityHeaderRunsWhenCancellationStartsUnityStage() {
+        var cancelAfterInventory = false
+        val root = MemoryScanNode(
+            name = "UnityCancellationFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode("globalgamemanagers", false, minimalUnitySerializedFile())
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { cancelAfterInventory },
+            onProgress = { _, stage ->
+                if (stage == "Инвентаризация завершена; анализирую PE-файлы") {
+                    cancelAfterInventory = true
+                }
+            }
+        )
+
+        assertTrue(result.isPartial)
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val fileId = files.getJSONObject(0).getString("id")
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        assertEquals(1, runs.size)
+        assertEquals("unity_file_headers", runs.single().getString("analyzerId"))
+        assertEquals(fileId, runs.single().getString("inputFileId"))
+        assertEquals("queued", runs.single().getString("status"))
     }
 
     @Test
@@ -487,6 +648,21 @@ class GameScannerIntegrationTest {
         )
 
         val report = JSONObject(result.json)
+        val inventoryFiles = report.getJSONArray("files")
+        val sourceFileId = (0 until inventoryFiles.length())
+            .map { inventoryFiles.getJSONObject(it) }
+            .first { it.getString("path") == "Data/globalgamemanagers" }
+            .getString("id")
+        val analyzerRuns = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val headerRun = analyzerRuns.first { it.getString("analyzerId") == "unity_file_headers" }
+        val metadataRun = analyzerRuns.first { it.getString("analyzerId") == "serialized_file_metadata" }
+        assertEquals(sourceFileId, headerRun.getString("inputFileId"))
+        assertEquals("failed", headerRun.getString("status"))
+        assertEquals(sourceFileId, metadataRun.getString("inputFileId"))
+        assertEquals("skipped", metadataRun.getString("status"))
+        assertTrue(metadataRun.getString("reason").contains("header was not recognized"))
+
         val coverage = report.getJSONObject("scanCoverage")
         assertEquals("partial", coverage.getString("status"))
         assertEquals("completed", coverage.getJSONObject("inventory").getString("status"))
@@ -798,7 +974,7 @@ private fun minimalMonoScriptPayload(
     return output.toByteArray()
 }
 
-private fun minimalUnitySerializedFile(): ByteArray {
+private fun minimalUnitySerializedFile(formatVersion: Int = 22): ByteArray {
     val metadata = ByteArrayOutputStream().apply {
         write("2022.3.10f1".toByteArray(Charsets.UTF_8))
         write(0)
@@ -811,14 +987,23 @@ private fun minimalUnitySerializedFile(): ByteArray {
         u32le(0) // SerializeReference type count
     }.toByteArray()
 
-    val dataOffset = 48 + metadata.size
+    val headerSize = if (formatVersion >= 22) 48 else 20
+    val dataOffset = headerSize + metadata.size
     val bytes = ByteArray(dataOffset)
-    put32be(bytes, 8, 22) // SerializedFile format version
-    put64be(bytes, 16, metadata.size.toLong())
-    put64be(bytes, 24, bytes.size.toLong())
-    put64be(bytes, 32, dataOffset.toLong())
-    bytes[40] = 0 // little-endian metadata
-    metadata.copyInto(bytes, 48)
+    if (formatVersion >= 22) {
+        put32be(bytes, 8, formatVersion)
+        put64be(bytes, 16, metadata.size.toLong())
+        put64be(bytes, 24, bytes.size.toLong())
+        put64be(bytes, 32, dataOffset.toLong())
+        bytes[40] = 0 // little-endian metadata
+    } else {
+        put32be(bytes, 0, metadata.size)
+        put32be(bytes, 4, bytes.size)
+        put32be(bytes, 8, formatVersion)
+        put32be(bytes, 12, dataOffset)
+        bytes[16] = 0 // little-endian metadata
+    }
+    metadata.copyInto(bytes, headerSize)
     return bytes
 }
 
