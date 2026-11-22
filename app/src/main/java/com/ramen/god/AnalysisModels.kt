@@ -67,6 +67,7 @@ internal data class SourceLocator(
     val byteLength: Long? = null,
     val rva: Long? = null,
     val metadataToken: Long? = null,
+    val unityFileId: Int? = null,
     val pathId: Long? = null,
     val ilOffset: Long? = null
 ) {
@@ -89,6 +90,7 @@ internal data class SourceLocator(
         .put("byteLength", byteLength ?: JSONObject.NULL)
         .put("rva", rva ?: JSONObject.NULL)
         .put("metadataToken", metadataToken ?: JSONObject.NULL)
+        .put("unityFileId", unityFileId ?: JSONObject.NULL)
         .put("pathId", pathId ?: JSONObject.NULL)
         .put("ilOffset", ilOffset ?: JSONObject.NULL)
 
@@ -100,6 +102,7 @@ internal data class SourceLocator(
             byteLength = json.optionalLong("byteLength"),
             rva = json.optionalLong("rva"),
             metadataToken = json.optionalLong("metadataToken"),
+            unityFileId = json.optionalInt("unityFileId"),
             pathId = json.optionalLong("pathId"),
             ilOffset = json.optionalLong("ilOffset")
         )
@@ -172,7 +175,10 @@ internal data class Finding(
             parserVersion: String? = null,
             supportedFormatRange: String? = null
         ): Finding = Finding(
-            id = AnalysisModelIdentity.create("finding", scanId, findingKey),
+            id = AnalysisModelIdentity.create(
+                "finding", scanId,
+                AnalysisModelIdentity.compositeKey(analyzerRunId, sourceFileId, findingKey)
+            ),
             analyzerRunId = analyzerRunId,
             sourceFileId = sourceFileId,
             category = category,
@@ -248,7 +254,10 @@ internal data class Evidence(
             description: String,
             locator: SourceLocator? = null
         ): Evidence = Evidence(
-            id = AnalysisModelIdentity.create("evidence", scanId, evidenceKey),
+            id = AnalysisModelIdentity.create(
+                "evidence", scanId,
+                AnalysisModelIdentity.compositeKey(findingId, analyzerRunId, sourceFileId, evidenceKey)
+            ),
             findingId = findingId,
             analyzerRunId = analyzerRunId,
             sourceFileId = sourceFileId,
@@ -317,7 +326,10 @@ internal data class GraphNode(
             findingIds: List<String> = emptyList(),
             evidenceIds: List<String> = emptyList()
         ): GraphNode = GraphNode(
-            id = AnalysisModelIdentity.create("node", scanId, "$nodeType:$key"),
+            id = AnalysisModelIdentity.create(
+                "node", scanId,
+                AnalysisModelIdentity.compositeKey(nodeType, fileRecordId.orEmpty(), key)
+            ),
             nodeType = nodeType,
             key = key,
             label = label,
@@ -402,7 +414,10 @@ internal data class GraphEdge(
             analyzerRunId: String? = null,
             targetHint: String? = null
         ): GraphEdge = GraphEdge(
-            id = AnalysisModelIdentity.create("edge", scanId, edgeKey),
+            id = AnalysisModelIdentity.create(
+                "edge", scanId,
+                AnalysisModelIdentity.compositeKey(edgeKey, sourceNodeId, relationType)
+            ),
             sourceNodeId = sourceNodeId,
             targetNodeId = targetNodeId,
             relationType = relationType,
@@ -431,6 +446,14 @@ internal data class GraphEdge(
 
 /** Stable, scan-scoped IDs shared by the parser-neutral analysis models. */
 private object AnalysisModelIdentity {
+    fun compositeKey(vararg parts: String): String = buildString {
+        parts.forEach { part ->
+            append(part.length)
+            append(':')
+            append(part)
+        }
+    }
+
     fun create(prefix: String, scanId: String, key: String): String {
         requireNonBlank(scanId, "scanId")
         requireNonBlank(key, "identity key")
@@ -476,6 +499,14 @@ private fun JSONObject.requiredString(field: String): String {
 
 private fun JSONObject.optionalString(field: String): String? =
     if (!has(field) || isNull(field)) null else getString(field)
+
+private fun JSONObject.optionalInt(field: String): Int? {
+    val value = optionalLong(field) ?: return null
+    require(value in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) {
+        "$field must fit a signed 32-bit integer."
+    }
+    return value.toInt()
+}
 
 private fun JSONObject.optionalLong(field: String): Long? {
     if (!has(field) || isNull(field)) return null
