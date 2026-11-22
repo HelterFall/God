@@ -3,7 +3,7 @@
 **Дата:** 22 ноября 2026 года  
 **Базовая ветка:** main  
 **Проверенная базовая ревизия `main`:** `dcbdea1c39743f092f32795b9d54507590e763ad`; последний main CI run [#343](https://github.com/HelterFall/God/actions/runs/44983187122) завершился успешно.
-**Последний source commit в `main`:** `33d268c9e43b504f75fa032a13df33dc0b975eab` (PR #28). Работа `feat/file-record-identities` добавляет FileRecord и stable inventory IDs; проверка PR ещё не завершена.
+**Последний source commit в `main`:** `33d268c9e43b504f75fa032a13df33dc0b975eab` (PR #28). Работа `feat/file-record-identities` добавляет FileRecord и stable inventory IDs; PR [#29, run #344](https://github.com/HelterFall/God/actions/runs/44984711337) прошёл успешно.
 **Тестовая база main:** 17 JVM test files / 92 @Test methods. **В этой ветке:** 18 files / 95 methods. Реальные binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
@@ -436,7 +436,7 @@ God уже умеет выполнять ограниченную инвента
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
 1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и inventory-only partial report; 11 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
-2. **Data model:** `FileRecord` со stable ID/parentId/inventoryStatus и `ScanIssue` добавлены; для `FileRecord` PR CI ещё ожидается. Следующий шаг — ввести AnalyzerRun и отдельные per-file analyzer statuses, затем Finding/Evidence/GraphNode/GraphEdge. Не переписывать работающие ScanCoverage и parser data classes.
+2. **Data model:** `FileRecord` со stable ID/parentId/inventoryStatus и `ScanIssue` добавлены; PR #29 / run #344 подтвердил тесты, debug APK и artifact upload. Следующий шаг — ввести AnalyzerRun и отдельные per-file analyzer statuses, затем Finding/Evidence/GraphNode/GraphEdge. Не переписывать работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** расширить fake-tree сценарии на контейнерные entries и связку `FileRecord` → AnalyzerRun → Finding/Evidence; текущие tests уже проверяют file IDs, parent links, duplicate names и partial inventory statuses.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.
