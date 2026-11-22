@@ -1148,8 +1148,8 @@ private fun unitySerializedFileWithLocalMonoScriptObjects(
         u16le(0xffff) // no script type index
         write(ByteArray(16)) // old type hash
         u32le(0) // type dependencies
-        while (size() % 4 != 0) write(0) // align object table
         u32le(scripts.size.toLong()) // object count
+        while (size() % 4 != 0) write(0) // align object table after the count
         var byteStart = 0L
         scripts.forEach { (pathId, payload) ->
             u64le(pathId)
