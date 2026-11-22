@@ -24,7 +24,7 @@ internal enum class FileInventoryStatus(val id: String) {
  * Platform-independent identity and hierarchy for one discovered game entry.
  *
  * Provider keys (for example, a SAF document URI) are hashed so reports do not
- * reveal them. Nodes without a provider key use their relative path and the
+ * reveal them. Nodes without a provider key use their parent identity, relative path and the
  * occurrence of that name among the same directory's children.
  */
 internal data class FileRecord(
