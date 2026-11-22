@@ -2,20 +2,20 @@
 
 **Дата:** 22 ноября 2026 года  
 **Проверенная ветка:** `main`.  
-**Main baseline до PR #31:** `fec50923955e4b411779b3d7ea6f26679db10f93` (squash merge PR #30), 19 JVM test files / 101 tests.
-**Проверенный PR #31 head:** `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; [run #364](https://github.com/HelterFall/God/actions/runs/44997242488) завершился `success`: 106 JVM tests, debug APK build и artifact upload.
+**Проверенный source commit:** `fc497c90b925bb668bedae08880a0bbb34e04811` (squash merge PR #31).
+**Последняя успешная post-merge main проверка:** [run #370](https://github.com/HelterFall/God/actions/runs/44997667707) — 106 JVM tests, debug APK build и artifact upload завершились успешно.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 19 JVM test files на main baseline и после PR #31;
-- 106 методов `@Test` на feature branch PR #31;
+- 19 JVM test files в `main` после PR #31;
+- 106 методов `@Test` в `main`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-PR #31 добавляет per-file AnalyzerRun для Unity header и SerializedFile metadata: file links, header prerequisite skip, status unsupported/partial, header limit 500, metadata deep-read limit 40 и сохранение queued runs при cancellation. PR run #364 прошёл все 106 JVM tests, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Пятнадцать тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE/CLR, Unity header/SerializedFile run linkage, metadata limits/status, MonoScript external references/resolution, provider failures и partial reports. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
+PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata: file links, header prerequisite skip, status unsupported/partial, header limit 500, metadata deep-read limit 40 и сохранение queued runs при cancellation. PR run #364 прошёл все 106 JVM tests, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Пятнадцать тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE/CLR, Unity header/SerializedFile run linkage, metadata limits/status, MonoScript external references/resolution, provider failures и partial reports. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -43,7 +43,7 @@ PR #31 добавляет per-file AnalyzerRun для Unity header и Serialized
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-На baseline main до PR #31 было 101 тест в 19 JVM test files; feature branch PR #31 содержит **106 тестов в 19 файлах**. Run #364 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+В `main` после PR #31: **106 тестов в 19 JVM test files**. Post-merge run #370 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -180,14 +180,14 @@ PR #31 добавляет per-file AnalyzerRun для Unity header и Serialized
 
 Проверенные CI revisions:
 
-- Main source commit before PR #31: `fec50923955e4b411779b3d7ea6f26679db10f93`; post-merge run [#357](https://github.com/HelterFall/God/actions/runs/44985940318) succeeded.
+- Main source commit after PR #31: `fc497c90b925bb668bedae08880a0bbb34e04811`; post-merge run [#370](https://github.com/HelterFall/God/actions/runs/44997667707) succeeded.
 
-- PR #31 head `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; [PR run #364](https://github.com/HelterFall/God/actions/runs/44997242488) completed successfully.
+- PR #31 code head `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; final PR head including docs `f1fb456f571ea2569bba5029ecf7af7a6a9ec57e`; PR run [#369](https://github.com/HelterFall/God/actions/runs/44997551388) completed successfully.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- PR #31 branch содержит 106 методов `@Test` в 19 JVM test files; `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload успешны в run #364.
-- Run #364 подтвердил Unity AnalyzerRun linkage, 500/40 limits, unsupported/partial/skipped outcomes и сборку APK.
+- `main` содержит 106 методов `@Test` в 19 JVM test files; `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload успешны в run #370.
+- Run #370 подтвердил Unity AnalyzerRun linkage, 500/40 limits, unsupported/partial/skipped outcomes и сборку APK.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
