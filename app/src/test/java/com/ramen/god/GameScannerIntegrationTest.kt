@@ -597,8 +597,10 @@ class GameScannerIntegrationTest {
             rootNode.getString("id"),
             externalSourceNodeId
         )
-        assertEquals(2, rootNode.getJSONArray("findingIds").length())
-        assertEquals(2, rootNode.getJSONArray("evidenceIds").length())
+        // The shared GameObject is both source and target of the two local
+        // PPtrs, and source of the external component pointer.
+        assertEquals(3, rootNode.getJSONArray("findingIds").length())
+        assertEquals(3, rootNode.getJSONArray("evidenceIds").length())
 
         val edges = (0 until report.getJSONArray("graphEdges").length())
             .map { report.getJSONArray("graphEdges").getJSONObject(it) }
