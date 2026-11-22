@@ -139,8 +139,8 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
 - [ ] Эволюционировать ScanEntry в FileRecord со стабильным ID, parent/container ID и terminal status.
 - [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
-- [ ] Ввести typed `ScanIssue` для диагностик с постоянным кодом, стадией, уровнем серьёзности, необязательным путём и сообщением. На первом срезе сохранить существующий JSON `warnings[]` без изменения текста и добавить структурированный `issues[]`; `schemaVersion=24` оставить без изменений.
-- [ ] Покрыть новый формат интеграционными тестами: коды/стадии/пути стабильны, а legacy `warnings[]` и Markdown сохраняют текущие сообщения.
+- [x] Ввести typed `ScanIssue` для диагностик с постоянным кодом, стадией, уровнем серьёзности, необязательным путём и сообщением. JSON `issues[]` добавлен без изменения существующего `warnings[]`; `schemaVersion=24` сохранён.
+- [x] Проверить структурированные diagnostics на scanner integration paths и при cancellation; коды/стадии/пути проверяются, а legacy `warnings[]` и Markdown сохраняют исходные сообщения.
 - [ ] Ввести GraphNode/GraphEdge здесь один раз; последующие этапы должны наполнять и связывать их, а не создавать новые типы.
 - [ ] Добавить сериализацию/десериализацию и round-trip tests.
 - [ ] Подключить один существующий parser end-to-end как образец и затем постепенно подключить остальные.
@@ -404,6 +404,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] Scanner integration: уникальный external MonoScript target читается через SerializedFile object table и payload parser; binding class/namespace/assembly/execution order попадает в JSON/Markdown (PR #21, synthetic fixture).
 - [x] Scanner integration: Unity provider `openInputStream` failure отражается как failed header analyzer и partial/skipped metadata analyzer; inventory и предупреждение сохраняются в report (PR #23).
 - [x] Scanner integration: ошибка `listFiles()` у подкаталога сохраняет уже найденный каталог и последующие доступные sibling entries, отмечает inventory partial и записывает inaccessibleDirectoryCount/warning (PR #25).
+- [x] Structured `ScanIssue` output: inventory directory-listing failure, Unity provider failure и cancellation публикуют стабильные code/stage/severity/path в JSON `issues[]`; старые `warnings[]` и Markdown сохраняют прежний текст.
 - [ ] Расширить scanner integration coverage на truncated/partial streams, прочие provider errors, реальные fixtures и остальные resolver paths.
 - [x] JVM tests для scan locking, job-scoped cancellation и pure partial-report builder; Android Activity/SAF instrumentation остаются.
 - [x] Тесты `ReportExporter` для null stream и ошибок открытия/записи/закрытия; не дублировать их при реализации потокового `ReportWriter`.
