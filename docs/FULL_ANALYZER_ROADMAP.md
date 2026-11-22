@@ -27,10 +27,11 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит записи, собранные обходом; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator, job-scoped cancellation и inventory-only partial report при отмене. В MVP есть начальный typed `ScanIssue` слой: code/stage/severity/path/message публикуются в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator, job-scoped cancellation и inventory-only partial report при отмене. В MVP есть typed `ScanIssue` слой: code/stage/severity/path/message публикуются в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. Текущий `inventoryStatus` описывает только обход дерева; per-file analyzer statuses остаются будущей задачей.
 
 **Цель расширения (не повторная реализация):**
-- Добавить stable file IDs и per-file terminal statuses: discovered, queued, analyzed, partial, skipped, inaccessible, unsupported, failed.
+- [x] Добавить stable FileRecord IDs, physical-folder `parentId` и inventory statuses `discovered`, `enumerated`, `partial`, `inaccessible`; raw SAF URI не попадает в JSON.
+- [ ] Добавить per-file analyzer terminal statuses: queued, analyzed, partial, skipped, unsupported, failed; не смешивать их с `inventoryStatus`.
 - Сохранить текущий JSON inventory и связать его записи с analyzer runs/findings.
 - Поддержка large-file streaming и positional/random-access reads через SAF abstraction.
 - Потоковое хеширование по опции для сравнения файлов и доказательства идентичности.
@@ -185,8 +186,8 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Проверенная main-ревизия `33d268c` содержит 17 JVM test files / 92 `@Test` methods; run [#340](https://github.com/HelterFall/God/actions/runs/44982866804) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
-- PR #28 добавил `ScanIssueTest` и scanner/partial-report assertions; изменения включены в main после успешного PR CI #337 и post-merge main CI #340.
+- Проверенная main-база `dcbdea1` содержит 17 JVM test files / 92 `@Test` methods; run [#343](https://github.com/HelterFall/God/actions/runs/44983187122) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+- Текущая feature branch добавляет `FileRecordTest` (18 files / 95 methods всего) и scanner assertions на стабильность IDs, parent links, дубликаты имён и directory statuses; PR CI ещё должен подтвердить эту ветку.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
 - Fake-tree integration coverage `GameScanner.scan()` включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с partial inventory/coverage и typed `ScanIssue`. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated streams и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
 
