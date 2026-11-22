@@ -490,6 +490,32 @@ God уже умеет выполнять ограниченную инвента
 
 ---
 
+## EVIDENCE-04 — публикация локальных Unity scene PPtrs в общий граф
+
+**Статус:** запланировано до изменения кода.  
+**Основа:** существующие `UnityObjectDecoder`, `UnitySceneGraphResolver`, `unity_scene_graph` AnalyzerRun и `UnityDecodedObjectSummary`; новый parser или параллельная graph model не создаётся.
+
+**Границы вертикального среза:**
+- Подключить к `Finding`, `Evidence`, `GraphNode`, `GraphEdge` только уже декодированные локальные PPtrs (`fileID=0`) из полей `gameObject`, `father`, `children`, `components`.
+- Не дублировать `m_Script`: он остаётся в EVIDENCE-02. Нелокальные PPtrs (`fileID>0`) остаются в EVIDENCE-03.
+- Связывать Finding/Evidence/edge с owner `FileRecord.id` и существующим `unity_scene_graph` `AnalyzerRun.id`; Evidence сохраняет `fileID=0` и точный target `PathID`.
+- Переиспользовать relation types EVIDENCE-03: `belongs-to-gameobject`, `has-parent-transform`, `has-child-transform`, `has-component`.
+- Переиспользовать nodeType/key/fileRecord identity EVIDENCE-03, чтобы один Unity object имел один GraphNode при наличии локальных и внешних рёбер.
+- Target node разрешается только при наличии реальной `objectSamples` object record. Декодированный target — `decoded/confirmed`; object record без payload — `metadata-only/strong`; PathID вне sample — `partial/weak` с `targetHint`. Не создавать вершины по одному PathID.
+- Отразить локальные scene relations в Markdown; full/partial JSON schemaVersion 24 и существующие четыре массива сохранить.
+
+**Проверки при реализации:**
+- [ ] Локальные GameObject/Transform/Component pointers создают корректные source/target nodes и directed edges с настоящими FileRecord/AnalyzerRun IDs.
+- [ ] Все четыре relation field сохраняют единый relation type независимо от локального/внешнего fileID.
+- [ ] Target object record без декодированного payload становится metadata-only node; отсутствующий в bounded sample target остаётся hint без target node.
+- [ ] Локальная и внешняя ссылка одного объекта используют один GraphNode и не теряют finding/evidence references при merge.
+- [ ] `m_Script` не дублируется между EVIDENCE-02 и EVIDENCE-04; `fileID>0` не дублируется между EVIDENCE-03 и EVIDENCE-04.
+- [ ] Partial/cancelled report сохраняет уже опубликованные local-scene records; тесты и полный CI проходят.
+
+**Не входит:** расширение TypeTree decoder, невыбранные классы объектов, полный scene/prefab traversal, bundle/container resolution, script/asset/CLR/PE graph и реальные игровые fixtures. Следующими остаются расширение object coverage и остальные analyzer families.
+
+---
+
 ## 4. Что делать первым — ближайшие маленькие задачи
 
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
