@@ -219,15 +219,17 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 var headerDiagnostic: String? = null
                 try {
                     val readLimit = if (deepMetadataRead) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
-                    prefix = readPrefix(entry.node, readLimit)
-                    if (prefix == null) {
+                    val readPrefix = readPrefix(entry.node, readLimit)
+                    prefix = readPrefix
+                    if (readPrefix == null) {
                         headerDiagnostic = "не удалось открыть файл для чтения"
                     } else {
-                        header = UnityFileHeaderParser.parse(prefix!!, entry.size)
-                        if (header == null) {
+                        val parsed = UnityFileHeaderParser.parse(readPrefix, entry.size)
+                        if (parsed == null) {
                             headerDiagnostic = "заголовок не распознан в прочитанном диапазоне"
                         } else {
-                            unityHeaders[entry.path] = header!!
+                            header = parsed
+                            unityHeaders[entry.path] = parsed
                         }
                     }
                 } catch (e: Exception) {
@@ -282,8 +284,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     if (parsedMetadata == null) {
                         metadataDiagnostic = "metadata не разобрана в доступном диапазоне"
                     } else {
-                        metadataSummary = readMonoScriptRecords(entry, parsedHeader, parsedMetadata)
-                        unityMetadata[entry.path] = metadataSummary!!
+                        val enrichedMetadata = readMonoScriptRecords(entry, parsedHeader, parsedMetadata)
+                        metadataSummary = enrichedMetadata
+                        unityMetadata[entry.path] = enrichedMetadata
                     }
                 } catch (e: Exception) {
                     metadataDiagnostic = e.message ?: e.javaClass.simpleName
