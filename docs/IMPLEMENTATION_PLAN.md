@@ -124,7 +124,7 @@ God уже умеет выполнять ограниченную инвента
 
 В коде есть частные модели результатов парсеров, `FileRecord` для inventory, `ScanResult` и агрегированная `ScanCoverage`. `GameScanner` использует `ScanEntry` как связку записи и read-only `ScanNode`; не вводить второй инвентарь. Общий слой доказательных результатов расширять постепенно.
 
-**Текущий рабочий срез:** main содержит per-file AnalyzerRun для PE/CLR (PR #30), Unity header/SerializedFile (PR #31) и local `mono_script_payload` (PR #33). PR #35 candidate дополняет их bounded `unity_scene_graph` и outcomes для существующих external resolver stages, не переписывая `UnityExternalPointerResolver`, `UnityMonoBehaviourScriptResolver` или `UnityExternalPathResolver`: `unity_external_monoscript` и `unity_monobehaviour_script_bindings` привязаны к owner SerializedFile; `unity_external_monoscript_payload` — к target SerializedFile; `unity_external_pointers` — к source/owner file. Отсутствующие ссылки получают `skipped`; неоднозначные, не найденные, недекодированные или ограниченные — `partial`; успешные разрешения — `analyzed`; ошибка target payload stream — `failed` на target и `partial` на owner. Если внешний target был пропущен из-за начального metadata deep-read window, resolver перечитывает его в дополнительном bounded лимите и обновляет уже существующий `serialized_file_metadata` run, вместо того чтобы сохранять ложный `skipped`. На один analyzer/file pair создаётся одна детерминированная запись без дублей. Декодированные MonoScript summaries также сохраняются в metadata целевого файла для последующих resolver stages. Parser models и aggregate `ScanCoverage` не переписывались. Code/test commit `8130363` прошёл run #397 (116 JVM tests и APK artifact upload). На main эта работа пока не слита.
+**Текущий рабочий срез:** main содержит per-file AnalyzerRun для PE/CLR (PR #30), Unity header/SerializedFile (PR #31) и local `mono_script_payload` (PR #33). PR #35 candidate дополняет их bounded `unity_scene_graph` и outcomes для существующих external resolver stages, не переписывая `UnityExternalPointerResolver`, `UnityMonoBehaviourScriptResolver` или `UnityExternalPathResolver`: `unity_external_monoscript` и `unity_monobehaviour_script_bindings` привязаны к owner SerializedFile; `unity_external_monoscript_payload` — к target SerializedFile; `unity_external_pointers` — к source/owner file. Отсутствующие ссылки получают `skipped`; неоднозначные, не найденные, недекодированные или ограниченные — `partial`; успешные разрешения — `analyzed`; ошибка target payload stream — `failed` на target и `partial` на owner. Если внешний target был пропущен из-за начального metadata deep-read window, resolver перечитывает его в дополнительном bounded лимите и обновляет уже существующий `serialized_file_metadata` run, вместо того чтобы сохранять ложный `skipped`. На один analyzer/file pair создаётся одна детерминированная запись без дублей. Декодированные MonoScript summaries также сохраняются в metadata целевого файла для последующих resolver stages. Parser models и aggregate `ScanCoverage` не переписывались. Code/test commit `8130363` прошёл run #397. Следующий slice EVIDENCE-01 добавил parser-neutral `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` в `AnalysisModels.kt`; [run #416](https://github.com/HelterFall/God/actions/runs/45010429343) подтвердил 134 JVM tests, debug APK build и artifact upload. Модели пока не подключены к `GameScanner`/report JSON, старые parser outputs остаются отдельными. На main изменения PR #35 не слиты.
 
 **Переиспользовать:**
 - `ScanEntry` уже использует `FileRecord`: SHA-256 ID, `parentId`, источник идентичности и `inventoryStatus`; приоритет — дополнять эту модель, не создавать второй список файлов.
@@ -135,33 +135,33 @@ God уже умеет выполнять ограниченную инвента
 **Что ещё не существует как общий межанализаторный слой:**
 - ContainerRecord для обычных и вложенных архивных entries.
 - Базовый AnalyzerRun с scanId, inputFileId, analyzerId, status и reason уже реализован для PE/CLR, Unity header/SerializedFile и local MonoScript payload; расширенная модель с parser version и явными полями supported format range/limits ещё не завершена.
-- `Finding` и `Evidence` с точными source locators, связанные с `AnalyzerRun` и `FileRecord`.
-- GraphNode и GraphEdge для межфайловых, native, managed, Unity и asset dependencies.
+- Parser-neutral `Finding` и `Evidence` с точными source locators, scan-scoped IDs и ссылками на `AnalyzerRun`/`FileRecord` уже добавлены в candidate PR #35; пока не создаются реальными parsers и не входят в report JSON.
+- `GraphNode` и `GraphEdge` как модели уже добавлены; сборка/валидация полного графа и интеграция с parser results остаются следующей задачей.
 
-**Следующий небольшой срез — EVIDENCE-01 (до подключения parser outputs):**
-- Создать parser-neutral JVM models `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` с детерминированными scan-scoped IDs.
+**EVIDENCE-01 — общие модели и JSON round-trip (реализовано в candidate PR #35; до подключения parser outputs):**
+- Добавлены parser-neutral JVM models `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` с детерминированными scan-scoped IDs; identity keys включают scan, owner file/analyzer run и семантический ключ.
 - `Finding` и `Evidence` связываются с `AnalyzerRun.id` и `FileRecord.id`; `Evidence` дополнительно хранит метод обнаружения, confidence и точный locator.
-- `SourceLocator` различает byte offset/length, PE RVA, CLR metadata token, Unity PathID и IL offset. Нельзя трактовать RVA или PathID как смещение файла.
+- `SourceLocator` различает byte offset/length, PE RVA, CLR metadata token, Unity `fileID`/PathID и IL offset; проверяет отрицательные/переполняющиеся byte ranges, unsigned-32-bit RVA/token, signed-32-bit Unity fileID и integer-only JSON. Нельзя трактовать RVA или PathID как смещение файла.
 - `GraphNode`/ `GraphEdge` представляют сущности и отношения без Android/SAF зависимостей; endpoint validation и store остаются следующим шагом.
-- У каждого типа есть стабильный JSON representation и обратное чтение; round-trip тесты фиксируют null/optional fields, enums, validation и deterministic identity.
-- Этот slice **не подключает** новые модели к `GameScanner`, не переводит существующие parser-specific summaries и не меняет JSON report/schemaVersion 24. Следующий slice подключит один реальный resolver end-to-end.
+- У каждого типа есть стабильный JSON representation и обратное чтение; `AnalysisModelsTest` проверяет round-trip, null/optional fields, enums, byte/range validation, numeric overflow, ссылки и deterministic identity.
+- Этот slice **не подключает** новые модели к `GameScanner`, не переводит существующие parser-specific summaries и не меняет JSON report/schemaVersion 24. Следующий slice EVIDENCE-02 подключит один существующий resolver end-to-end и только после этого расширит report JSON.
 
 **Задачи:**
-- [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
+- [x] Спроектировать общий Kotlin data model без зависимости от Android UI (`AnalysisModels.kt` не импортирует Android/SAF APIs).
 - [x] Эволюционировать inventory entries в `FileRecord` со стабильным ID и `parentId`; использовать хеш provider key при наличии, иначе относительный путь, parent identity и порядком дубликата.
 - [x] Добавить `inventoryStatus` (`discovered`, `enumerated`, `partial`, `inaccessible`) и сохранять его в JSON, включая partial report при отмене.
 - [x] Добавить `AnalyzerRun` с `inputFileId` и статусами `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed`; PE/CLR — PR #30, Unity header/SerializedFile — PR #31, local MonoScript payload — PR #33. Partial report сохраняет уже собранные и queued outcomes.
 - [x] Подключить `mono_script_payload` run для локальных MonoScript targets в PR #33; success/partial/failed/skipped и FileRecord link проверяются scanner integration tests.
 - [x] Подключить per-file runs к существующим external MonoScript/PPtr/MonoBehaviour resolvers: owner/target FileRecord linkage, analyzed/partial/skipped/failed outcomes, cancellation-safe queued records и без дублирования deterministic AnalyzerRun IDs; при дополнительном чтении target обновлять прежний skipped SerializedFile run (PR #35, code/test commit `8130363`).
-- [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
+- [x] Ввести `Finding`/`Evidence` с точными locators: FileRecord linkage plus byte offset/length, RVA, metadata token, Unity fileID/PathID и IL offset; typed confidence/status/method, reason и parser/format provenance.
 - [x] Ввести typed `ScanIssue` для диагностик с постоянным кодом, стадией, уровнем серьёзности, необязательным путём и сообщением. JSON `issues[]` добавлен без изменения существующего `warnings[]`; `schemaVersion=24` сохранён.
 - [x] Проверить структурированные diagnostics на scanner integration paths и при cancellation; коды/стадии/пути проверяются, а legacy `warnings[]` и Markdown сохраняют исходные сообщения.
-- [ ] Ввести GraphNode/GraphEdge здесь один раз; последующие этапы должны наполнять и связывать их, а не создавать новые типы.
-- [ ] Добавить сериализацию/десериализацию и round-trip tests.
-- [ ] Подключить один существующий parser end-to-end как образец и затем постепенно подключить остальные.
+- [x] Ввести `GraphNode`/`GraphEdge` здесь один раз; unresolved edges сохраняют `targetHint`, не создавая фиктивный target node. Endpoint existence validation и графовая агрегация ещё впереди.
+- [x] Добавить JSON serialization/deserialization и round-trip tests для всех пяти моделей; enum IDs и optional/null fields фиксируются тестами.
+- [ ] Подключить один существующий resolver/parser end-to-end как образец: создать Finding/Evidence/GraphNode/GraphEdge, проверить ссылки на AnalyzerRun/FileRecord и вывести их в report JSON, затем постепенно подключить остальные.
 - [x] Расширить per-file/per-analyzer statuses на external MonoScript/PPtr/MonoBehaviour resolver stages; остальные analyzer families остаются следующими отдельными задачами. Aggregate ScanCoverage и parser-specific result models сохранены.
 
-**Критерий завершения:** один тестовый scan сохраняет FileRecord, parser finding, Evidence и graph edge в единой модели; после сериализации сохраняются ID, связи и точный source locator.
+**Критерий EVIDENCE-01 — выполнен:** все пять parser-neutral models имеют стабильные scan-scoped IDs, round-trip JSON и тесты на locators/links/validation. **Критерий полного этапа 1 — ещё не выполнен:** один реальный scan должен создать Finding/Evidence/Graph records из parser output, проверить их связь с реальными AnalyzerRun/FileRecord, а затем сохранить в report JSON с round-trip ID/links/locators.
 
 ### Этап 2 — единый файловый слой поверх SAF
 
