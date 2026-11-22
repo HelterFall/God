@@ -4,7 +4,7 @@
 **Проверенная база `main`:** `dcbdea1c39743f092f32795b9d54507590e763ad`.  
 **Последний source commit в базе:** `33d268c9e43b504f75fa032a13df33dc0b975eab`.  
 **Последняя успешная проверка `main`:** [run #343](https://github.com/HelterFall/God/actions/runs/44983187122) — 92 JVM tests, debug APK build и artifact upload завершились успешно.  
-**Текущая ветка:** `feat/file-record-identities`, 18 test files / 95 `@Test` methods; CI для этого изменения ещё не завершён.
+**Проверенная feature branch:** `feat/file-record-identities`, 18 test files / 95 `@Test` methods; PR [#29 / run #344](https://github.com/HelterFall/God/actions/runs/44984711337) завершился `success` — tests, debug APK build и artifact upload прошли.
 
 ## 1. Итог
 
@@ -187,7 +187,7 @@ https://github.com/HelterFall/God/actions/runs/44983187122
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
 - Проверенная main-база содержит 92 метода `@Test` в 17 JVM test files; текущая ветка расширяет её до 95 методов в 18 файлах.
-- CI для ветки feat/file-record-identities должен отдельно подтвердить новый FileRecord model и scanner assertions.
+- PR [#29 / run #344](https://github.com/HelterFall/God/actions/runs/44984711337) подтвердил новый FileRecord model и scanner assertions: `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload завершились успешно.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
