@@ -470,11 +470,18 @@ class GameScannerIntegrationTest {
         assertEquals(0, report.getJSONArray("unityFileHeaders").length())
         assertEquals(0, report.getJSONArray("unityMetadata").length())
         val warnings = report.getJSONArray("warnings")
+        val legacyProviderWarning = "Unity-анализ Data/globalgamemanagers: synthetic provider read failure"
         assertTrue((0 until warnings.length()).any {
-            warnings.getString(it).contains(
-                "Unity-анализ Data/globalgamemanagers: synthetic provider read failure"
-            )
+            warnings.getString(it) == legacyProviderWarning
         })
+        val issues = report.getJSONArray("issues")
+        val providerIssue = (0 until issues.length())
+            .map { issues.getJSONObject(it) }
+            .first { it.getString("code") == "unity.header_analysis_failed" }
+        assertEquals("unity_file_headers", providerIssue.getString("stage"))
+        assertEquals("warning", providerIssue.getString("severity"))
+        assertEquals("Data/globalgamemanagers", providerIssue.getString("path"))
+        assertEquals(legacyProviderWarning, providerIssue.getString("message"))
         assertTrue(result.markdown.contains("## Scan coverage"))
         assertTrue(result.markdown.contains("- unity_file_headers: failed; candidates=1; attempted=1; parsed=0"))
         assertTrue(result.markdown.contains("- serialized_file_metadata: partial; candidates=1; attempted=0; parsed=0"))
@@ -519,11 +526,16 @@ class GameScannerIntegrationTest {
         assertTrue(paths.none { it.contains("hidden.asset") })
 
         val warnings = report.getJSONArray("warnings")
-        assertTrue((0 until warnings.length()).any {
-            warnings.getString(it).contains(
-                "Не удалось прочитать каталог Data: synthetic directory listing failure"
-            )
-        })
+        val legacyDirectoryWarning = "Не удалось прочитать каталог Data: synthetic directory listing failure"
+        assertTrue((0 until warnings.length()).any { warnings.getString(it) == legacyDirectoryWarning })
+        val issues = report.getJSONArray("issues")
+        val directoryIssue = (0 until issues.length())
+            .map { issues.getJSONObject(it) }
+            .first { it.getString("code") == "inventory.directory_listing_failed" }
+        assertEquals("inventory", directoryIssue.getString("stage"))
+        assertEquals("error", directoryIssue.getString("severity"))
+        assertEquals("Data", directoryIssue.getString("path"))
+        assertEquals(legacyDirectoryWarning, directoryIssue.getString("message"))
         assertTrue(result.markdown.contains("- Inventory status: partial"))
         assertTrue(result.markdown.contains("Не удалось прочитать каталог Data: synthetic directory listing failure"))
         assertTrue(result.markdown.contains("readme.txt"))

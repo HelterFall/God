@@ -1,6 +1,6 @@
 # God — дорожная карта автономного Unity Intelligence Analyzer
 
-**Дата актуализации:** 21 ноября 2026 года
+**Дата актуализации:** 22 ноября 2026 года
 **Назначение:** построить автономный инструмент исследования Unity-игр, который формирует доказательное техническое досье и карту переноса.
 
 ## 1. Главная цель
@@ -27,7 +27,7 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит записи, собранные обходом; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator, job-scoped cancellation и inventory-only partial report при отмене. Markdown tree отдельно ограничен 20 000 строк.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит записи, собранные обходом; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator, job-scoped cancellation и inventory-only partial report при отмене. В рабочей ветке добавлен начальный typed `ScanIssue` слой: code/stage/severity/path/message публикуются в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк.
 
 **Цель расширения (не повторная реализация):**
 - Добавить stable file IDs и per-file terminal statuses: discovered, queued, analyzed, partial, skipped, inaccessible, unsupported, failed.
@@ -183,12 +183,12 @@ P1/P2 обозначают приоритет исследования и раз
 
 ## 5. Acceptance criteria
 
-### Текущий уровень проверок (source baseline 513f1ac)
+### Текущий уровень проверок
 
-- 16 JVM test files / 91 @Test methods; `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases; 8 `GameScannerIntegrationTest` проверяют PE/CLR/SerializedFile/external MonoScript/provider/directory-failure scanner paths и cancellation.
-- Main CI run [#331](https://github.com/HelterFall/God/actions/runs/44799745772) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact на merge commit `513f1acbf7c08d6de93045d298db8ba0ab3bc517`; PR #25 run #330 также прошёл.
-- Parser tests в основном используют synthetic inputs; PE coverage включает PE32/PE32+ named/ordinal thunks, ARM64 recognition и negative Import Directory/DLL-name RVA fixtures.
-- Fake-tree integration coverage `GameScanner.scan()` теперь включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с корректным partial inventory/coverage; широкая Unity version/TypeTree/scene-PPtr matrix, truncated stream и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
+- На проверенной main-базе `052c023` — 16 JVM test files / 91 @Test methods; run [#333](https://github.com/HelterFall/God/actions/runs/44800837048) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. Source code main соответствует `513f1ac`.
+- Feature branch `feat/typed-scan-issues` содержит 17 JVM test files / 92 `@Test` methods: один отдельный `ScanIssueTest` плюс assertions в существующих scanner/partial-report tests. PR [#28 / run #335](https://github.com/HelterFall/God/actions/runs/44982658313) подтвердил эту feature branch: JVM tests, debug APK build и artifact upload прошли.
+- `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
+- Fake-tree integration coverage `GameScanner.scan()` включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с partial inventory/coverage и typed `ScanIssue`. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated streams и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 

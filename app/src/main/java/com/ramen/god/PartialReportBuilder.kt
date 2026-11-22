@@ -60,6 +60,12 @@ internal object PartialReportBuilder {
             append("\"entryLimitReached\":false},")
             append("\"analyzers\":[]},")
             append("\"files\":[$jsonFiles],")
+            append("\"issues\":[{")
+            append("\"code\":\"scan.cancelled\",")
+            append("\"stage\":\"scan\",")
+            append("\"severity\":\"warning\",")
+            append("\"path\":null,")
+            append("\"message\":${jsonString(warning)}}],")
             append("\"warnings\":[${jsonString(warning)}]")
             append("}")
         }

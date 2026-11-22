@@ -1,11 +1,11 @@
 # God — план дальнейших действий
 
-**Дата:** 21 ноября 2026 года  
+**Дата:** 22 ноября 2026 года  
 **Базовая ветка:** main  
-**Текущий source baseline:** 513f1acbf7c08d6de93045d298db8ba0ab3bc517
-**Проверенная ревизия main для этого аудита:** 513f1acbf7c08d6de93045d298db8ba0ab3bc517
-**Последняя успешная проверка CI:** main run [#331](https://github.com/HelterFall/God/actions/runs/44799745772) успешно проверил merge commit `513f1acbf7c08d6de93045d298db8ba0ab3bc517`: JVM tests, `assembleDebug` и загрузка APK artifact; PR #25 run #330 также прошёл.
-**Текущая тестовая база:** 16 JVM test files / 91 @Test methods; `PeParserTest` — 9, `GameScannerIntegrationTest` — 8, `PartialReportBuilderTest` — 5. CLR и Unity SerializedFile/MonoScript scanner integration fixtures синтетические; реальные binary fixtures и Android instrumentation пока отсутствуют.
+**Последний коммит с изменениями исходного кода:** `513f1acbf7c08d6de93045d298db8ba0ab3bc517`
+**Текущий HEAD ветки main:** `052c02319f54f97d00007b7ab6e60c2a375edf0b` (последний коммит менял только документацию).
+**Последняя успешная проверка `main`:** run [#333](https://github.com/HelterFall/God/actions/runs/44800837048) проверил HEAD `052c02319f54f97d00007b7ab6e60c2a375edf0b`. **Проверка этой рабочей ветки:** PR [#28, run #335](https://github.com/HelterFall/God/actions/runs/44982658313) завершился `success` на commit `a03e996760037c376482fd26e42d14bfde8b1ec3`: unit tests, debug APK build и artifact upload успешны.
+**Тестовая база `main` до этой правки:** 16 JVM test files / 91 @Test methods. **В этой рабочей ветке:** 17 files / 92 methods (`ScanIssueTest` добавляет один тест); CLR и Unity SerializedFile/MonoScript scanner integration fixtures остаются синтетическими, реальные binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
@@ -139,7 +139,8 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
 - [ ] Эволюционировать ScanEntry в FileRecord со стабильным ID, parent/container ID и terminal status.
 - [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
-- [ ] Добавить typed ScanIssue, сохранив текущие warnings при переходном периоде.
+- [x] Ввести typed `ScanIssue` для диагностик с постоянным кодом, стадией, уровнем серьёзности, необязательным путём и сообщением. JSON `issues[]` добавлен без изменения существующего `warnings[]`; `schemaVersion=24` сохранён.
+- [x] Проверить структурированные diagnostics на scanner integration paths и при cancellation; коды/стадии/пути проверяются, а legacy `warnings[]` и Markdown сохраняют исходные сообщения.
 - [ ] Ввести GraphNode/GraphEdge здесь один раз; последующие этапы должны наполнять и связывать их, а не создавать новые типы.
 - [ ] Добавить сериализацию/десериализацию и round-trip tests.
 - [ ] Подключить один существующий parser end-to-end как образец и затем постепенно подключить остальные.
@@ -212,10 +213,10 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Формализовать правила bump/backward compatibility для schemaVersion=24 как версии структуры JSON. Не вводить второй report format version с тем же смыслом.
 - [ ] Добавить JSON Schema и тест валидации текущего и будущего report format.
 - [ ] Добавить manifest с версией God/analyzer, schemaVersion, временем, coverage и hashes частей отчёта.
-- [ ] Проверять null output stream и ошибки записи; сейчас openOutputStream()?.use(...) может завершиться без записи, но UI всё равно сообщает «Отчёт сохранён».
+- [x] Проверять null output stream и ошибки открытия/записи/закрытия через `ReportExporter`; helper выбрасывает IOException, а UI сообщает об успехе только после закрытия потока (пять JVM-тестов уже есть).
 - [ ] Поддержать partial/cancelled report с явной маркировкой.
 
-**Обязательные регрессионные тесты:** null output stream, IOException при открытии и записи, write/close failure, partial report после cancellation и повторное чтение сформированного JSON.
+**Проверки экспорта, уже выполненные:** null output stream, IOException при открытии/записи/закрытии, UTF-8 и закрытие потока покрыты пятью тестами `ReportExporterTest`. Для будущего потокового `ReportWriter` отдельно потребуются тесты больших отчётов, частичной записи и совместимости JSON.
 
 **Критерий завершения:** тест генерирует большой отчёт без построения всей структуры в памяти; JSON проходит schema validation; manifest корректен; null stream/ошибка экспорта не обозначаются как успех; partial report содержит completed/partial/failed analyzer states.
 
@@ -394,7 +395,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Текущая тестовая база:** 16 JVM test files / 91 @Test methods. Scanner fake-tree tests проверяют PE DLL/function/ordinal imports, synthetic CLR metadata, Unity SerializedFile v22 metadata, ambiguous and successful external MonoScript resolution, Unity provider open failure и directory enumeration failure; PeParser tests дополнительно покрывают ARM64 recognition и два malformed RVA сценария. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
+**Тестовая база feature branch:** 17 JVM test files / 92 @Test methods. Scanner fake-tree tests проверяют PE DLL/function/ordinal imports, synthetic CLR metadata, Unity SerializedFile v22 metadata, ambiguous and successful external MonoScript resolution, Unity provider open failure, directory enumeration failure и typed `ScanIssue`; PeParser tests дополнительно покрывают ARM64 recognition и два malformed RVA сценария. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
@@ -403,9 +404,10 @@ God уже умеет выполнять ограниченную инвента
 - [x] Scanner integration: уникальный external MonoScript target читается через SerializedFile object table и payload parser; binding class/namespace/assembly/execution order попадает в JSON/Markdown (PR #21, synthetic fixture).
 - [x] Scanner integration: Unity provider `openInputStream` failure отражается как failed header analyzer и partial/skipped metadata analyzer; inventory и предупреждение сохраняются в report (PR #23).
 - [x] Scanner integration: ошибка `listFiles()` у подкаталога сохраняет уже найденный каталог и последующие доступные sibling entries, отмечает inventory partial и записывает inaccessibleDirectoryCount/warning (PR #25).
+- [x] Structured `ScanIssue` output: inventory directory-listing failure, Unity provider failure и cancellation публикуют стабильные code/stage/severity/path в JSON `issues[]`; старые `warnings[]` и Markdown сохраняют прежний текст.
 - [ ] Расширить scanner integration coverage на truncated/partial streams, прочие provider errors, реальные fixtures и остальные resolver paths.
 - [x] JVM tests для scan locking, job-scoped cancellation и pure partial-report builder; Android Activity/SAF instrumentation остаются.
-- [ ] Добавить tests для export null stream/write/close failures.
+- [x] Тесты `ReportExporter` для null stream и ошибок открытия/записи/закрытия; не дублировать их при реализации потокового `ReportWriter`.
 - [ ] Добавить настоящие legal/redistributable PE/CLR/Unity fixtures и golden reports.
 - [ ] Android instrumentation tests для SAF permissions, provider stream behavior, Activity recreation и export.
 - [x] PE Import/Thunk tests: DLL names, function names, hints, ordinals и parser-to-report JSON/Markdown path.
@@ -433,7 +435,7 @@ God уже умеет выполнять ограниченную инвента
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
 1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и inventory-only partial report; 11 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
-2. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
+2. **Data model:** первый вертикальный срез `ScanIssue` уже реализован и прошёл PR CI #335; следующий шаг — расширить ScanEntry до FileRecord со стабильным ID/status, затем добавить Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.
