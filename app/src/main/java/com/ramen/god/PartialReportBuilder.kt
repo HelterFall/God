@@ -11,7 +11,11 @@ internal object PartialReportBuilder {
         files: List<FileRecord>,
         totalBytes: Long,
         scanId: String = java.util.UUID.randomUUID().toString(),
-        analyzerRuns: List<AnalyzerRun> = emptyList()
+        analyzerRuns: List<AnalyzerRun> = emptyList(),
+        findings: List<Finding> = emptyList(),
+        evidence: List<Evidence> = emptyList(),
+        graphNodes: List<GraphNode> = emptyList(),
+        graphEdges: List<GraphEdge> = emptyList()
     ): ScanResult {
         val fileCount = files.count { !it.directory }
         val directoryCount = files.size - fileCount
@@ -45,7 +49,19 @@ internal object PartialReportBuilder {
                 appendLine("## Analyzer outcomes before cancellation")
                 analyzerRuns.forEach { run ->
                     appendLine("- ${run.analyzerId}: ${run.inputFileId} — ${run.status.id}" +
-                        (run.reason?.let { "; $it" } ?: ""))
+                        (run.reason?.let { "; ${it}" } ?: ""))
+                }
+            }
+            if (findings.isNotEmpty() || evidence.isNotEmpty() ||
+                graphNodes.isNotEmpty() || graphEdges.isNotEmpty()
+            ) {
+                appendLine()
+                appendLine("## Evidence and graph results before cancellation")
+                appendLine("- Findings: ${findings.size}; evidence: ${evidence.size}; " +
+                    "graph nodes: ${graphNodes.size}; graph edges: ${graphEdges.size}")
+                findings.forEach { finding ->
+                    appendLine("- [${finding.status.id}/${finding.confidence.id}] " +
+                        "${finding.title}: ${finding.summary}")
                 }
             }
         }
@@ -75,6 +91,10 @@ internal object PartialReportBuilder {
             append("\"entryLimitReached\":false},")
             append("\"analyzers\":[]},")
             append("\"analyzerRuns\":").append(JSONArray(analyzerRuns.map { it.toJsonObject() })).append(",")
+            append("\"findings\":").append(JSONArray(findings.map { it.toJsonObject() })).append(",")
+            append("\"evidence\":").append(JSONArray(evidence.map { it.toJsonObject() })).append(",")
+            append("\"graphNodes\":").append(JSONArray(graphNodes.map { it.toJsonObject() })).append(",")
+            append("\"graphEdges\":").append(JSONArray(graphEdges.map { it.toJsonObject() })).append(",")
             append("\"files\":").append(jsonFiles).append(",")
             append("\"issues\":[{")
             append("\"code\":\"scan.cancelled\",")
