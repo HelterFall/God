@@ -107,6 +107,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - Публиковать JSON inventory с детерминированным `id`, `parentId`, `identitySource` и `inventoryStatus`. ID строится из хешированного SAF document key, если он есть, иначе — из цепочки родительских ID, относительного пути и порядка одноимённых записей; исходный provider URI в отчёт не попадает.
 - Публиковать структурированные ScanIssue в JSON `issues[]` с постоянными кодом, стадией, серьёзностью и путём. Существующий массив `warnings[]` и текст Markdown сохраняют человекочитаемые сообщения; версия JSON остаётся schemaVersion 24.
 - Публиковать `scanId` и `analyzerRuns[]`: отдельные записи PE, CLR metadata, Unity header, SerializedFile metadata, локального MonoScript payload, bounded Unity scene graph и external resolver stages. В PR #35 candidate к per-file runs добавлены `unity_external_monoscript` и `unity_monobehaviour_script_bindings` для owner SerializedFile, `unity_external_monoscript_payload` для target SerializedFile и `unity_external_pointers` для source file. Каждый run связан через `inputFileId` с `FileRecord.id` и содержит статус/причину; один analyzer/file pair не дублируется. Существующая aggregate `ScanCoverage` остаётся отдельной сводкой.
+- В candidate PR #35 добавлен parser-neutral слой `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` в `AnalysisModels.kt`: scan-scoped IDs, confidence/status/method, ссылки на AnalyzerRun/FileRecord, точные byte range, RVA, metadata token, Unity fileID/PathID и IL offset; JSON round-trip покрыт unit tests. Пока эти модели **не создаются parser outputs и не включены в report JSON**: существующие summaries и графы остаются отдельными структурами до следующего этапа интеграции.
 
 ### Главные ограничения текущего MVP
 
@@ -117,7 +118,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - IL2CPP metadata parser отсутствует.
 - SerializedFile, TypeTree, сцены и объектные payload декодируются ограниченно; текущий граф сцены не гарантированно полный.
 - Полноценный декодер основных категорий ресурсов отсутствует.
-- Сквозной dependency/wiring graph и porting plan пока не реализованы.
+- Сквозной dependency/wiring graph и porting plan пока не реализованы. `GraphNode`/`GraphEdge` есть как общие модели в PR #35 candidate, но ещё не наполняются данными анализаторов и не образуют опубликованный граф.
 - Отмена на проверяемых границах сохраняет partial report с полным уже собранным inventory; `analyzerRuns[]` сохраняет накопленные результаты PE/CLR, Unity header/SerializedFile, локального MonoScript payload, локального scene graph и external MonoScript/PPtr/MonoBehaviour resolver stages, включая queued-записи на resolver boundaries. Markdown ограничен 20 000 строк. Отчёт помечается `partial=true` и `scanStatus=cancelled`; незавершённые результаты не выдаются за полные.
 - Прогресс показывается в основном во время инвентаризации, а не по отдельным стадиям анализаторов.
 - Markdown tree ограничен 20 000 строк, тогда как JSON files[] содержит все записи, собранные текущим обходом (до лимита 100 000 entries и глубины 40).
