@@ -48,7 +48,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] JSON-поле files содержит все записи, собранные текущим обходом в пределах этих лимитов. Markdown-дерево отдельно ограничено 20 000 строк.
 - [x] Базовый callback прогресса во время инвентаризации; UI обновляет путь/счётчик каждые 128 записей.
 - [x] Кнопка запроса отмены и job-scoped cancellation через `ScanCoordinator`.
-- [x] При отмене на этапах inventory/PE/Unity/resolver возвращается partial report с уже собранным inventory; JSON сохраняет все entries, Markdown ограничен 20 000 строк. `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR и Unity header/SerializedFile metadata, если соответствующие этапы уже начались.
+- [x] При отмене на этапах inventory/PE/Unity/resolver возвращается partial report с собранным inventory; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile и local MonoScript payload, если этапы уже начались.
 - [x] Агрегированная ScanCoverage: inventory counters, PE/CLR/Unity analyzer candidate/attempt/parsed/partial/failed/limited/skipped counts и derived status.
 
 **Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report остаётся пустым, но `analyzerRuns[]` сохраняет per-file результаты этапов, уже достигнутых к моменту отмены. PE/CLR, Unity header/SerializedFile и local MonoScript payload подключены; external MonoScript/PPtr и scene-object resolver stages ещё не имеют отдельных запусков. Отмена проверяется на границах parser/resolver этапов, а не внутри каждого блокирующего provider read. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
@@ -191,15 +191,16 @@ God уже умеет выполнять ограниченную инвента
 **Что нужно сделать:**
 - [ ] Выделить InventoryScanner / ScanCoordinator из GameScanner, не переписывая существующий обход без необходимости.
 - [x] Добавить стабильные file IDs, `parentId` и `inventoryStatus` в JSON files[]; provider keys хешируются, raw URI не экспортируется.
-- [x] Добавить per-file AnalyzerRun для PE, CLR metadata, Unity header и SerializedFile metadata; `inventoryStatus` по-прежнему относится только к обходу папок.
+- [x] Добавить per-file AnalyzerRun для PE, CLR metadata, Unity header, SerializedFile metadata и local MonoScript payload; `inventoryStatus` по-прежнему относится только к обходу папок.
 - [x] Подключить per-file AnalyzerRun к Unity header/SerializedFile metadata в PR #31.
-- [ ] Подключить отдельные runs к MonoScript payload, external-reference/scene resolvers и остальным анализаторам.
+- [x] Подключить отдельный `mono_script_payload` run для локальных targets в PR #33.
+- [ ] Подключить отдельные runs к external MonoScript payload resolution, external-reference/PPtr и scene resolvers.
 - [ ] Сохранить aggregate ScanCoverage и расширить его связями с per-file/per-analyzer runs.
 - [ ] Учитывать причины пропусков: permission denied, inaccessible, depth/entry limit, too large, unsupported и другие.
 - [ ] Добавить analyzer jobs с per-file/per-analyzer status и избежать повторной обработки без необходимости.
 - [x] Отключать кнопку повторного запуска, пока scan активен; `ScanCoordinator` запрещает второй job.
 - [x] Заменить общий флаг на отдельный job-scoped cancellation token в `ScanCoordinator`.
-- [x] При отмене сохранять уже собранную инвентаризацию в partial Markdown/JSON; незавершённые parser результаты не выдаются за готовые.
+- [x] При отмене сохранять уже собранную инвентаризацию и завершённые/queued AnalyzerRun outcomes; parser результаты не выдаются за готовые, если соответствующие этапы не достигнуты.
 - [ ] Добавить прогресс по стадиям и анализаторам; текущий счётчик/путь отражает в основном обход папок.
 - [ ] Сохранять результат/состояние scan при пересоздании Activity; сейчас сохраняется URI папки, но не отчёт и не состояние задания.
 
