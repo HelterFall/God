@@ -1370,7 +1370,6 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             confidence = confidence,
             status = findingStatus,
             reason = reason,
-            parserVersion = "unity-monobehaviour-script-resolver",
             supportedFormatRange = "SerializedFile metadata v19-v26"
         ).id
         val evidenceItem = Evidence.create(
@@ -1464,7 +1463,6 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             evidenceIds = listOf(evidenceItem.id),
             graphNodeIds = listOfNotNull(sourceNode.id, targetNode?.id),
             graphEdgeIds = listOfNotNull(edge?.id),
-            parserVersion = "unity-monobehaviour-script-resolver",
             supportedFormatRange = "SerializedFile metadata v19-v26"
         )
         if (findings.none { it.id == finding.id }) findings.add(finding)
