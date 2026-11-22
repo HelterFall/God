@@ -304,7 +304,13 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             if (shouldCancel()) throw ScanCancelledException()
             if (entries.size >= MAX_ENTRIES) {
                 entryLimitReached = true
-                warnings.add("Достигнут лимит " + MAX_ENTRIES + " записей; дерево неполное.")
+                addIssue(
+                    code = "inventory.entry_limit_reached",
+                    stage = ScanIssueStage.INVENTORY,
+                    severity = ScanIssueSeverity.WARNING,
+                    message = "Достигнут лимит " + MAX_ENTRIES + " записей; дерево неполное.",
+                    path = parent.ifBlank { null }
+                )
                 break
             }
             val name = child.name ?: "(unnamed)"
