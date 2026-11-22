@@ -101,6 +101,105 @@ class PartialReportBuilderTest {
     }
 
     @Test
+    fun preservesFindingsEvidenceAndGraphWhenBuildingCancelledReport() {
+        val file = record("Data/globalgamemanagers", false, 512)
+        val scanId = "partial-evidence-scan"
+        val run = AnalyzerRun.create(
+            scanId = scanId,
+            analyzerId = "unity_monobehaviour_script_bindings",
+            inputFileId = file.id,
+            status = AnalyzerRunStatus.PARTIAL,
+            reason = "One external script target was unresolved."
+        )
+        val findingId = Finding.create(
+            scanId = scanId,
+            findingKey = "monobehaviour-script:10:1:77",
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            category = "unity.monobehaviour-script-binding",
+            title = "MonoBehaviour m_Script binding",
+            summary = "A sampled external script pointer was not resolved.",
+            confidence = AnalysisConfidence.UNKNOWN,
+            status = FindingStatus.UNRESOLVED,
+            reason = "Target file was not found."
+        ).id
+        val evidence = Evidence.create(
+            scanId = scanId,
+            evidenceKey = "m-script-pointer:10:1:77",
+            findingId = findingId,
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            method = EvidenceMethod.PARSED,
+            confidence = AnalysisConfidence.UNKNOWN,
+            description = "Decoded m_Script PPtr.",
+            locator = SourceLocator(unityFileId = 1, pathId = 77)
+        )
+        val node = GraphNode.create(
+            scanId = scanId,
+            nodeType = "unity-monobehaviour",
+            key = "PathID:10",
+            label = "MonoBehaviour PathID 10",
+            fileRecordId = file.id,
+            locator = SourceLocator(pathId = 10),
+            findingIds = listOf(findingId),
+            evidenceIds = listOf(evidence.id)
+        )
+        val edge = GraphEdge.create(
+            scanId = scanId,
+            edgeKey = "monobehaviour-script:10:1:77",
+            sourceNodeId = node.id,
+            targetNodeId = null,
+            relationType = "attaches-script",
+            confidence = AnalysisConfidence.UNKNOWN,
+            status = FindingStatus.UNRESOLVED,
+            evidenceIds = listOf(evidence.id),
+            findingIds = listOf(findingId),
+            analyzerRunId = run.id,
+            targetHint = "fileID=1, PathID=77 (target-missing)"
+        )
+        val finding = Finding.create(
+            scanId = scanId,
+            findingKey = "monobehaviour-script:10:1:77",
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            category = "unity.monobehaviour-script-binding",
+            title = "MonoBehaviour m_Script binding",
+            summary = "A sampled external script pointer was not resolved.",
+            confidence = AnalysisConfidence.UNKNOWN,
+            status = FindingStatus.UNRESOLVED,
+            reason = "Target file was not found.",
+            evidenceIds = listOf(evidence.id),
+            graphNodeIds = listOf(node.id),
+            graphEdgeIds = listOf(edge.id)
+        )
+
+        val result = PartialReportBuilder.build(
+            rootName = "Game",
+            files = listOf(file),
+            totalBytes = 512,
+            scanId = scanId,
+            analyzerRuns = listOf(run),
+            findings = listOf(finding),
+            evidence = listOf(evidence),
+            graphNodes = listOf(node),
+            graphEdges = listOf(edge)
+        )
+
+        val report = JSONObject(result.json)
+        assertEquals(24, report.getInt("schemaVersion"))
+        assertEquals(1, report.getJSONArray("analyzerRuns").length())
+        assertEquals(finding.id, report.getJSONArray("findings").getJSONObject(0).getString("id"))
+        assertEquals(evidence.id, report.getJSONArray("evidence").getJSONObject(0).getString("id"))
+        assertEquals(node.id, report.getJSONArray("graphNodes").getJSONObject(0).getString("id"))
+        val restoredEdge = report.getJSONArray("graphEdges").getJSONObject(0)
+        assertEquals(edge.id, restoredEdge.getString("id"))
+        assertTrue(restoredEdge.isNull("targetNodeId"))
+        assertEquals("fileID=1, PathID=77 (target-missing)", restoredEdge.getString("targetHint"))
+        assertTrue(result.markdown.contains("Evidence and graph results before cancellation"))
+        assertTrue(result.markdown.contains("MonoBehaviour m_Script binding"))
+    }
+
+    @Test
     fun markdownCapsLargeInventoryButJsonRetainsEveryEntry() {
         val files = (1..20_001).map { record("file-$it", false, 1) }
         val result = PartialReportBuilder.build("Game", files, files.size.toLong())
