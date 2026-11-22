@@ -2,21 +2,20 @@
 
 **Дата:** 22 ноября 2026 года  
 **Проверенная ветка:** `main`.  
-**Main baseline до PR #33:** `e51551f997168e637342fd403b3a1f04502b8508`, 19 JVM test files / 106 tests after PR #31.
-**PR #33 clean head:** `839e7bbf4be84a3c439aed023d903028b9befee6`; [run #377](https://github.com/HelterFall/God/actions/runs/44999736545) завершился success: 110 JVM tests, debug APK build и artifact upload.
-**Последняя успешная проверка PR #33:** [run #377](https://github.com/HelterFall/God/actions/runs/44999736545) — 110 JVM tests, debug APK build и artifact upload завершились успешно.
+**Проверенный source commit:** `653e370c74beba48f2f5b8423276db84b6cecc51` (squash merge PR #33).
+**Последняя успешная post-merge main проверка:** [run #385](https://github.com/HelterFall/God/actions/runs/45000328521) — JVM tests, debug APK build и artifact upload завершились успешно.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 19 JVM test files в main до PR #33;
-- 106 методов `@Test` на main baseline до PR #33;
+- 19 JVM test files в `main` после PR #33;
+- 110 методов `@Test` в `main` после PR #33;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata. PR #33 добавляет local MonoScript payload AnalyzerRun: FileRecord link, analyzed/partial/failed/skipped outcomes и сохранение результата при cancellation. Run #377 прошёл 110 тестов, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**.
+PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata. PR #33 добавил local MonoScript payload AnalyzerRun: FileRecord link, analyzed/partial/failed/skipped outcomes и сохранение результата при cancellation. Post-merge run #385 прошёл 110 тестов, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -44,7 +43,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-На main baseline до PR #33 было 106 тестов в 19 файлах; PR #33 branch содержит **110 тестов в 19 JVM test files**. Run #377 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+В `main` после PR #33: **110 тестов в 19 JVM test files**. Post-merge run #385 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -61,7 +60,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 
 ### QA-01 — PE/CLR и Unity header/SerializedFile scanner paths покрыты; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` (19 тестов на PR #33 branch) проверяет per-file linkage PE/CLR/Unity header/SerializedFile/local MonoScript, включая local payload analyzed/partial/failed/skipped и сохранение runs при отмене. External MonoScript/PPtr resolution и scene-object decoding пока не имеют собственных AnalyzerRun records.
+`GameScannerIntegrationTest` (19 тестов в `main`) проверяет per-file linkage PE/CLR/Unity header/SerializedFile/local MonoScript, включая local payload analyzed/partial/failed/skipped и сохранение runs при отмене. External MonoScript/PPtr resolution и scene-object decoding пока не имеют собственных AnalyzerRun records.
 
 **Пока не покрыто:**
 
@@ -181,15 +180,14 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 
 Проверенные CI revisions:
 
-- Main baseline до PR #33: `e51551f997168e637342fd403b3a1f04502b8508`; post-merge run #372 succeeded.
-- PR #33 clean head: `839e7bbf4be84a3c439aed023d903028b9befee6`; [run #377](https://github.com/HelterFall/God/actions/runs/44999736545) completed successfully.
+- Main source commit after PR #33: `653e370c74beba48f2f5b8423276db84b6cecc51`; post-merge run [#385](https://github.com/HelterFall/God/actions/runs/45000328521) succeeded.
 
 - PR #31 code head `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; final PR head including docs `f1fb456f571ea2569bba5029ecf7af7a6a9ec57e`; PR run [#369](https://github.com/HelterFall/God/actions/runs/44997551388) completed successfully.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Main baseline содержал 106 методов `@Test`; PR #33 branch содержит 110 тестов в 19 JVM test files; run #377 успешно выполнил `:app:testDebugUnitTest`, `:app:assembleDebug` и artifact upload.
-- Run #377 подтвердил local MonoScript payload AnalyzerRun linkage, analyzed/partial/failed/skipped outcomes, cancellation preservation и сборку APK.
+- `main` содержит 110 методов `@Test` в 19 JVM test files; run #385 успешно выполнил `:app:testDebugUnitTest`, `:app:assembleDebug` и artifact upload.
+- Run #385 подтвердил local MonoScript payload AnalyzerRun linkage, analyzed/partial/failed/skipped outcomes, cancellation preservation и сборку APK.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем

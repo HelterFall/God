@@ -188,7 +188,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Main до PR #33: commit `e51551f997168e637342fd403b3a1f04502b8508`, 19 JVM test files / 106 `@Test` methods. PR #33 branch: 19 files / 110 methods; [run #377](https://github.com/HelterFall/God/actions/runs/44999736545) успешно выполнил tests, `:app:assembleDebug` и APK artifact upload.
+- Main после PR #33: commit `653e370c74beba48f2f5b8423276db84b6cecc51`, 19 JVM test files / 110 `@Test` methods; [post-merge run #385](https://github.com/HelterFall/God/actions/runs/45000328521) успешно проверил tests, `:app:assembleDebug` и APK artifact upload.
 - Fake-tree inventory tests проверяют повторяемость FileRecord IDs, parent links, duplicate names и directory statuses; PR #29 включён в main.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
 - Fake-tree integration coverage `GameScanner.scan()` включает PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRuns linked to FileRecord IDs, local MonoScript success/partial/failed/skipped cases, synthetic CLR metadata and SerializedFile v22, unsupported SerializedFile version, truncated metadata, header limit 500, deep-read limit 40, provider failures, queued runs при cancellation, ambiguous и successful external MonoScript resolution.
