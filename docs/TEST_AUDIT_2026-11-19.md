@@ -182,19 +182,19 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 Проверенные CI revisions:
 
 - Main HEAD after PR #34: `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`; main run [#387](https://github.com/HelterFall/God/actions/runs/45000959608) succeeded.
-- Candidate PR #35 head after code/tests: `dac7e001ec0782de455014861305fb98dbcbccf9`; PR run [#388](https://github.com/HelterFall/God/actions/runs/45007383705) succeeded.
+- Candidate PR #35 code/test head: `8130363cb154efd30088eed99ff86d1359847fa4`; PR run [#397](https://github.com/HelterFall/God/actions/runs/45009371396) succeeded (116 JVM test methods, debug APK build, artifact upload).
 
 - PR #31 code head `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; final PR head including docs `f1fb456f571ea2569bba5029ecf7af7a6a9ec57e`; PR run [#369](https://github.com/HelterFall/God/actions/runs/44997551388) completed successfully.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
 - `main` содержит 110 методов `@Test` в 19 JVM test files; run #387 успешно выполнил `:app:testDebugUnitTest`, `:app:assembleDebug` и artifact upload.
-- Candidate PR #35 содержит 113 методов `@Test` в 19 файлах; run #388 подтвердил `BUILD SUCCESSFUL`, `:app:testDebugUnitTest`, `:app:assembleDebug` и upload debug APK artifact. Лог build показывает успешное завершение `:app:testDebugUnitTest`; CI пока не публикует JUnit XML и отчёт с числом фактически исполненных тестов.
+- Candidate PR #35 содержит 116 методов `@Test` в 19 файлах; run #397 на code/test commit `8130363` подтвердил `BUILD SUCCESSFUL`, `:app:testDebugUnitTest`, `:app:assembleDebug` и upload debug APK artifact. CI пока не публикует JUnit XML и отчёт с числом фактически исполненных тестов.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
 
-1. Довести scan lifecycle: JVM single-job/cancellation и partial report с PE/CLR/Unity header/SerializedFile AnalyzerRun outcomes реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
+1. Довести scan lifecycle: JVM single-job/cancellation и partial report с per-file PE/CLR/Unity header/SerializedFile/local MonoScript/scene graph/external resolver outcomes реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
 2. Расширить общий FileAccess: positional/range reads, sequential fallback, EOF/truncated input и cancellation-aware reads.
 3. Добавить минимальный набор реальных, легально распространяемых PE/CLR/Unity fixtures и golden reports.
 4. Добавить Android SAF instrumentation tests на emulator/device.
