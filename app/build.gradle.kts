@@ -25,3 +25,12 @@ dependencies {
     testImplementation("org.json:json:20240303")
     implementation("androidx.documentfile:documentfile:1.0.1")
 }
+
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
+    }
+}
