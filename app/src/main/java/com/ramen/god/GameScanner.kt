@@ -1016,6 +1016,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
 
         val extraScripts = mutableMapOf<String, MutableList<UnityMonoScriptSummary>>()
+        val extraTargetScripts = mutableMapOf<String, MutableList<UnityMonoScriptSummary>>()
         val groupedRequests = requests.groupBy { it.targetEntry.path }
         val payloadRunIds = groupedRequests.mapValues { (_, group) ->
             setAnalyzerRun("unity_external_monoscript_payload", group.first().targetEntry, AnalyzerRunStatus.QUEUED)
@@ -1084,6 +1085,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         )
                         extraScripts.getOrPut(request.ownerPath) { mutableListOf() }
                             .add(script.copy(sourceFilePath = request.targetEntry.path))
+                        extraTargetScripts.getOrPut(request.targetEntry.path) { mutableListOf() }
+                            .add(script.copy(sourceFilePath = request.targetEntry.path))
                     }
                     changedOwners.add(request.ownerPath)
                 }
@@ -1105,6 +1108,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             val scripts = (old.monoScripts + extraScripts[ownerPath].orEmpty())
                 .distinctBy { it.sourceFilePath to it.pathId }
             unityMetadata[ownerPath] = old.copy(scriptTypeBindings = bindings, monoScripts = scripts)
+        }
+        extraTargetScripts.forEach { (targetPath, scripts) ->
+            val old = unityMetadata[targetPath] ?: return@forEach
+            unityMetadata[targetPath] = old.copy(
+                monoScripts = (old.monoScripts + scripts).distinctBy { it.sourceFilePath to it.pathId }
+            )
         }
         metadataSnapshot.forEach { (ownerPath, _) ->
             val runId = ownerRuns[ownerPath] ?: return@forEach
