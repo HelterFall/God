@@ -66,6 +66,8 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 
 `GameScannerIntegrationTest` содержит 19 тестов в main и 25 в candidate PR #35. В кандидате проверяется per-file linkage PE/CLR/Unity header/SerializedFile/local MonoScript/`unity_scene_graph`, external MonoScript owner/target payload, external PPtr и MonoBehaviour script binding; включая analyzed/partial/skipped/failed outcomes, ambiguity, target provider failure и promotion skipped metadata run при дополнительном чтении внешнего файла. Scene graph по-прежнему ограничен локальными PPtr; external pointer resolver выдаёт отдельные resolutions, но не строит полный межфайловый scene graph.
 
+**EVIDENCE-01 — common data models:** `AnalysisModelsTest` содержит 18 unit tests для `Finding`, `Evidence`, `SourceLocator`, `GraphNode` и `GraphEdge`: JSON round-trip, deterministic scan-scoped IDs, file/run scoping, byte ranges, RVA, metadata tokens, Unity fileID/PathID, IL offsets, enum values, optional links, numeric overflow и unresolved edge hints. Это проверяет модельный слой, а не parser-to-report integration. Следующий EVIDENCE-02 должен провести один настоящий resolver result через эти модели, проверить реальные foreign keys `AnalyzerRun`/`FileRecord` и сохранить их в report JSON.
+
 **Пока не покрыто:**
 
 - реальные compiler-produced PE/CLR fixtures; CLR scanner integration пока подтверждён только синтетическим managed PE;
