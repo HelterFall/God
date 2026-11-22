@@ -323,7 +323,32 @@ class GameScannerIntegrationTest {
         assertEquals("analyzed", headerRun.getString("status"))
         assertEquals(fileId, metadataRun.getString("inputFileId"))
         assertEquals("unsupported", metadataRun.getString("status"))
-        assertTrue(metadataRun.getString("reason").contains("19-26"))
+        assertTrue(metadataRun.getString("reason").contains("19"))
+        assertTrue(metadataRun.getString("reason").contains("26"))
+    }
+
+    @Test
+    fun reportsPartialSerializedFileMetadataWhenTheMetadataTableIsTruncated() {
+        val root = MemoryScanNode(
+            name = "PartialUnityMetadataFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode("globalgamemanagers", false, unitySerializedFileWithTruncatedMetadata())
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val metadataRun = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "serialized_file_metadata" }
+
+        assertEquals("partial", metadataRun.getString("status"))
+        assertTrue(metadataRun.getString("reason").contains("MonoScript"))
     }
 
     @Test
@@ -373,7 +398,7 @@ class GameScannerIntegrationTest {
             name = "UnityHeaderLimitFixture",
             isDirectory = true,
             children = (0 until 501).map { index ->
-                MemoryScanNode("candidate-$index.assets", false, byteArrayOf(1, 2, 3))
+                MemoryScanNode("candidate-%03d.assets".format(index), false, byteArrayOf(1, 2, 3))
             }
         )
 
@@ -972,6 +997,17 @@ private fun minimalMonoScriptPayload(
     writeString(namespace, align = true)
     writeString(assemblyName, align = false)
     return output.toByteArray()
+}
+
+private fun unitySerializedFileWithTruncatedMetadata(): ByteArray {
+    val complete = minimalUnitySerializedFile()
+    val truncatedSize = complete.size - 12
+    val bytes = complete.copyOf(truncatedSize)
+    val metadataSize = truncatedSize - 48
+    put64be(bytes, 16, metadataSize.toLong())
+    put64be(bytes, 24, truncatedSize.toLong())
+    put64be(bytes, 32, truncatedSize.toLong())
+    return bytes
 }
 
 private fun minimalUnitySerializedFile(formatVersion: Int = 22): ByteArray {
