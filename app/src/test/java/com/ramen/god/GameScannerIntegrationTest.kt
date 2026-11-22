@@ -683,6 +683,7 @@ class GameScannerIntegrationTest {
             .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
             .first { it.getString("analyzerId") == "mono_script_payload" }
 
+        println("LOCAL_MONO_SUCCESS run=$run metadata=" + report.getJSONArray("unityMetadata"))
         assertEquals(fileId, run.getString("inputFileId"))
         assertEquals("analyzed", run.getString("status"))
         assertTrue(run.isNull("reason"))
@@ -733,6 +734,7 @@ class GameScannerIntegrationTest {
             .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
             .first { it.getString("analyzerId") == "mono_script_payload" }
 
+        println("LOCAL_MONO_PARTIAL run=$run metadata=" + report.getJSONArray("unityMetadata"))
         assertEquals("partial", run.getString("status"))
         assertTrue(run.getString("reason").contains("Прочитано 1 MonoScript objects"))
         assertTrue(run.getString("reason").contains("пропущено 1"))
@@ -818,6 +820,7 @@ class GameScannerIntegrationTest {
             .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
             .first { it.getString("analyzerId") == "mono_script_payload" }
 
+        println("LOCAL_MONO_FAILED run=$run metadata=" + report.getJSONArray("unityMetadata"))
         assertEquals(fileId, run.getString("inputFileId"))
         assertEquals("failed", run.getString("status"))
         assertTrue(run.getString("reason").contains("no input stream"))
