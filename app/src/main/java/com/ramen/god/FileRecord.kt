@@ -63,8 +63,14 @@ internal data class FileRecord(
             } else {
                 FileIdentitySource.PROVIDER_KEY
             }
-            val identityInput = usableProviderKey?.let { "provider-key:$it" }
-                ?: "relative-path:$path#$siblingOccurrence"
+            val identityInput = usableProviderKey?.let { "provider-key:${it.length}:$it" }
+                ?: buildString {
+                    val parentIdentity = parentId.orEmpty()
+                    append("relative-path:")
+                    append(parentIdentity.length).append(':').append(parentIdentity)
+                    append(path.length).append(':').append(path)
+                    append('#').append(siblingOccurrence)
+                }
             return FileRecord(
                 id = stableId(identityInput),
                 parentId = parentId,
