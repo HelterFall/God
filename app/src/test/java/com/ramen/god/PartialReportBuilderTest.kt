@@ -1,5 +1,7 @@
 package com.ramen.god
 
+import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,6 +15,16 @@ class PartialReportBuilderTest {
         assertTrue(result.json.contains("\"scanStatus\":\"cancelled\""))
         assertTrue(result.json.contains("\"partial\":true"))
         assertTrue(result.json.contains("\"schemaVersion\":24"))
+
+        val report = JSONObject(result.json)
+        val issues = report.getJSONArray("issues")
+        assertEquals(1, issues.length())
+        val issue = issues.getJSONObject(0)
+        assertEquals("scan.cancelled", issue.getString("code"))
+        assertEquals("scan", issue.getString("stage"))
+        assertEquals("warning", issue.getString("severity"))
+        assertTrue(issue.isNull("path"))
+        assertEquals(report.getJSONArray("warnings").getString(0), issue.getString("message"))
     }
 
     @Test
