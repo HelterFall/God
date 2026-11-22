@@ -1000,14 +1000,20 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         header: UnityFileHeader,
         metadata: UnityMetadataSummary
     ): UnityMetadataSummary {
-        val dataOffset = header.dataOffset ?: return metadata.copy(
-            sceneDecodeNote = "Неизвестен dataOffset; payload объектов не прочитан."
-        )
+        val runId = addAnalyzerRun("unity_scene_graph", entry)
+
+        fun skipped(reason: String): UnityMetadataSummary {
+            updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, reason)
+            return metadata.copy(sceneDecodeNote = reason)
+        }
+
+        val dataOffset = header.dataOffset
+            ?: return skipped("Неизвестен dataOffset; payload объектов не прочитан.")
         val fileSize = header.fileSize ?: entry.size
         val littleEndian = when (header.endianness) {
             "Little Endian" -> true
             "Big Endian" -> false
-            else -> return metadata.copy(sceneDecodeNote = "Неизвестен порядок байтов; payload объектов не прочитан.")
+            else -> return skipped("Неизвестен порядок байтов; payload объектов не прочитан.")
         }
         val targets = metadata.objectSamples.mapNotNull { objectInfo ->
             val classId = objectInfo.classId ?: return@mapNotNull null
@@ -1022,19 +1028,30 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 metadata.typeTreeEnabled != true -> "TypeTree отключён или отсутствует."
                 else -> "В ограниченной выборке нет полного TypeTree для GameObject, Transform или MonoBehaviour."
             }
-            return metadata.copy(sceneDecodeNote = reason)
+            return skipped(reason)
         }
         return try {
             val input = fileAccess.openInputStream(entry.node)
-                ?: return metadata.copy(sceneDecodeNote = "Не удалось открыть файл для чтения scene objects.")
+            if (input == null) {
+                val reason = "Не удалось открыть файл для чтения scene objects."
+                updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
+                return metadata.copy(sceneDecodeNote = reason)
+            }
             val result = input.use { stream ->
                 UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
             }
             val graph = UnitySceneGraphResolver.resolve(result.objects)
+            val status = if (result.skippedCount > 0) {
+                AnalyzerRunStatus.PARTIAL
+            } else {
+                AnalyzerRunStatus.ANALYZED
+            }
+            updateAnalyzerRun(runId, status, result.note)
             metadata.copy(decodedObjects = result.objects, sceneGraph = graph, sceneDecodeNote = result.note)
         } catch (e: Exception) {
-            metadata.copy(sceneDecodeNote = "Scene object payload не прочитан: " +
-                (e.message ?: e.javaClass.simpleName))
+            val reason = "Scene object payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
+            updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
+            metadata.copy(sceneDecodeNote = reason)
         }
     }
 
