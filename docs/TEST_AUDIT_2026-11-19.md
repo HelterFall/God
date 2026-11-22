@@ -79,7 +79,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 - кнопка повторного запуска блокируется; `onDestroy()` запрашивает отмену и вызывает `shutdownNow()`;
 - `GameScanner` использует абстракцию `ScanFileAccess` и не зависит от Android API напрямую; SAF `ContentResolver` изолирован в `SafScanFileAccess`, а worker не удерживает Activity сильной ссылкой;
 - отмена на проверяемых границах inventory/PE/Unity/resolver возвращает partial report;
-- partial report сохраняет весь уже обнаруженный inventory в JSON, а Markdown ограничивает 20 000 строк; отчёт явно помечен `scanStatus=cancelled`, `partial=true`, `scanCoverage.status=partial`. `analyzerRuns[]` сохраняет завершённые и queued результаты для этапов PE/CLR/Unity, достигнутых до отмены; до начала соответствующего analyzer stage runs не создаются.
+- partial report сохраняет весь уже обнаруженный inventory в JSON и ограничивает Markdown 20 000 строк; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile и local MonoScript payload, если соответствующие этапы были достигнуты до отмены.
 
 Шесть тестов `PartialReportBuilderTest` проверяют pure report builder, в том числе сохранение completed/queued AnalyzerRuns; fake-tree `GameScannerIntegrationTest` дополнительно проверяет отмену во время inventory traversal и queued runs после inventory.
 
