@@ -3,7 +3,7 @@
 **Дата:** 22 ноября 2026 года  
 **Проверенная база `main`:** `052c02319f54f97d00007b7ab6e60c2a375edf0b` (после source commit `513f1ac`; последний main-коммит менял только документацию).  
 **Последняя успешная проверка `main`:** [run #333](https://github.com/HelterFall/God/actions/runs/44800837048) — JVM tests, debug APK и artifact upload успешно завершились.  
-**Изменение в этой рабочей ветке:** добавлен typed `ScanIssue` / JSON `issues[]`; число тестовых методов остаётся 91, дополнительные проверки встроены в существующие scanner/partial-report tests. PR CI проверяет именно эту правку отдельно.
+**Изменение в этой рабочей ветке:** добавлен typed `ScanIssue` / JSON `issues[]`; ветка содержит 17 test files / 92 `@Test` methods. PR [#28, run #335](https://github.com/HelterFall/God/actions/runs/44982658313) прошёл на feature commit `a03e996760037c376482fd26e42d14bfde8b1ec3`: tests, APK build и artifact upload успешны.
 
 ## 1. Итог
 
@@ -185,7 +185,7 @@ https://github.com/HelterFall/God/actions/runs/44800837048
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
 - Базовая main-версия содержит 91 метод `@Test` в 16 JVM test files; feature branch содержит 92 метода в 17 файлах из-за отдельного `ScanIssueTest`.
-- PR CI для branch `feat/typed-scan-issues` должен отдельно подтвердить новую модель и assertions.
+- PR [#28, run #335](https://github.com/HelterFall/God/actions/runs/44982658313) отдельно подтвердил новую модель и assertions на feature branch: `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload завершились успешно.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
