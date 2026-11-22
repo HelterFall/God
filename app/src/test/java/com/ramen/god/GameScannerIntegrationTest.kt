@@ -79,6 +79,23 @@ class GameScannerIntegrationTest {
         assertEquals(dataRecord.getString("id"), manifestRecord.getString("parentId"))
         assertEquals("discovered", manifestRecord.getString("inventoryStatus"))
 
+        val fileIdsByPath = (0 until files.length()).associate { index ->
+            val file = files.getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val analyzerRuns = report.getJSONArray("analyzerRuns")
+        val peRuns = (0 until analyzerRuns.length())
+            .map { analyzerRuns.getJSONObject(it) }
+            .filter { it.getString("analyzerId") == "pe" }
+        assertEquals(2, peRuns.size)
+        val failedPeRun = peRuns.first { it.getString("inputFileId") == fileIdsByPath.getValue("Assembly-CSharp.dll") }
+        val successfulPeRun = peRuns.first { it.getString("inputFileId") == fileIdsByPath.getValue("UnityPlayer.dll") }
+        assertEquals("failed", failedPeRun.getString("status"))
+        assertEquals("analyzed", successfulPeRun.getString("status"))
+        assertTrue(failedPeRun.getString("id").startsWith("run:"))
+        assertTrue(!report.getString("scanId").isBlank())
+        assertTrue(report.getString("scanId") != JSONObject(repeatedResult.json).getString("scanId"))
+
         val coverage = report.getJSONObject("scanCoverage")
         val inventory = coverage.getJSONObject("inventory")
         assertEquals("completed", inventory.getString("status"))
@@ -174,6 +191,16 @@ class GameScannerIntegrationTest {
         assertEquals("1.2.3.4", assembly.getString("version"))
         assertEquals("Sample.dll", assembly.getString("moduleName"))
         assertEquals("parsed", assembly.getString("status"))
+        val inventoryFiles = report.getJSONArray("files")
+        val assemblyFileId = (0 until inventoryFiles.length())
+            .map { inventoryFiles.getJSONObject(it) }
+            .first { it.getString("path") == "Managed/Assembly-CSharp.dll" }
+            .getString("id")
+        val clrRun = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "clr_metadata" }
+        assertEquals(assemblyFileId, clrRun.getString("inputFileId"))
+        assertEquals("analyzed", clrRun.getString("status"))
         assertEquals(1, assembly.getInt("typeCount"))
         val types = assembly.getJSONArray("types")
         assertEquals(1, types.length())
@@ -567,6 +594,63 @@ class GameScannerIntegrationTest {
         assertTrue(result.markdown.contains("Не удалось прочитать каталог Data: synthetic directory listing failure"))
         assertTrue(result.markdown.contains("readme.txt"))
         assertFalse(result.markdown.contains("hidden.asset"))
+    }
+
+    @Test
+    fun recordsSkippedPeCandidatesWhenTheCandidateLimitIsReached() {
+        val root = MemoryScanNode(
+            name = "PeLimitFixture",
+            isDirectory = true,
+            children = (0..150).map { index ->
+                MemoryScanNode("candidate-$index.dll", false, byteArrayOf(0, 1, 2, 3))
+            }
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        assertEquals(151, runs.size)
+        assertEquals(150, runs.count { it.getString("status") == "failed" })
+        assertEquals(1, runs.count { it.getString("status") == "skipped" })
+        assertEquals(
+            "Candidate limit reached (150).",
+            runs.first { it.getString("status") == "skipped" }.getString("reason")
+        )
+    }
+
+    @Test
+    fun preservesQueuedAnalyzerRunsWhenCancellationOccursAfterInventory() {
+        val root = MemoryScanNode(
+            name = "QueuedFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode("first.exe", false, byteArrayOf(1)),
+                MemoryScanNode("second.dll", false, byteArrayOf(2))
+            )
+        )
+        var cancellationChecks = 0
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = {
+                cancellationChecks++
+                cancellationChecks >= 5
+            },
+            onProgress = { _, _ -> }
+        )
+
+        assertTrue(result.isPartial)
+        val report = JSONObject(result.json)
+        assertEquals(2, report.getJSONArray("analyzerRuns").length())
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        assertTrue(runs.all { it.getString("status") == "queued" })
+        assertTrue(report.getString("scanId").isNotBlank())
+        assertTrue(result.markdown.contains("queued-записи не завершены"))
     }
 
     @Test
