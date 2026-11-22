@@ -220,6 +220,8 @@ God должен создавать документы, по которым ра
 
 Диагностики самого процесса сканирования отделяются от игровых findings: `ScanIssue` содержит стабильный код, стадию, серьёзность, необязательный путь и сообщение. В JSON они публикуются отдельно в `issues[]`; старый `warnings[]` остаётся человекочитаемым compatibility-представлением. Такая диагностика объясняет сбои и ограничения анализа, но не заменяет evidence для выводов об устройстве игры.
 
+**Статус реализации в candidate PR #35:** parser-neutral JVM models `Finding`, `Evidence`, `SourceLocator`, `GraphNode` и `GraphEdge` добавлены в `AnalysisModels.kt`. Evidence связывает finding, analyzer run и source file; locator отдельно хранит byte offset/length, RVA, metadata token, Unity fileID/PathID и IL offset. Уверенность, статус и способ обнаружения имеют стабильные значения; идентификаторы создаются детерминированно в пределах scan. Unresolved graph edge хранит наблюдённый `targetHint`, не выдумывая отсутствующий target node. Round-trip JSON и validation проверяются unit tests. **Это пока только общий слой моделей:** реальные parser outputs ещё не преобразуются в Finding/Evidence, GraphNode/GraphEdge не наполняются и поля не экспортируются в report JSON; `ScanIssue` остаётся отдельной моделью диагностик.
+
 Должна сохраняться трассировка от вывода в porting plan обратно до первичного файла и конкретного места, где основан вывод.
 
 ## 8. Приоритеты вывода
