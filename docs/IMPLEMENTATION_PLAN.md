@@ -6,7 +6,7 @@
 **Последний HEAD `main`:** `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`.
 **Последний main CI:** [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) завершился `success` на HEAD `7f8256b`.
 **Рабочая ветка:** `work/qa02-unity-scene-graph-run`; **последний code/test commit:** `538c90bf93973fff2cd778d2e0d7ef80064f4a84`.
-**CI PR #35:** [run #431](https://github.com/HelterFall/God/actions/runs/45012035419) прошёл 138 JVM tests, debug APK build и artifact upload после исправления null-PPtr fixture; [run #432](https://github.com/HelterFall/God/actions/runs/45012087896) повторно проверяет последний code commit.
+**CI PR #35:** [run #431](https://github.com/HelterFall/God/actions/runs/45012035419) и повторный [run #432](https://github.com/HelterFall/God/actions/runs/45012087896) завершились `success` на code/test commit `538c90b`: 138 JVM tests, debug APK build и artifact upload.
 **Тестовая база:** `main` — 19 JVM test files / 110 @Test methods; candidate — 20 files / 138 methods. Реальные game binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
