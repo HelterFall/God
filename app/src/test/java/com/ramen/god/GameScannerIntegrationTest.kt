@@ -645,6 +645,185 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun recordsSuccessfulLocalMonoScriptPayloadRunAgainstItsFileRecord() {
+        val root = MemoryScanNode(
+            name = "LocalMonoScriptFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithLocalMonoScriptObjects(
+                        listOf(
+                            77L to minimalMonoScriptPayload(
+                                name = "HeroController",
+                                className = "HeroController",
+                                namespace = "Game",
+                                assemblyName = "Assembly-CSharp",
+                                executionOrder = -12
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val fileId = (0 until files.length())
+            .map { files.getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+            .getString("id")
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "mono_script_payload" }
+
+        assertEquals(fileId, run.getString("inputFileId"))
+        assertEquals("analyzed", run.getString("status"))
+        assertTrue(run.isNull("reason"))
+
+        val metadata = (0 until report.getJSONArray("unityMetadata").length())
+            .map { report.getJSONArray("unityMetadata").getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+        val binding = metadata.getJSONArray("scriptTypeBindings").getJSONObject(0)
+        assertEquals("local-monoscript-decoded", binding.getString("resolution"))
+        assertEquals("HeroController", binding.getString("className"))
+        assertEquals("Game", binding.getString("namespace"))
+        assertEquals("Assembly-CSharp", binding.getString("assemblyName"))
+        assertEquals(-12, binding.getInt("executionOrder"))
+    }
+
+    @Test
+    fun recordsPartialLocalMonoScriptPayloadWhenSomeObjectsAreUnreadable() {
+        val root = MemoryScanNode(
+            name = "PartialMonoScriptFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithLocalMonoScriptObjects(
+                        listOf(
+                            77L to minimalMonoScriptPayload(
+                                name = "HeroController",
+                                className = "HeroController",
+                                namespace = "Game",
+                                assemblyName = "Assembly-CSharp",
+                                executionOrder = -12
+                            ),
+                            78L to byteArrayOf(1)
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "mono_script_payload" }
+
+        assertEquals("partial", run.getString("status"))
+        assertTrue(run.getString("reason").contains("Прочитано 1 MonoScript objects"))
+        assertTrue(run.getString("reason").contains("пропущено 1"))
+    }
+
+    @Test
+    fun recordsMonoScriptPayloadAsSkippedWhenNoLocalTargetsArePresent() {
+        val root = MemoryScanNode(
+            name = "NoLocalMonoScriptFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode("globalgamemanagers", false, minimalUnitySerializedFile())
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileId = (0 until report.getJSONArray("files").length())
+            .map { report.getJSONArray("files").getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+            .getString("id")
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "mono_script_payload" }
+
+        assertEquals(fileId, run.getString("inputFileId"))
+        assertEquals("skipped", run.getString("status"))
+        assertTrue(run.getString("reason").contains("No local MonoScript object targets"))
+    }
+
+    @Test
+    fun recordsFailedMonoScriptPayloadWhenTheProviderCannotOpenItsStream() {
+        val root = MemoryScanNode(
+            name = "MonoScriptProviderFailureFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithLocalMonoScriptObjects(
+                        listOf(
+                            77L to minimalMonoScriptPayload(
+                                name = "HeroController",
+                                className = "HeroController",
+                                namespace = "Game",
+                                assemblyName = "Assembly-CSharp",
+                                executionOrder = -12
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        val openCounts = mutableMapOf<String?, Int>()
+        val fileAccess = ScanFileAccess { node ->
+            val file = node as MemoryScanNode
+            val count = (openCounts[file.name] ?: 0) + 1
+            openCounts[file.name] = count
+            if (file.name == "globalgamemanagers" && count == 2) {
+                null
+            } else if (file.isDirectory) {
+                null
+            } else {
+                ByteArrayInputStream(file.contents)
+            }
+        }
+
+        val result = GameScanner(fileAccess).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileId = (0 until report.getJSONArray("files").length())
+            .map { report.getJSONArray("files").getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+            .getString("id")
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "mono_script_payload" }
+
+        assertEquals(fileId, run.getString("inputFileId"))
+        assertEquals("failed", run.getString("status"))
+        assertTrue(run.getString("reason").contains("no input stream"))
+    }
+
+    @Test
     fun reportsUnityProviderReadFailureWithoutHidingInventoryOrCoverage() {
         val root = MemoryScanNode(
             name = "UnreadableUnityFixture",
@@ -939,6 +1118,66 @@ private fun unitySerializedFileWithExternalMonoScriptReference(externalPath: Str
     put64be(bytes, 32, dataOffset.toLong())
     bytes[40] = 0
     metadata.copyInto(bytes, 48)
+    return bytes
+}
+
+private fun unitySerializedFileWithLocalMonoScriptObjects(
+    scripts: List<Pair<Long, ByteArray>>
+): ByteArray {
+    require(scripts.isNotEmpty()) { "At least one MonoScript fixture is required." }
+    val monoScriptTypeIndex = scripts.size
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5) // target platform
+        write(0) // TypeTree disabled
+        u32le((scripts.size + 1).toLong()) // MonoBehaviour types plus one MonoScript type
+        scripts.indices.forEach { scriptIndex ->
+            u32le(114) // MonoBehaviour class ID
+            write(0) // stripped
+            u16le(scriptIndex) // script type reference index
+            write(ByteArray(16)) // script ID
+            write(ByteArray(16)) // old type hash
+            u32le(0) // type dependencies
+        }
+        u32le(115) // MonoScript class ID
+        write(0) // stripped
+        u16le(0xffff) // no script type index
+        write(ByteArray(16)) // old type hash
+        u32le(0) // type dependencies
+        u32le(scripts.size.toLong()) // object count
+        while (size() % 4 != 0) write(0) // align object table after the count
+        var byteStart = 0L
+        scripts.forEach { (pathId, payload) ->
+            u64le(pathId)
+            u64le(byteStart)
+            u32le(payload.size.toLong())
+            u32le(monoScriptTypeIndex.toLong())
+            byteStart += payload.size
+        }
+        u32le(scripts.size.toLong()) // script type reference count
+        scripts.forEach { (pathId, _) ->
+            u32le(0) // local file ID
+            u64le(pathId)
+        }
+        u32le(0) // external reference count
+        u32le(0) // SerializeReference type count
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val payloadSize = scripts.sumOf { it.second.size }
+    val bytes = ByteArray(dataOffset + payloadSize)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0
+    metadata.copyInto(bytes, 48)
+    var position = dataOffset
+    scripts.forEach { (_, payload) ->
+        payload.copyInto(bytes, position)
+        position += payload.size
+    }
     return bytes
 }
 
