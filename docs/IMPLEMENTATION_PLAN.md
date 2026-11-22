@@ -138,6 +138,14 @@ God уже умеет выполнять ограниченную инвента
 - `Finding` и `Evidence` с точными source locators, связанные с `AnalyzerRun` и `FileRecord`.
 - GraphNode и GraphEdge для межфайловых, native, managed, Unity и asset dependencies.
 
+**Следующий небольшой срез — EVIDENCE-01 (до подключения parser outputs):**
+- Создать parser-neutral JVM models `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` с детерминированными scan-scoped IDs.
+- `Finding` и `Evidence` связываются с `AnalyzerRun.id` и `FileRecord.id`; `Evidence` дополнительно хранит метод обнаружения, confidence и точный locator.
+- `SourceLocator` различает byte offset/length, PE RVA, CLR metadata token, Unity PathID и IL offset. Нельзя трактовать RVA или PathID как смещение файла.
+- `GraphNode`/ `GraphEdge` представляют сущности и отношения без Android/SAF зависимостей; endpoint validation и store остаются следующим шагом.
+- У каждого типа есть стабильный JSON representation и обратное чтение; round-trip тесты фиксируют null/optional fields, enums, validation и deterministic identity.
+- Этот slice **не подключает** новые модели к `GameScanner`, не переводит существующие parser-specific summaries и не меняет JSON report/schemaVersion 24. Следующий slice подключит один реальный resolver end-to-end.
+
 **Задачи:**
 - [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
 - [x] Эволюционировать inventory entries в `FileRecord` со стабильным ID и `parentId`; использовать хеш provider key при наличии, иначе относительный путь, parent identity и порядком дубликата.
