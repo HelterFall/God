@@ -2,6 +2,8 @@ package com.ramen.god
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.math.BigDecimal
+import java.math.BigInteger
 import java.security.MessageDigest
 
 /** Confidence of a game-analysis conclusion, separate from scan diagnostics. */
@@ -513,15 +515,26 @@ private fun JSONObject.optionalLong(field: String): Long? {
     val value = get(field)
     require(value is Number) { "$field must be a JSON number or null." }
     return when (value) {
+        is Byte, is Short, is Int, is Long -> value.toLong()
+        is BigInteger -> runCatching { value.longValueExact() }
+            .getOrElse { throw IllegalArgumentException("$field is outside the signed 64-bit range.") }
+        is BigDecimal -> runCatching { value.longValueExact() }
+            .getOrElse { throw IllegalArgumentException("$field must be an in-range integer.") }
         is Float -> {
-            require(value.isFinite() && value % 1f == 0f) { "$field must be an integer." }
+            require(
+                value.isFinite() && value % 1f == 0f &&
+                    value >= Long.MIN_VALUE.toFloat() && value < 9_223_372_036_854_775_808f
+            ) { "$field must be an in-range integer." }
             value.toLong()
         }
         is Double -> {
-            require(value.isFinite() && value % 1.0 == 0.0) { "$field must be an integer." }
+            require(
+                value.isFinite() && value % 1.0 == 0.0 &&
+                    value >= Long.MIN_VALUE.toDouble() && value < 9_223_372_036_854_775_808.0
+            ) { "$field must be an in-range integer." }
             value.toLong()
         }
-        else -> value.toLong()
+        else -> throw IllegalArgumentException("$field must be an integer JSON number.")
     }
 }
 
