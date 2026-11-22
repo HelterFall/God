@@ -1,6 +1,15 @@
 # God — аудит тестирования и качества
 
 **Дата:** 22 ноября 2026 года  
+
+**Дополнение от 23 ноября 2026 года — проверка PR #36:**
+
+- Ветка `feat/external-monoscript-analyzer-runs`, commit `a343d0be3a1ba9f0f931a030c19387cec1471d73`, проверена GitHub Actions: [PR run #463](https://github.com/HelterFall/God/actions/runs/45016971315) завершился успешно.
+- Успешны `:app:testDebugUnitTest`, `:app:assembleDebug` и загрузка `God-debug-apk`.
+- Число тестовых файлов и методов не изменилось: 19 файлов / 110 `@Test`; PR #36 расширил проверки в двух существующих `GameScannerIntegrationTest`, не добавляя новых методов.
+- Проверены `external_mono_script_payload` AnalyzerRun, привязка к исходному `FileRecord.id`, статус `analyzed` при успешном декодировании и `partial` при неоднозначном external path.
+- На момент этого дополнения PR #36 ещё открыт; указанный source baseline `main` выше относится к состоянию после PR #33. Не считать PR #36 частью `main`, пока merge не подтверждён.
+
 **Проверенная ветка:** `main`.  
 **Проверенный source commit:** `653e370c74beba48f2f5b8423276db84b6cecc51` (squash merge PR #33).
 **Последняя успешная post-merge main проверка:** [run #385](https://github.com/HelterFall/God/actions/runs/45000328521) — JVM tests, debug APK build и artifact upload завершились успешно.
@@ -60,7 +69,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 
 ### QA-01 — PE/CLR и Unity header/SerializedFile scanner paths покрыты; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` (19 тестов в `main`) проверяет per-file linkage PE/CLR/Unity header/SerializedFile/local MonoScript, включая local payload analyzed/partial/failed/skipped и сохранение runs при отмене. External MonoScript/PPtr resolution и scene-object decoding пока не имеют собственных AnalyzerRun records.
+`GameScannerIntegrationTest` (19 тестов в `main`) проверяет per-file linkage PE/CLR/Unity header/SerializedFile/local MonoScript, включая local payload analyzed/partial/failed/skipped и сохранение runs при отмене. В PR #36 добавлена проверка `external_mono_script_payload`: связь с исходным SerializedFile и outcomes `analyzed`/`partial` для успешного и неоднозначного разрешения. External PPtr/scene resolution пока не имеют собственных AnalyzerRun records.
 
 **Пока не покрыто:**
 
@@ -78,11 +87,11 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 - кнопка повторного запуска блокируется; `onDestroy()` запрашивает отмену и вызывает `shutdownNow()`;
 - `GameScanner` использует абстракцию `ScanFileAccess` и не зависит от Android API напрямую; SAF `ContentResolver` изолирован в `SafScanFileAccess`, а worker не удерживает Activity сильной ссылкой;
 - отмена на проверяемых границах inventory/PE/Unity/resolver возвращает partial report;
-- partial report сохраняет весь уже обнаруженный inventory в JSON и ограничивает Markdown 20 000 строк; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile и local MonoScript payload, если соответствующие этапы были достигнуты до отмены.
+- partial report сохраняет весь уже обнаруженный inventory в JSON и ограничивает Markdown 20 000 строк; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile и local MonoScript payload. PR #36 добавляет отдельный результат external MonoScript resolver; он сохраняется, если отмена замечена после завершения этой стадии.
 
 Шесть тестов `PartialReportBuilderTest` проверяют pure report builder, в том числе сохранение completed/queued AnalyzerRuns; fake-tree `GameScannerIntegrationTest` дополнительно проверяет отмену во время inventory traversal и queued runs после inventory.
 
-**Риск:** per-file AnalyzerRun подключён к PE/CLR, Unity header/SerializedFile и локальному MonoScript payload; external MonoScript/PPtr и scene resolvers пока не отражены как отдельные runs. UI/job state не переживает пересоздание Activity.
+**Риск:** PR #36 подключает per-file AnalyzerRun к external MonoScript payload, но пока не к external PPtr/scene resolvers. Сам external resolver ещё не проверяет отмену внутри своих циклов и provider reads; UI/job state не переживает пересоздание Activity.
 
 ### QA-03 — исправлено: безопасная запись отчётов
 
@@ -188,6 +197,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
 - `main` содержит 110 методов `@Test` в 19 JVM test files; run #385 успешно выполнил `:app:testDebugUnitTest`, `:app:assembleDebug` и artifact upload.
 - Run #385 подтвердил local MonoScript payload AnalyzerRun linkage, analyzed/partial/failed/skipped outcomes, cancellation preservation и сборку APK.
+- PR #36: run [#463](https://github.com/HelterFall/God/actions/runs/45016971315) на commit `a343d0be3a1ba9f0f931a030c19387cec1471d73` подтвердил новые external MonoScript AnalyzerRun assertions, JVM unit tests, debug APK build и artifact upload. Ветка PR проверена отдельно; это не заменяет post-merge проверку `main`.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
