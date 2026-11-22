@@ -957,6 +957,142 @@ class GameScannerIntegrationTest {
         assertEquals("HeroController", binding.getString("className"))
         assertEquals("Game", binding.getString("namespace"))
         assertEquals(targetPath, binding.getString("targetFilePath"))
+
+        val findings = report.getJSONArray("findings")
+        assertEquals(1, findings.length())
+        val finding = findings.getJSONObject(0)
+        assertEquals("unity.monobehaviour-script-binding", finding.getString("category"))
+        assertEquals("decoded", finding.getString("status"))
+        assertEquals("confirmed", finding.getString("confidence"))
+        assertEquals(ownerId, finding.getString("sourceFileId"))
+        assertEquals(bindingRun.getString("id"), finding.getString("analyzerRunId"))
+        assertEquals(1, finding.getJSONArray("evidenceIds").length())
+        assertEquals(2, finding.getJSONArray("graphNodeIds").length())
+        assertEquals(1, finding.getJSONArray("graphEdgeIds").length())
+
+        val evidenceItems = report.getJSONArray("evidence")
+        assertEquals(1, evidenceItems.length())
+        val evidence = evidenceItems.getJSONObject(0)
+        assertEquals(finding.getString("id"), evidence.getString("findingId"))
+        assertEquals(bindingRun.getString("id"), evidence.getString("analyzerRunId"))
+        assertEquals(ownerId, evidence.getString("sourceFileId"))
+        assertEquals("resolved-pointer", evidence.getString("method"))
+        assertEquals("confirmed", evidence.getString("confidence"))
+        assertEquals(1, evidence.getJSONObject("locator").getInt("unityFileId"))
+        assertEquals(77L, evidence.getJSONObject("locator").getLong("pathId"))
+
+        val graphNodes = report.getJSONArray("graphNodes")
+        assertEquals(2, graphNodes.length())
+        val sourceNode = (0 until graphNodes.length()).map { graphNodes.getJSONObject(it) }
+            .single { it.getString("nodeType") == "unity-monobehaviour" }
+        val targetNode = (0 until graphNodes.length()).map { graphNodes.getJSONObject(it) }
+            .single { it.getString("nodeType") == "unity-monoscript" }
+        assertEquals(ownerId, sourceNode.getString("fileRecordId"))
+        assertEquals(10L, sourceNode.getJSONObject("locator").getLong("pathId"))
+        assertEquals(targetId, targetNode.getString("fileRecordId"))
+        assertEquals(77L, targetNode.getJSONObject("locator").getLong("pathId"))
+
+        val graphEdges = report.getJSONArray("graphEdges")
+        assertEquals(1, graphEdges.length())
+        val edge = graphEdges.getJSONObject(0)
+        assertEquals("attaches-script", edge.getString("relationType"))
+        assertEquals("decoded", edge.getString("status"))
+        assertEquals("confirmed", edge.getString("confidence"))
+        assertEquals(sourceNode.getString("id"), edge.getString("sourceNodeId"))
+        assertEquals(targetNode.getString("id"), edge.getString("targetNodeId"))
+        assertEquals(bindingRun.getString("id"), edge.getString("analyzerRunId"))
+
+        val knownFileIds = fileIds.values.toSet()
+        val knownRunIds = runs.map { it.getString("id") }.toSet()
+        val findingIds = (0 until findings.length()).map { findings.getJSONObject(it).getString("id") }.toSet()
+        val evidenceIds = (0 until evidenceItems.length()).map { evidenceItems.getJSONObject(it).getString("id") }.toSet()
+        assertTrue(finding.getString("sourceFileId") in knownFileIds)
+        assertTrue(finding.getString("analyzerRunId") in knownRunIds)
+        assertTrue(evidence.getString("findingId") in findingIds)
+        assertTrue(evidence.getString("sourceFileId") in knownFileIds)
+        assertTrue(evidence.getString("analyzerRunId") in knownRunIds)
+        assertTrue(sourceNode.getJSONArray("findingIds").getString(0) in findingIds)
+        assertTrue(sourceNode.getJSONArray("evidenceIds").getString(0) in evidenceIds)
+        assertTrue(edge.getJSONArray("findingIds").getString(0) in findingIds)
+        assertTrue(edge.getJSONArray("evidenceIds").getString(0) in evidenceIds)
+        assertTrue(result.markdown.contains("Evidence-backed Unity script bindings"))
+        assertTrue(result.markdown.contains("HeroController"))
+    }
+
+    @Test
+    fun keepsUnresolvedMonoBehaviourScriptAsHintWithoutInventingTargetNode() {
+        val externalPath = "archive:/CAB-123/missing-script.assets"
+        val root = MemoryScanNode(
+            name = "UnresolvedMonoBehaviourFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalMonoBehaviourScriptPointer(externalPath)
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(root, shouldCancel = { false }) { _, _ -> }
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val ownerId = files.getJSONObject(0).getString("id")
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val bindingRun = runs.single { it.getString("analyzerId") == "unity_monobehaviour_script_bindings" }
+
+        val findings = report.getJSONArray("findings")
+        assertEquals(1, findings.length())
+        val finding = findings.getJSONObject(0)
+        assertEquals("unresolved", finding.getString("status"))
+        assertEquals("unknown", finding.getString("confidence"))
+        assertEquals(ownerId, finding.getString("sourceFileId"))
+        assertEquals(bindingRun.getString("id"), finding.getString("analyzerRunId"))
+
+        val graphNodes = report.getJSONArray("graphNodes")
+        assertEquals(1, graphNodes.length())
+        assertEquals("unity-monobehaviour", graphNodes.getJSONObject(0).getString("nodeType"))
+        assertEquals(ownerId, graphNodes.getJSONObject(0).getString("fileRecordId"))
+
+        val graphEdges = report.getJSONArray("graphEdges")
+        assertEquals(1, graphEdges.length())
+        val edge = graphEdges.getJSONObject(0)
+        assertTrue(edge.isNull("targetNodeId"))
+        assertTrue(edge.getString("targetHint").contains("fileID=1"))
+        assertTrue(edge.getString("targetHint").contains("PathID=77"))
+        assertTrue(edge.getString("targetHint").contains("external-file-path-unmatched-or-ambiguous"))
+    }
+
+    @Test
+    fun recordsNullMonoBehaviourScriptReferenceAsSkippedWithoutGraphEdge() {
+        val root = MemoryScanNode(
+            name = "NullMonoBehaviourScriptFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalMonoBehaviourScriptPointer(
+                        "archive:/CAB-123/unused.assets",
+                        scriptPathId = 0L
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(root, shouldCancel = { false }) { _, _ -> }
+        val report = JSONObject(result.json)
+        val findings = report.getJSONArray("findings")
+        assertEquals(1, findings.length())
+        assertEquals("skipped", findings.getJSONObject(0).getString("status"))
+        assertEquals("confirmed", findings.getJSONObject(0).getString("confidence"))
+        assertTrue(findings.getJSONObject(0).getString("reason").contains("null PPtr"))
+        assertEquals(1, report.getJSONArray("graphNodes").length())
+        assertEquals(0, report.getJSONArray("graphEdges").length())
+        assertEquals(1, report.getJSONArray("evidence").length())
+        assertEquals(0L, report.getJSONArray("evidence").getJSONObject(0)
+            .getJSONObject("locator").getLong("pathId"))
     }
 
     @Test
@@ -1556,7 +1692,10 @@ private fun unitySerializedFileWithLocalMonoScriptObjects(
     return bytes
 }
 
-private fun unitySerializedFileWithExternalMonoBehaviourScriptPointer(externalPath: String): ByteArray {
+private fun unitySerializedFileWithExternalMonoBehaviourScriptPointer(
+    externalPath: String,
+    scriptPathId: Long = 77L
+): ByteArray {
     val treeNodes = listOf(
         Triple(0, "MonoBehaviour", "Base") to -1,
         Triple(1, "PPtr<MonoScript>", "m_Script") to -1,
@@ -1615,7 +1754,7 @@ private fun unitySerializedFileWithExternalMonoBehaviourScriptPointer(externalPa
         u32le(0) // type index
         u32le(1) // script type reference count
         u32le(1) // external fileID
-        u64le(77) // external MonoScript pathID
+        u64le(scriptPathId) // external MonoScript pathID
         u32le(1) // external reference count
         write("CAB-123".toByteArray(Charsets.US_ASCII))
         write(0)
