@@ -567,6 +567,9 @@ class GameScannerIntegrationTest {
             .map { ownerMetadata.getJSONArray("externalPointerResolutions").getJSONObject(it) }
             .filter { it.getString("field") == "components" }
         assertEquals(1, externalComponentLinks.size)
+        assertEquals(100L, externalComponentLinks.single().getLong("sourcePathId"))
+        assertEquals(1, externalComponentLinks.single().getInt("fileId"))
+        assertEquals(10L, externalComponentLinks.single().getLong("pathId"))
         val rootNodes = (0 until report.getJSONArray("graphNodes").length())
             .map { report.getJSONArray("graphNodes").getJSONObject(it) }
             .filter {
@@ -576,6 +579,12 @@ class GameScannerIntegrationTest {
             }
         assertEquals(1, rootNodes.size)
         val rootNode = rootNodes.single()
+        val externalFindings = (0 until report.getJSONArray("findings").length())
+            .map { report.getJSONArray("findings").getJSONObject(it) }
+            .filter { it.getString("category") == "unity.external-pointer" }
+        assertEquals(1, externalFindings.size)
+        assertEquals(ownerId, externalFindings.single().getString("sourceFileId"))
+        assertEquals(100L, externalComponentLinks.single().getLong("sourcePathId"))
         assertEquals(2, rootNode.getJSONArray("findingIds").length())
         assertEquals(2, rootNode.getJSONArray("evidenceIds").length())
 
