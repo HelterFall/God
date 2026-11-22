@@ -297,6 +297,101 @@ class PartialReportBuilderTest {
     }
 
     @Test
+    fun preservesLocalUnityScenePointerEvidenceInCancelledReport() {
+        val file = record("Data/globalgamemanagers", false, 512)
+        val scanId = "partial-local-scene-pointer-scan"
+        val run = AnalyzerRun.create(
+            scanId = scanId,
+            analyzerId = "unity_scene_graph",
+            inputFileId = file.id,
+            status = AnalyzerRunStatus.ANALYZED
+        )
+        val findingId = Finding.create(
+            scanId = scanId,
+            findingKey = "local-scene-pointer:100:components:0:200",
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            category = "unity.local-scene-pointer",
+            title = "Root has-component Transform",
+            summary = "GameObject PathID=100 field=components points to local PPtr fileID=0, PathID=200.",
+            confidence = AnalysisConfidence.CONFIRMED,
+            status = FindingStatus.DECODED
+        ).id
+        val evidence = Evidence.create(
+            scanId = scanId,
+            evidenceKey = "local-scene-pptr:100:components:200",
+            findingId = findingId,
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            method = EvidenceMethod.RESOLVED_POINTER,
+            confidence = AnalysisConfidence.CONFIRMED,
+            description = "Decoded local GameObject.components PPtr.",
+            locator = SourceLocator(unityFileId = 0, pathId = 200)
+        )
+        val sourceNode = GraphNode.create(
+            scanId = scanId,
+            nodeType = "unity-gameobject",
+            key = "PathID:100",
+            label = "Root",
+            fileRecordId = file.id,
+            locator = SourceLocator(pathId = 100),
+            findingIds = listOf(findingId),
+            evidenceIds = listOf(evidence.id)
+        )
+        val edge = GraphEdge.create(
+            scanId = scanId,
+            edgeKey = "local-scene-pointer:100:components:0:200",
+            sourceNodeId = sourceNode.id,
+            targetNodeId = null,
+            relationType = "has-component",
+            confidence = AnalysisConfidence.WEAK,
+            status = FindingStatus.PARTIAL,
+            evidenceIds = listOf(evidence.id),
+            findingIds = listOf(findingId),
+            analyzerRunId = run.id,
+            targetHint = "fileID=0, PathID=200 (pathID-not-in-object-sample)"
+        )
+        val finding = Finding.create(
+            scanId = scanId,
+            findingKey = "local-scene-pointer:100:components:0:200",
+            analyzerRunId = run.id,
+            sourceFileId = file.id,
+            category = "unity.local-scene-pointer",
+            title = "Root has-component Transform",
+            summary = "GameObject PathID=100 field=components points to local PPtr fileID=0, PathID=200.",
+            confidence = AnalysisConfidence.WEAK,
+            status = FindingStatus.PARTIAL,
+            reason = "The local target was outside the bounded object sample.",
+            evidenceIds = listOf(evidence.id),
+            graphNodeIds = listOf(sourceNode.id),
+            graphEdgeIds = listOf(edge.id)
+        )
+
+        val result = PartialReportBuilder.build(
+            rootName = "Game",
+            files = listOf(file),
+            totalBytes = 512,
+            scanId = scanId,
+            analyzerRuns = listOf(run),
+            findings = listOf(finding),
+            evidence = listOf(evidence),
+            graphNodes = listOf(sourceNode),
+            graphEdges = listOf(edge)
+        )
+
+        val report = JSONObject(result.json)
+        assertEquals("unity.local-scene-pointer",
+            report.getJSONArray("findings").getJSONObject(0).getString("category"))
+        assertEquals(evidence.id, report.getJSONArray("evidence").getJSONObject(0).getString("id"))
+        assertEquals(sourceNode.id, report.getJSONArray("graphNodes").getJSONObject(0).getString("id"))
+        val restoredEdge = report.getJSONArray("graphEdges").getJSONObject(0)
+        assertEquals("has-component", restoredEdge.getString("relationType"))
+        assertEquals("partial", restoredEdge.getString("status"))
+        assertTrue(restoredEdge.getString("targetHint").contains("PathID=200"))
+        assertTrue(result.markdown.contains("Root has-component Transform"))
+    }
+
+    @Test
     fun markdownCapsLargeInventoryButJsonRetainsEveryEntry() {
         val files = (1..20_001).map { record("file-$it", false, 1) }
         val result = PartialReportBuilder.build("Game", files, files.size.toLong())
