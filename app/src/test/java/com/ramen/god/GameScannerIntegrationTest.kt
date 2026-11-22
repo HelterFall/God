@@ -1819,7 +1819,7 @@ private fun unitySerializedFileWithExternalMonoBehaviourScriptPointer(
     }.toByteArray()
     val payload = ByteArrayOutputStream().apply {
         u32le(1) // external fileID
-        u64le(77) // MonoScript pathID
+        u64le(scriptPathId) // MonoScript pathID
     }.toByteArray()
     val metadata = ByteArrayOutputStream().apply {
         write("2022.3.10f1".toByteArray(Charsets.UTF_8))
