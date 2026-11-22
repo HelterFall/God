@@ -4,6 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Locale
+import java.util.UUID
 
 private data class ScanEntry(var record: FileRecord, val node: ScanNode) {
     val path: String get() = record.path
@@ -23,6 +24,8 @@ class ScanCancelledException : Exception()
 internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private val entries = mutableListOf<ScanEntry>()
     private val issues = mutableListOf<ScanIssue>()
+    private val analyzerRuns = mutableListOf<AnalyzerRun>()
+    private var scanId: String = ""
     private val warnings: List<String>
         get() = issues.map { it.message }
     private val peResults = linkedMapOf<String, PeInfo>()
@@ -68,6 +71,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     ): ScanResult {
         entries.clear()
         issues.clear()
+        analyzerRuns.clear()
+        scanId = UUID.randomUUID().toString()
         peResults.clear()
         clrResults.clear()
         managedTypeResolutions.clear()
@@ -125,6 +130,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             severity = ScanIssueSeverity.WARNING,
             message = "PE-анализ ограничен первыми " + MAX_PE_FILES + " EXE/DLL."
         )
+        val peRunIds = mutableMapOf<String, String>()
+        peCandidates.forEachIndexed { index, entry ->
+            val limited = index >= MAX_PE_FILES
+            val run = AnalyzerRun.create(
+                scanId = scanId,
+                analyzerId = "pe",
+                inputFileId = entry.record.id,
+                status = if (limited) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                reason = if (limited) "Candidate limit reached ($MAX_PE_FILES)." else null
+            )
+            analyzerRuns.add(run)
+            peRunIds[entry.record.id] = run.id
+        }
         try {
             peCandidates.take(MAX_PE_FILES).forEach { entry ->
                 if (shouldCancel()) throw ScanCancelledException()
@@ -132,8 +150,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 val info = readPeInfo(entry)
                 if (info == null) {
                     peFailedCount++
+                    updateAnalyzerRun(
+                        peRunIds.getValue(entry.record.id),
+                        AnalyzerRunStatus.FAILED,
+                        "PE header was not recognized or the file could not be read."
+                    )
                 } else {
                     peResults[entry.path] = info
+                    updateAnalyzerRun(
+                        peRunIds.getValue(entry.record.id),
+                        if (info.note == null) AnalyzerRunStatus.ANALYZED else AnalyzerRunStatus.PARTIAL,
+                        info.note
+                    )
                 }
             }
         } catch (_: ScanCancelledException) {
@@ -267,8 +295,31 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         PartialReportBuilder.build(
             rootName,
             entries.map { it.record },
-            totalBytes
+            totalBytes,
+            scanId,
+            analyzerRuns.toList()
         )
+
+    private fun addAnalyzerRun(
+        analyzerId: String,
+        entry: ScanEntry,
+        status: AnalyzerRunStatus = AnalyzerRunStatus.QUEUED,
+        reason: String? = null
+    ): String {
+        val run = AnalyzerRun.create(scanId, analyzerId, entry.record.id, status, reason)
+        analyzerRuns.add(run)
+        return run.id
+    }
+
+    private fun updateAnalyzerRun(
+        runId: String,
+        status: AnalyzerRunStatus,
+        reason: String? = null
+    ) {
+        val index = analyzerRuns.indexOfFirst { it.id == runId }
+        check(index >= 0) { "Unknown analyzer run: $runId" }
+        analyzerRuns[index] = analyzerRuns[index].copy(status = status, reason = reason)
+    }
 
     private fun walk(
         dir: ScanNode,
@@ -875,6 +926,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
             if (info.managed) {
                 clrAttemptedCount++
+                val clrRunId = addAnalyzerRun("clr_metadata", entry)
                 try {
                     val summary = ClrMetadataParser.parse(
                         data, info.clrMetadataOffset, info.clrMetadataSize,
@@ -882,11 +934,32 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     )
                     if (summary == null) {
                         clrFailedCount++
+                        updateAnalyzerRun(
+                            clrRunId,
+                            AnalyzerRunStatus.FAILED,
+                            "CLR metadata parser returned no result."
+                        )
                     } else {
                         clrResults[entry.path] = summary
+                        val status = when {
+                            summary.status == "parsed" -> AnalyzerRunStatus.ANALYZED
+                            summary.status.startsWith("partial-") -> AnalyzerRunStatus.PARTIAL
+                            summary.status.contains("unsupported", ignoreCase = true) -> AnalyzerRunStatus.UNSUPPORTED
+                            else -> AnalyzerRunStatus.FAILED
+                        }
+                        updateAnalyzerRun(
+                            clrRunId,
+                            status,
+                            summary.note ?: summary.status.takeIf { status != AnalyzerRunStatus.ANALYZED }
+                        )
                     }
                 } catch (e: Exception) {
                     clrFailedCount++
+                    updateAnalyzerRun(
+                        clrRunId,
+                        AnalyzerRunStatus.FAILED,
+                        e.message ?: e.javaClass.simpleName
+                    )
                     addIssue(
                         code = "clr.metadata_analysis_failed",
                         stage = ScanIssueStage.CLR_METADATA,
@@ -1236,6 +1309,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             .put("confidence", item.confidence) }))
         root.put("entryCount", entries.size)
         root.put("totalFileBytes", totalBytes)
+        root.put("scanId", scanId)
+        root.put("analyzerRuns", JSONArray(analyzerRuns.map { it.toJsonObject() }))
         root.put("scanCoverage", JSONObject()
             .put("status", coverage.status)
             .put("inventory", JSONObject()

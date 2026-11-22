@@ -106,6 +106,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - Экспортировать Markdown и JSON schemaVersion 24 с начальной ScanCoverage; JSON files[] содержит все entries, а `nativeImportSymbols` — прочитанные DLL/function/ordinal imports в пределах текущих лимитов.
 - Публиковать JSON inventory с детерминированным `id`, `parentId`, `identitySource` и `inventoryStatus`. ID строится из хешированного SAF document key, если он есть, иначе — из цепочки родительских ID, относительного пути и порядка одноимённых записей; исходный provider URI в отчёт не попадает.
 - Публиковать структурированные ScanIssue в JSON `issues[]` с постоянными кодом, стадией, серьёзностью и путём. Существующий массив `warnings[]` и текст Markdown сохраняют человекочитаемые сообщения; версия JSON остаётся schemaVersion 24.
+- Публиковать `scanId` и `analyzerRuns[]`: отдельные записи PE и CLR metadata с ссылкой `inputFileId` на `FileRecord.id`, статусом и причиной. Существующая aggregate `ScanCoverage` остаётся отдельной сводкой.
 
 ### Главные ограничения текущего MVP
 
@@ -117,11 +118,11 @@ RamenUnity — отдельный проект с другой задачей. G
 - SerializedFile, TypeTree, сцены и объектные payload декодируются ограниченно; текущий граф сцены не гарантированно полный.
 - Полноценный декодер основных категорий ресурсов отсутствует.
 - Сквозной dependency/wiring graph и porting plan пока не реализованы.
-- Отмена на проверяемых этапах сохраняет inventory-only partial report: JSON содержит все уже найденные entries, Markdown ограничен 20 000 строк. Отчёт помечается `partial=true` и `scanStatus=cancelled`; незавершённые результаты анализаторов не выдаются за полные.
+- Отмена на проверяемых этапах сохраняет partial report с полным уже собранным inventory; после начала PE/CLR-анализа JSON также сохраняет их AnalyzerRun outcomes, включая queued-записи. Markdown ограничен 20 000 строк. Отчёт помечается `partial=true` и `scanStatus=cancelled`; незавершённые результаты не выдаются за полные.
 - Прогресс показывается в основном во время инвентаризации, а не по отдельным стадиям анализаторов.
 - Markdown tree ограничен 20 000 строк, тогда как JSON files[] содержит все записи, собранные текущим обходом (до лимита 100 000 entries и глубины 40).
 - Потоковой записи больших отчётов пока нет; Markdown/JSON полностью формируются в памяти. Экспорт теперь считает null output stream и ошибки открытия, записи или закрытия ошибкой, а не успешным сохранением.
-- `inventoryStatus` показывает только результат обхода папок (`discovered`, `enumerated`, `partial`, `inaccessible`); индивидуальные результаты каждого анализатора по файлам ещё предстоит добавить. `parentId` связывает дочерние записи с найденной папкой; связи с содержимым контейнеров ещё нет.
+- `inventoryStatus` показывает только результат обхода папок (`discovered`, `enumerated`, `partial`, `inaccessible`). `analyzerRuns[]` отдельно фиксирует результаты PE и CLR metadata по каждому файлу (`queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed`); остальные analyzer families ещё предстоит подключить к per-file runs. `parentId` связывает дочерние записи с найденной папкой; связи с содержимым контейнеров ещё нет.
 
 Подробная оценка реализации: [технический аудит](docs/AUDIT_2026-11-18.md). Отдельно: [аудит тестирования и CI](docs/TEST_AUDIT_2026-11-19.md).
 
@@ -132,7 +133,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - GameScanner.kt — orchestration инвентаризации, эвристик и ограниченных анализаторов без прямой зависимости от Android SAF API.
 - ScanFiles.kt — read-only `ScanNode`/`ScanFileAccess` и SAF-адаптеры для `DocumentFile`/`ContentResolver`.
 - ScanCoordinator.kt — single-job locking и job-scoped cancellation.
-- PartialReportBuilder.kt — честный inventory-only отчёт при отмене.
+- PartialReportBuilder.kt — partial отчёт с inventory и накопленными analyzer outcomes при отмене.
 - ScanCoverage.kt — счётчики покрытия и статусы анализаторов.
 - PeParser.kt — ограниченный PE-анализ.
 - ClrMetadataParser.kt / ClrSignatureParser.kt — ограниченный CLR metadata и signature analysis.

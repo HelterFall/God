@@ -62,6 +62,45 @@ class PartialReportBuilderTest {
     }
 
     @Test
+    fun preservesAnalyzerRunsAndTheirStatusesWhenBuildingPartialReport() {
+        val file = record("Managed/Assembly-CSharp.dll", false, 100)
+        val completed = AnalyzerRun.create(
+            "scan-123",
+            "pe",
+            file.id,
+            AnalyzerRunStatus.ANALYZED
+        )
+        val queued = AnalyzerRun.create(
+            "scan-123",
+            "clr_metadata",
+            file.id,
+            AnalyzerRunStatus.QUEUED,
+            reason = "Waiting for the next analysis stage."
+        )
+
+        val result = PartialReportBuilder.build(
+            rootName = "Game",
+            files = listOf(file),
+            totalBytes = 100,
+            scanId = "scan-123",
+            analyzerRuns = listOf(completed, queued)
+        )
+
+        val report = JSONObject(result.json)
+        assertEquals("scan-123", report.getString("scanId"))
+        val runs = report.getJSONArray("analyzerRuns")
+        assertEquals(2, runs.length())
+        assertEquals(completed.id, runs.getJSONObject(0).getString("id"))
+        assertEquals(file.id, runs.getJSONObject(0).getString("inputFileId"))
+        assertEquals("analyzed", runs.getJSONObject(0).getString("status"))
+        assertEquals("queued", runs.getJSONObject(1).getString("status"))
+        assertEquals("Waiting for the next analysis stage.", runs.getJSONObject(1).getString("reason"))
+        assertTrue(result.markdown.contains("Analyzer outcomes before cancellation"))
+        assertTrue(result.markdown.contains("queued"))
+        assertTrue(result.markdown.contains("queued-записи не завершены"))
+    }
+
+    @Test
     fun markdownCapsLargeInventoryButJsonRetainsEveryEntry() {
         val files = (1..20_001).map { record("file-$it", false, 1) }
         val result = PartialReportBuilder.build("Game", files, files.size.toLong())
