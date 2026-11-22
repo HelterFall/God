@@ -366,9 +366,17 @@ class AnalysisModelsTest {
     }
 
     @Test
-    fun sourceLocatorRejectsFractionalJsonNumbers() {
-        val json = SourceLocator(byteOffset = 10).toJsonObject()
-        json.put("byteOffset", 10.5)
-        assertTrue(runCatching { SourceLocator.fromJsonObject(json) }.isFailure)
+    fun sourceLocatorRejectsFractionalAndOverflowingJsonNumbers() {
+        val fractional = SourceLocator(byteOffset = 10).toJsonObject()
+        fractional.put("byteOffset", 10.5)
+        assertTrue(runCatching { SourceLocator.fromJsonObject(fractional) }.isFailure)
+
+        val overflow = SourceLocator(byteOffset = 10).toJsonObject()
+        overflow.put("byteOffset", 9.223372036854776E18)
+        assertTrue(runCatching { SourceLocator.fromJsonObject(overflow) }.isFailure)
+
+        val fileIdOverflow = SourceLocator(unityFileId = 1).toJsonObject()
+        fileIdOverflow.put("unityFileId", 2_147_483_648L)
+        assertTrue(runCatching { SourceLocator.fromJsonObject(fileIdOverflow) }.isFailure)
     }
 }
