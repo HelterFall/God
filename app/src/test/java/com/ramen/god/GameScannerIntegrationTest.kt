@@ -585,6 +585,18 @@ class GameScannerIntegrationTest {
         assertEquals(1, externalFindings.size)
         assertEquals(ownerId, externalFindings.single().getString("sourceFileId"))
         assertEquals(100L, externalComponentLinks.single().getLong("sourcePathId"))
+        val externalSourceNodeId = externalFindings.single()
+            .getJSONArray("graphNodeIds").getString(0)
+        val externalSourceNode = (0 until report.getJSONArray("graphNodes").length())
+            .map { report.getJSONArray("graphNodes").getJSONObject(it) }
+            .single { it.getString("id") == externalSourceNodeId }
+        assertEquals(
+            "expected shared node; external node type=" + externalSourceNode.getString("nodeType") +
+                ", file=" + externalSourceNode.getString("fileRecordId") +
+                ", locator=" + externalSourceNode.optJSONObject("locator"),
+            rootNode.getString("id"),
+            externalSourceNodeId
+        )
         assertEquals(2, rootNode.getJSONArray("findingIds").length())
         assertEquals(2, rootNode.getJSONArray("evidenceIds").length())
 
