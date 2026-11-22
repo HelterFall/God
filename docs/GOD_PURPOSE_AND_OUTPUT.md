@@ -34,7 +34,7 @@ God должен восстанавливать несколько уровне�
 - Каждая найденная запись получает устойчивый `FileRecord.id` и, если это вложенная запись, `parentId` родительского каталога.
 - Идентификатор строится из хешированного provider key (когда он доступен) или относительного пути; сырые SAF URI не публикуются в отчёте.
 - `inventoryStatus` описывает только полноту обхода (discovered/enumerated/partial/inaccessible), а не успех анализа содержимого.
-- Отдельная запись `AnalyzerRun` связывает запуск конкретного анализатора с `FileRecord.id` через `inputFileId`, хранит `analyzerId`, статус и причину. В текущем коде этот слой подключён для PE и CLR metadata; Unity header/SerializedFile и остальные analyzer families будут подключаться поэтапно.
+- Отдельная запись `AnalyzerRun` связывает запуск конкретного анализатора с `FileRecord.id` через `inputFileId`, хранит `analyzerId`, статус и причину. В текущем коде слой подключён для PE, CLR metadata, Unity header и SerializedFile metadata; resolver stages, UnityFS contents и остальные analyzer families будут подключаться поэтапно.
 - Папка содержит файл.
 - Архив содержит entry.
 - Bundle содержит SerializedFile или ресурс.
