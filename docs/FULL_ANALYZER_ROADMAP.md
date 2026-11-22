@@ -204,7 +204,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 - Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
 - Все ограничения, пропуски и ошибки отражаются в coverage.
-- Отмена на контролируемых границах создаёт partial report с inventory и уже накопленными AnalyzerRun outcomes PE/CLR/Unity header/SerializedFile/local MonoScript, bounded `unity_scene_graph` и external MonoScript/PPtr/MonoBehaviour resolver stages (PR #35); остальные analyzer families ещё нужно подключить.
+- Отмена на контролируемых границах создаёт partial report с inventory, накопленными AnalyzerRun outcomes и уже сформированными EVIDENCE-02 `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]` для MonoBehaviour→MonoScript; остальные analyzer families ещё нужно подключить.
 - Большие файлы читаются потоково/позиционно с контролем памяти.
 - Вложенные архивы имеют защиту от чрезмерной глубины и распакованного объёма.
 - Повреждённые или зашифрованные данные не обозначаются как успешно разобранные.
