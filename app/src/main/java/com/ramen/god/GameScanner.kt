@@ -681,15 +681,29 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val discoveredMetadata = linkedMapOf<String, UnityMetadataSummary>()
         val attemptedMetadata = mutableSetOf<String>()
         var extraMetadataReads = 0
+        // External script bindings originate in the owner SerializedFile. Keep
+        // their resolver outcome attached to that exact inventory record.
+        val entriesByPath = files.associateBy { it.path }
+        val externalRunIds = metadataSnapshot.mapNotNull { (ownerPath, metadata) ->
+            val hasExternalBindings = metadata.scriptTypeBindings.any { (it.fileId ?: 0) > 0 }
+            if (!hasExternalBindings) return@mapNotNull null
+            val ownerEntry = entriesByPath[ownerPath] ?: return@mapNotNull null
+            ownerPath to addAnalyzerRun("external_mono_script_payload", ownerEntry)
+        }.toMap()
 
         metadataSnapshot.forEach { (ownerPath, metadata) ->
             metadata.scriptTypeBindings.forEachIndexed { index, binding ->
                 val fileId = binding.fileId ?: return@forEachIndexed
-                if (fileId <= 0 || binding.pathId == null || binding.externalPath.isNullOrBlank()) {
+                if (fileId <= 0) return@forEachIndexed
+                val current = updatedBindings[ownerPath]?.getOrNull(index) ?: binding
+                if (binding.pathId == null || binding.externalPath.isNullOrBlank()) {
+                    updatedBindings[ownerPath]?.set(index, current.copy(
+                        resolution = "external-file-reference-unavailable"
+                    ))
+                    changedOwners.add(ownerPath)
                     return@forEachIndexed
                 }
                 val match = resolveExternalFile(binding.externalPath, files)
-                val current = updatedBindings[ownerPath]?.getOrNull(index) ?: binding
                 if (match.entry == null) {
                     val resolution = if (match.ambiguous) "external-file-name-ambiguous" else "external-file-not-matched"
                     updatedBindings[ownerPath]?.set(index, current.copy(resolution = resolution))
@@ -846,6 +860,25 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     changedOwners.add(request.ownerPath)
                 }
             }
+        }
+
+        externalRunIds.forEach { (ownerPath, runId) ->
+            val bindings = updatedBindings[ownerPath].orEmpty().filter { (it.fileId ?: 0) > 0 }
+            val decodedCount = bindings.count { it.resolution == "external-monoscript-decoded" }
+            val unresolved = bindings.filter { it.resolution != "external-monoscript-decoded" }
+            val reason = if (unresolved.isEmpty()) {
+                null
+            } else {
+                val outcomes = unresolved.groupingBy { it.resolution }.eachCount()
+                    .entries.sortedBy { it.key }
+                    .joinToString(", ") { "${it.key}: ${it.value}" }
+                "Decoded $decodedCount of ${bindings.size} sampled external MonoScript references; unresolved outcomes: $outcomes."
+            }
+            updateAnalyzerRun(
+                runId,
+                if (unresolved.isEmpty()) AnalyzerRunStatus.ANALYZED else AnalyzerRunStatus.PARTIAL,
+                reason
+            )
         }
 
         changedOwners.forEach { ownerPath ->
