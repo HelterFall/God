@@ -5,7 +5,18 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Locale
 
-private data class ScanEntry(val path: String, val name: String, val directory: Boolean, val size: Long, val node: ScanNode)
+private data class ScanEntry(var record: FileRecord, val node: ScanNode) {
+    val path: String get() = record.path
+    val name: String get() = record.name
+    val directory: Boolean get() = record.directory
+    val size: Long get() = record.size
+
+    var inventoryStatus: FileInventoryStatus
+        get() = record.inventoryStatus
+        set(value) {
+            record = record.copy(inventoryStatus = value)
+        }
+}
 data class ScanResult(val markdown: String, val json: String, val isPartial: Boolean = false)
 class ScanCancelledException : Exception()
 
@@ -78,7 +89,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         unityMetadataPrerequisiteSkippedCount = 0
         unityMetadataWindowLimitedCount = 0
         try {
-            walk(root, "", 0, shouldCancel, onProgress)
+            walk(root, "", 0, null, shouldCancel, onProgress)
         } catch (_: ScanCancelledException) {
             return buildPartialResult(root.name ?: "(unnamed)")
         }
@@ -255,7 +266,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private fun buildPartialResult(rootName: String): ScanResult =
         PartialReportBuilder.build(
             rootName,
-            entries.map { PartialFileEntry(it.path, it.directory, it.size) },
+            entries.map { it.record },
             totalBytes
         )
 
@@ -263,11 +274,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         dir: ScanNode,
         parent: String,
         depth: Int,
+        directoryEntry: ScanEntry?,
         shouldCancel: () -> Boolean,
         onProgress: (Int, String) -> Unit
     ) {
-        if (shouldCancel()) throw ScanCancelledException()
+        if (shouldCancel()) {
+            directoryEntry?.inventoryStatus = FileInventoryStatus.PARTIAL
+            throw ScanCancelledException()
+        }
         if (depth > MAX_DEPTH) {
+            directoryEntry?.inventoryStatus = FileInventoryStatus.PARTIAL
             depthLimitHitCount++
             addIssue(
                 code = "inventory.depth_limit_reached",
@@ -279,6 +295,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             return
         }
         if (entries.size >= MAX_ENTRIES) {
+            directoryEntry?.inventoryStatus = FileInventoryStatus.PARTIAL
             entryLimitReached = true
             addIssue(
                 code = "inventory.entry_limit_reached",
@@ -289,7 +306,10 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             )
             return
         }
-        val children = try { dir.listFiles() } catch (e: Exception) {
+        val children = try {
+            dir.listFiles()
+        } catch (e: Exception) {
+            directoryEntry?.inventoryStatus = FileInventoryStatus.INACCESSIBLE
             inaccessibleDirectoryCount++
             addIssue(
                 code = "inventory.directory_listing_failed",
@@ -300,9 +320,15 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             )
             return
         }
+        directoryEntry?.inventoryStatus = FileInventoryStatus.ENUMERATED
+        val siblingOccurrences = mutableMapOf<String, Int>()
         for (child in children) {
-            if (shouldCancel()) throw ScanCancelledException()
+            if (shouldCancel()) {
+                directoryEntry?.inventoryStatus = FileInventoryStatus.PARTIAL
+                throw ScanCancelledException()
+            }
             if (entries.size >= MAX_ENTRIES) {
+                directoryEntry?.inventoryStatus = FileInventoryStatus.PARTIAL
                 entryLimitReached = true
                 addIssue(
                     code = "inventory.entry_limit_reached",
@@ -315,12 +341,31 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
             val name = child.name ?: "(unnamed)"
             val path = if (parent.isEmpty()) name else parent + "/" + name
+            val siblingOccurrence = siblingOccurrences[name] ?: 0
+            siblingOccurrences[name] = siblingOccurrence + 1
             val isDir = child.isDirectory
             val size = if (isDir) 0L else child.size.coerceAtLeast(0L)
-            entries.add(ScanEntry(path, name, isDir, size, child))
+            val record = FileRecord.create(
+                path = path,
+                name = name,
+                directory = isDir,
+                size = size,
+                parentId = directoryEntry?.record?.id,
+                providerKey = child.stableKey,
+                siblingOccurrence = siblingOccurrence
+            )
+            val entry = ScanEntry(record, child)
+            entries.add(entry)
             onProgress(entries.size, path)
             if (!isDir) totalBytes += size
-            if (isDir) walk(child, path, depth + 1, shouldCancel, onProgress)
+            if (isDir) {
+                try {
+                    walk(child, path, depth + 1, entry, shouldCancel, onProgress)
+                } catch (cancelled: ScanCancelledException) {
+                    directoryEntry?.inventoryStatus = FileInventoryStatus.PARTIAL
+                    throw cancelled
+                }
+            }
         }
     }
 
@@ -1386,9 +1431,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 .put("headerSize", header.headerSize)
                 .put("note", header.note ?: JSONObject.NULL)
         }))
-        root.put("files", JSONArray(entries.map {
-            JSONObject().put("path", it.path).put("directory", it.directory).put("size", it.size)
-        }))
+        root.put("files", JSONArray(entries.map { it.record.toJsonObject() }))
         root.put("issues", JSONArray(issues.map { it.toJsonObject() }))
         root.put("warnings", JSONArray(warnings))
         return root.toString(2)

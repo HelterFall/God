@@ -33,14 +33,23 @@ class GameScannerIntegrationTest {
         )
         val progress = mutableListOf<Pair<Int, String>>()
 
-        val result = GameScanner(MemoryScanFileAccess()).scan(
+        val scanner = GameScanner(MemoryScanFileAccess())
+        val result = scanner.scan(
             root,
             shouldCancel = { false }
         ) { count, path ->
             progress += count to path
         }
+        val repeatedResult = scanner.scan(root, shouldCancel = { false }) { _, _ -> }
 
         assertFalse(result.isPartial)
+        val firstIds = JSONObject(result.json).getJSONArray("files").let { files ->
+            (0 until files.length()).map { files.getJSONObject(it).getString("id") }
+        }
+        val repeatedIds = JSONObject(repeatedResult.json).getJSONArray("files").let { files ->
+            (0 until files.length()).map { files.getJSONObject(it).getString("id") }
+        }
+        assertEquals(firstIds, repeatedIds)
         assertTrue(result.markdown.contains("# Unity Game Architecture Report"))
         assertTrue(result.markdown.contains("Indexed entries: 5"))
         assertEquals(listOf(1, 2, 3, 4, 5, 5), progress.map { it.first })
@@ -57,6 +66,18 @@ class GameScannerIntegrationTest {
             listOf("Data", "Data/manifest.txt", "Assembly-CSharp.dll", "UnityPlayer.dll", "readme.txt"),
             paths
         )
+        val dataRecord = (0 until files.length())
+            .map { files.getJSONObject(it) }
+            .first { it.getString("path") == "Data" }
+        val manifestRecord = (0 until files.length())
+            .map { files.getJSONObject(it) }
+            .first { it.getString("path") == "Data/manifest.txt" }
+        assertTrue(dataRecord.getString("id").startsWith("file:"))
+        assertEquals("relative-path", dataRecord.getString("identitySource"))
+        assertTrue(dataRecord.isNull("parentId"))
+        assertEquals("enumerated", dataRecord.getString("inventoryStatus"))
+        assertEquals(dataRecord.getString("id"), manifestRecord.getString("parentId"))
+        assertEquals("discovered", manifestRecord.getString("inventoryStatus"))
 
         val coverage = report.getJSONObject("scanCoverage")
         val inventory = coverage.getJSONObject("inventory")
@@ -521,9 +542,15 @@ class GameScannerIntegrationTest {
         assertEquals(1, inventory.getInt("inaccessibleDirectoryCount"))
 
         val files = report.getJSONArray("files")
-        val paths = (0 until files.length()).map { files.getJSONObject(it).getString("path") }
+        val records = (0 until files.length()).map { files.getJSONObject(it) }
+        val paths = records.map { it.getString("path") }
         assertEquals(listOf("Data", "readme.txt"), paths)
         assertTrue(paths.none { it.contains("hidden.asset") })
+        val inaccessibleDirectory = records.first { it.getString("path") == "Data" }
+        assertEquals("inaccessible", inaccessibleDirectory.getString("inventoryStatus"))
+        val visibleSibling = records.first { it.getString("path") == "readme.txt" }
+        assertEquals("discovered", visibleSibling.getString("inventoryStatus"))
+        assertTrue(visibleSibling.isNull("parentId"))
 
         val warnings = report.getJSONArray("warnings")
         val legacyDirectoryWarning = "Не удалось прочитать каталог Data: synthetic directory listing failure"
@@ -551,9 +578,18 @@ class GameScannerIntegrationTest {
                 MemoryScanNode(
                     name = "Assets",
                     isDirectory = true,
-                    children = listOf(MemoryScanNode("first.txt", false, byteArrayOf(1)))
+                    children = listOf(
+                        MemoryScanNode(
+                            "nested",
+                            true,
+                            children = listOf(
+                                MemoryScanNode("first.txt", false, byteArrayOf(1)),
+                                MemoryScanNode("later-inside.txt", false, byteArrayOf(2))
+                            )
+                        )
+                    )
                 ),
-                MemoryScanNode("later.txt", false, byteArrayOf(2))
+                MemoryScanNode("later.txt", false, byteArrayOf(3))
             )
         )
         var cancellationChecks = 0
@@ -562,17 +598,24 @@ class GameScannerIntegrationTest {
             root,
             shouldCancel = {
                 cancellationChecks++
-                cancellationChecks >= 5
+                cancellationChecks >= 7
             },
             onProgress = { _, _ -> }
         )
 
         assertTrue(result.isPartial)
-        assertTrue(result.markdown.contains("Assets/first.txt"))
+        assertTrue(result.markdown.contains("Assets/nested/first.txt"))
         assertTrue(result.json.contains("\"scanStatus\":\"cancelled\""))
-        assertTrue(result.json.contains("Assets/first.txt"))
-        assertFalse(result.json.contains("later.txt"))
-        assertTrue(result.json.contains("\"entryCount\":2"))
+        assertTrue(result.json.contains("Assets/nested/first.txt"))
+        assertFalse(result.json.contains("later-inside.txt"))
+        assertFalse(result.json.contains("\"path\":\"later.txt\""))
+        assertTrue(result.json.contains("\"entryCount\":3"))
+
+        val files = JSONObject(result.json).getJSONArray("files")
+        val records = (0 until files.length()).map { files.getJSONObject(it) }
+        assertEquals("partial", records.first { it.getString("path") == "Assets" }.getString("inventoryStatus"))
+        assertEquals("partial", records.first { it.getString("path") == "Assets/nested" }.getString("inventoryStatus"))
+        assertEquals("discovered", records.first { it.getString("path") == "Assets/nested/first.txt" }.getString("inventoryStatus"))
     }
 }
 

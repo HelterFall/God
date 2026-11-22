@@ -7,6 +7,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PartialReportBuilderTest {
+    private fun record(path: String, directory: Boolean, size: Long, parentId: String? = null): FileRecord =
+        FileRecord.create(path, path.substringAfterLast('/'), directory, size, parentId, providerKey = null)
+
     @Test
     fun marksReportAsPartialAndCancelled() {
         val result = PartialReportBuilder.build("Game", emptyList(), 0)
@@ -29,24 +32,30 @@ class PartialReportBuilderTest {
 
     @Test
     fun preservesAllInventoryEntriesInJson() {
-        val files = listOf(PartialFileEntry("Data", true, 0), PartialFileEntry("Data/sharedassets0.assets", false, 2048))
+        val data = record("Data", true, 0).copy(inventoryStatus = FileInventoryStatus.ENUMERATED)
+        val asset = record("Data/sharedassets0.assets", false, 2048, parentId = data.id)
+        val files = listOf(data, asset)
         val result = PartialReportBuilder.build("Game", files, 2048)
         assertTrue(result.json.contains("\"entryCount\":2"))
         assertTrue(result.json.contains("\"filesDiscovered\":1"))
         assertTrue(result.json.contains("\"directoriesDiscovered\":1"))
-        assertTrue(result.json.contains("Data/sharedassets0.assets"))
+        val inventoryFiles = JSONObject(result.json).getJSONArray("files")
+        assertEquals(data.id, inventoryFiles.getJSONObject(0).getString("id"))
+        assertEquals("enumerated", inventoryFiles.getJSONObject(0).getString("inventoryStatus"))
+        assertEquals(data.id, inventoryFiles.getJSONObject(1).getString("parentId"))
+        assertEquals("Data/sharedassets0.assets", inventoryFiles.getJSONObject(1).getString("path"))
     }
 
     @Test
     fun escapesJsonControlCharactersAndQuotes() {
-        val result = PartialReportBuilder.build("A\"B", listOf(PartialFileEntry("folder\\name\nfile.json", false, 1)), 1)
+        val result = PartialReportBuilder.build("A\"B", listOf(record("folder\\name\nfile.json", false, 1)), 1)
         assertTrue(result.json.contains("A\\\"B"))
         assertTrue(result.json.contains("folder\\\\name\\nfile.json"))
     }
 
     @Test
     fun markdownListsInventoryAndExplainsAnalyzerLimit() {
-        val result = PartialReportBuilder.build("Game", listOf(PartialFileEntry("Data/file.assets", false, 42)), 42)
+        val result = PartialReportBuilder.build("Game", listOf(record("Data/file.assets", false, 42)), 42)
         assertTrue(result.markdown.contains("Data/file.assets"))
         assertTrue(result.markdown.contains("только инвентаризацию"))
         assertFalse(result.markdown.contains("PE analysis completed"))
@@ -54,7 +63,7 @@ class PartialReportBuilderTest {
 
     @Test
     fun markdownCapsLargeInventoryButJsonRetainsEveryEntry() {
-        val files = (1..20_001).map { PartialFileEntry("file-$it", false, 1) }
+        val files = (1..20_001).map { record("file-$it", false, 1) }
         val result = PartialReportBuilder.build("Game", files, files.size.toLong())
         assertTrue(result.markdown.contains("пропущено 1 записей"))
         assertTrue(result.json.contains("file-20001"))

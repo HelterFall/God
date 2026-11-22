@@ -31,6 +31,9 @@ God должен восстанавливать несколько уровне�
 
 ### 3.1. Файловый уровень
 
+- Каждая найденная запись получает устойчивый `FileRecord.id` и, если это вложенная запись, `parentId` родительского каталога.
+- Идентификатор строится из хешированного provider key (когда он доступен) или относительного пути; сырые SAF URI не публикуются в отчёте.
+- `inventoryStatus` описывает только полноту обхода (discovered/enumerated/partial/inaccessible), а не успех анализа содержимого.
 - Папка содержит файл.
 - Архив содержит entry.
 - Bundle содержит SerializedFile или ресурс.
@@ -205,7 +208,7 @@ God должен создавать документы, по которым ра
 Каждый важный факт, узел и ребро должен иметь evidence record с максимально доступными полями:
 
 - идентификатор находки;
-- относительный путь внутри игры и идентификатор контейнера;
+- стабильный file ID, относительный путь внутри игры, parent/container ID;
 - offset/range, object PathID, metadata token, RVA, IL offset или другой точный locator;
 - анализатор, parser version и поддержанный format version;
 - метод обнаружения: parsed, signature, string heuristic, static reference, call-site, resolved pointer и т.п.;

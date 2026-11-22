@@ -1,16 +1,12 @@
 package com.ramen.god
 
-internal data class PartialFileEntry(
-    val path: String,
-    val directory: Boolean,
-    val size: Long
-)
+import org.json.JSONArray
 
 /** Builds an inventory-only report when analysis is cancelled. */
 internal object PartialReportBuilder {
     private const val MAX_MARKDOWN_FILES = 20_000
 
-    fun build(rootName: String, files: List<PartialFileEntry>, totalBytes: Long): ScanResult {
+    fun build(rootName: String, files: List<FileRecord>, totalBytes: Long): ScanResult {
         val fileCount = files.count { !it.directory }
         val directoryCount = files.size - fileCount
         val warning = "Анализ отменён пользователем. Отчёт содержит только инвентаризацию; результаты анализаторов не завершены."
@@ -35,8 +31,8 @@ internal object PartialReportBuilder {
                 appendLine("- Список Markdown ограничен: пропущено ${files.size - MAX_MARKDOWN_FILES} записей. Полный список находится в JSON.")
             }
         }
-        val jsonFiles = files.joinToString(",") { entry ->
-            """{"path":${jsonString(entry.path)},"directory":${entry.directory},"size":${entry.size}}"""
+        val jsonFiles = JSONArray().apply {
+            files.forEach { put(it.toJsonObject()) }
         }
         val json = buildString {
             append("{")
@@ -59,7 +55,7 @@ internal object PartialReportBuilder {
             append("\"depthLimitHitCount\":0,")
             append("\"entryLimitReached\":false},")
             append("\"analyzers\":[]},")
-            append("\"files\":[$jsonFiles],")
+            append("\"files\":").append(jsonFiles).append(",")
             append("\"issues\":[{")
             append("\"code\":\"scan.cancelled\",")
             append("\"stage\":\"scan\",")

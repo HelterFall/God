@@ -1,21 +1,22 @@
 # God — аудит тестирования и качества
 
 **Дата:** 22 ноября 2026 года  
-**Проверенная ветка:** `main`.  
-**Проверенный commit:** `33d268c9e43b504f75fa032a13df33dc0b975eab` (squash merge PR #28).  
-**Последняя успешная проверка `main`:** [run #340](https://github.com/HelterFall/God/actions/runs/44982866804) — 92 JVM tests, debug APK build и artifact upload успешно завершились.
+**Проверенная база `main`:** `dcbdea1c39743f092f32795b9d54507590e763ad`.  
+**Последний source commit в базе:** `33d268c9e43b504f75fa032a13df33dc0b975eab`.  
+**Последняя успешная проверка `main`:** [run #343](https://github.com/HelterFall/God/actions/runs/44983187122) — 92 JVM tests, debug APK build и artifact upload завершились успешно.  
+**Проверенная feature branch:** `feat/file-record-identities`, 18 test files / 95 `@Test` methods; PR [#29 / run #344](https://github.com/HelterFall/God/actions/runs/44984711337) завершился `success` — tests, debug APK build и artifact upload прошли.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 17 JVM test files в `main`;
-- 92 метода с аннотацией `@Test`;
+- 18 JVM test files в рабочей ветке (main baseline: 17);
+- 95 методов с аннотацией `@Test` (main baseline: 92);
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Восемь тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE candidate/import reporting; CLR metadata; synthetic Unity SerializedFile v22 metadata и version evidence; ambiguous external MonoScript basename не выбирает target; unique external MonoScript payload декодируется и попадает в JSON/Markdown; ошибка открытия Unity provider stream сохраняет inventory и warning, но отмечает header analyzer как failed и metadata analyzer как partial/skipped; ошибка `listFiles()` у подкаталога сохраняет доступный sibling inventory, warning и `inventory.status=partial` с `inaccessibleDirectoryCount=1`; partial inventory при отмене. Дополнительно проверяются typed `issues[]` для ошибки provider/directory listing и cancellation; существующий `warnings[]` и текст Markdown сохраняются. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
+Это подтверждает работу JVM unit- и начальных scanner integration tests, а также сборку Android debug APK. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Восемь тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE candidate/import reporting; CLR metadata; synthetic Unity SerializedFile v22 metadata и version evidence; ambiguous external MonoScript basename не выбирает target; unique external MonoScript payload декодируется и попадает в JSON/Markdown; ошибка открытия Unity provider stream сохраняет inventory и warning, но отмечает header analyzer как failed и metadata analyzer как partial/skipped; ошибка `listFiles()` у подкаталога сохраняет доступный sibling inventory, warning и `inventory.status=partial` с `inaccessibleDirectoryCount=1`; partial inventory при отмене. В существующие сценарии добавлены проверки стабильных file IDs, `parentId`, `inventoryStatus` для недоступной папки и для обеих родительских папок при отмене внутри вложенного каталога. Дополнительно проверяются typed `issues[]` для ошибки provider/directory listing и cancellation; существующий `warnings[]` и текст Markdown сохраняются. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -31,7 +32,8 @@
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap, полный список в JSON и structured `scan.cancelled` issue |
 | ScanIssueTest | 1 | Stable code/stage/severity/message serialization and null path |
-| GameScannerIntegrationTest | 8 | Fake tree: inventory/progress, PE success/failure/import reporting, CLR path, Unity SerializedFile v22 metadata/version, ambiguous external MonoScript no-guess, unique external MonoScript payload decoded/bound, provider and directory-listing failures with structured `ScanIssue` + legacy warning compatibility, cancellation |
+| FileRecordTest | 3 | Repeatable path-based IDs, provider-key identity across rename without URI disclosure, duplicate-path disambiguation |
+| GameScannerIntegrationTest | 8 | Fake tree: inventory/progress, PE success/failure/import reporting, CLR path, Unity SerializedFile v22 metadata/version, repeatable FileRecord IDs and parent links, inaccessible directory status, partial parent statuses on nested cancellation, external MonoScript resolution, provider failures and legacy warning compatibility |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -178,14 +180,14 @@
 
 Проверенный актуальный main run:
 
-https://github.com/HelterFall/God/actions/runs/44982866804
+https://github.com/HelterFall/God/actions/runs/44983187122
 
-- Commit: `33d268c9e43b504f75fa032a13df33dc0b975eab` (squash merge PR #28).
+- Commit: `dcbdea1c39743f092f32795b9d54507590e763ad` (документационные обновления после source commit `33d268c`).
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Текущая main-версия содержит 92 метода `@Test` в 17 JVM test files.
-- PR [#28, run #337](https://github.com/HelterFall/God/actions/runs/44982753613) подтвердил feature revision; post-merge main run #340 повторно проверил итоговый merge commit.
+- Проверенная main-база содержит 92 метода `@Test` в 17 JVM test files; текущая ветка расширяет её до 95 методов в 18 файлах.
+- PR [#29 / run #344](https://github.com/HelterFall/God/actions/runs/44984711337) подтвердил новый FileRecord model и scanner assertions: `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload завершились успешно.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем

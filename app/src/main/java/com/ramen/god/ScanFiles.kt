@@ -13,6 +13,9 @@ internal interface ScanNode {
     val name: String?
     val isDirectory: Boolean
     val size: Long
+    /** Stable provider-specific key, when one is available. Never written to reports. */
+    val stableKey: String?
+        get() = null
     fun listFiles(): List<ScanNode>
 }
 
@@ -38,6 +41,9 @@ internal class SafScanNode(
 
     internal val uri
         get() = documentFile.uri
+
+    override val stableKey: String
+        get() = uri.toString()
 }
 
 internal class SafScanFileAccess(
