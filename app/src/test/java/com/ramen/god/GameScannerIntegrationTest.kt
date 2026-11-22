@@ -272,6 +272,10 @@ class GameScannerIntegrationTest {
         assertEquals("analyzed", headerRun.getString("status"))
         assertEquals(sourceFileId, metadataRun.getString("inputFileId"))
         assertEquals("analyzed", metadataRun.getString("status"))
+        val sceneRun = analyzerRuns.first { it.getString("analyzerId") == "unity_scene_graph" }
+        assertEquals(sourceFileId, sceneRun.getString("inputFileId"))
+        assertEquals("skipped", sceneRun.getString("status"))
+        assertTrue(sceneRun.getString("reason").contains("TypeTree"))
 
         val analyzers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
         val unityHeaders = (0 until analyzers.length())
@@ -291,6 +295,134 @@ class GameScannerIntegrationTest {
         assertEquals(0, serializedMetadata.getInt("failedCount"))
         assertEquals(0, serializedMetadata.getInt("limitedCount"))
         assertEquals("completed", serializedMetadata.getString("status"))
+    }
+
+    @Test
+    fun recordsSuccessfulUnitySceneGraphRunAgainstItsFileRecord() {
+        val root = MemoryScanNode(
+            name = "UnitySceneFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithGameObjectScene(
+                        listOf(42L to minimalGameObjectPayload("Hero", active = true))
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileId = (0 until report.getJSONArray("files").length())
+            .map { report.getJSONArray("files").getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+            .getString("id")
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "unity_scene_graph" }
+
+        assertEquals(fileId, run.getString("inputFileId"))
+        assertEquals("analyzed", run.getString("status"))
+        assertTrue(run.isNull("reason"))
+
+        val scene = (0 until report.getJSONArray("unityMetadata").length())
+            .map { report.getJSONArray("unityMetadata").getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+        val graph = scene.getJSONObject("sceneGraph")
+        assertEquals(1, graph.getJSONArray("nodes").length())
+        assertEquals("Hero", graph.getJSONArray("nodes").getJSONObject(0).getString("name"))
+        assertTrue(graph.getJSONArray("nodes").getJSONObject(0).getBoolean("isActive"))
+    }
+
+    @Test
+    fun recordsPartialUnitySceneGraphRunWhenSomeObjectsCannotBeDecoded() {
+        val root = MemoryScanNode(
+            name = "PartialUnitySceneFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithGameObjectScene(
+                        listOf(
+                            42L to minimalGameObjectPayload("Hero", active = true),
+                            43L to byteArrayOf(1)
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "unity_scene_graph" }
+
+        assertEquals("partial", run.getString("status"))
+        assertTrue(run.getString("reason").contains("Декодировано 1 scene objects"))
+        val scene = (0 until report.getJSONArray("unityMetadata").length())
+            .map { report.getJSONArray("unityMetadata").getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+        assertEquals(1, scene.getJSONObject("sceneGraph").getJSONArray("nodes").length())
+    }
+
+    @Test
+    fun recordsFailedUnitySceneGraphRunWhenProviderCannotOpenPayloadStream() {
+        val root = MemoryScanNode(
+            name = "FailedUnitySceneFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithGameObjectScene(
+                        listOf(42L to minimalGameObjectPayload("Hero", active = true))
+                    )
+                )
+            )
+        )
+        val openCounts = mutableMapOf<String?, Int>()
+        val fileAccess = ScanFileAccess { node ->
+            val file = node as MemoryScanNode
+            val count = (openCounts[file.name] ?: 0) + 1
+            openCounts[file.name] = count
+            if (file.name == "globalgamemanagers" && count == 2) {
+                null
+            } else if (file.isDirectory) {
+                null
+            } else {
+                ByteArrayInputStream(file.contents)
+            }
+        }
+
+        val result = GameScanner(fileAccess).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileId = (0 until report.getJSONArray("files").length())
+            .map { report.getJSONArray("files").getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+            .getString("id")
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .first { it.getString("analyzerId") == "unity_scene_graph" }
+
+        assertEquals(fileId, run.getString("inputFileId"))
+        assertEquals("failed", run.getString("status"))
+        assertTrue(run.getString("reason").contains("Не удалось открыть файл"))
     }
 
     @Test
@@ -1247,6 +1379,97 @@ private fun unitySerializedFileWithTruncatedMetadata(): ByteArray {
     put64be(bytes, 24, truncatedSize.toLong())
     put64be(bytes, 32, truncatedSize.toLong())
     return bytes
+}
+
+private fun unitySerializedFileWithGameObjectScene(
+    objects: List<Pair<Long, ByteArray>>
+): ByteArray {
+    require(objects.isNotEmpty()) { "At least one GameObject fixture is required." }
+    val treeNodes = listOf(
+        Triple(0, "GameObject", "Base") to -1,
+        Triple(1, "string", "m_Name") to -1,
+        Triple(1, "bool", "m_IsActive") to 1
+    )
+    val stringTable = ByteArrayOutputStream()
+    val offsets = linkedMapOf<String, Long>()
+    treeNodes.forEach { (node, _) ->
+        listOf(node.second, node.third).forEach { value ->
+            if (value !in offsets) {
+                offsets[value] = stringTable.size().toLong()
+                stringTable.write(value.toByteArray(Charsets.UTF_8))
+                stringTable.write(0)
+            }
+        }
+    }
+    val treeBytes = ByteArrayOutputStream().apply {
+        u32le(treeNodes.size.toLong())
+        u32le(stringTable.size().toLong())
+        treeNodes.forEachIndexed { index, (node, byteSize) ->
+            u16le(1) // TypeTree node record version
+            write(node.first) // level
+            write(0) // type flags
+            u32le(offsets.getValue(node.second))
+            u32le(offsets.getValue(node.third))
+            u32le(byteSize.toLong())
+            u32le(index.toLong())
+            u32le(0) // meta flags
+            u64le(0) // reference type hash
+        }
+        write(stringTable.toByteArray())
+    }.toByteArray()
+
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5) // target platform
+        write(1) // TypeTree enabled
+        u32le(1) // serialized type count
+        u32le(1) // GameObject class ID
+        write(0) // not stripped
+        u16le(0xffff) // no script type index
+        write(ByteArray(16)) // old type hash
+        write(treeBytes)
+        u32le(0) // type dependencies
+        u32le(objects.size.toLong())
+        while (size() % 4 != 0) write(0)
+        var byteStart = 0L
+        objects.forEach { (pathId, payload) ->
+            u64le(pathId)
+            u64le(byteStart)
+            u32le(payload.size.toLong())
+            u32le(0) // type index
+            byteStart += payload.size
+        }
+        u32le(0) // MonoScript references
+        u32le(0) // external references
+        u32le(0) // SerializeReference types
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val payloadSize = objects.sumOf { it.second.size }
+    val bytes = ByteArray(dataOffset + payloadSize)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0 // little-endian metadata
+    metadata.copyInto(bytes, 48)
+    var position = dataOffset
+    objects.forEach { (_, payload) ->
+        payload.copyInto(bytes, position)
+        position += payload.size
+    }
+    return bytes
+}
+
+private fun minimalGameObjectPayload(name: String, active: Boolean): ByteArray {
+    val output = ByteArrayOutputStream()
+    val encoded = name.toByteArray(Charsets.UTF_8)
+    output.u32le(encoded.size.toLong())
+    output.write(encoded)
+    while (output.size() % 4 != 0) output.write(0)
+    output.write(if (active) 1 else 0)
+    return output.toByteArray()
 }
 
 private fun minimalUnitySerializedFile(formatVersion: Int = 22): ByteArray {
