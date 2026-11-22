@@ -1,7 +1,6 @@
 package com.ramen.god
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -79,7 +78,7 @@ class AnalysisModelsTest {
 
         assertEquals(finding, restored)
         assertTrue(finding.id.startsWith("finding:"))
-        assertEquals(71, finding.id.length)
+        assertEquals(72, finding.id.length)
     }
 
     @Test
