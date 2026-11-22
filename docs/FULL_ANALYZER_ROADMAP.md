@@ -170,9 +170,9 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | Приоритет | Работа | Результат |
 |---|---|---|
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
-| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; partial report сохраняет PE/CLR/Unity header/SerializedFile/local MonoScript и (PR #35) bounded Unity scene graph AnalyzerRun outcomes, но отмена внутри provider reads и external resolver-specific states остаются открытыми |
+| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; PR #35 сохраняет per-file outcomes для external resolver stages, но cancellation inside blocking provider reads, positional reads и Android lifecycle persistence остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
-| P1 | Per-file statuses для external resolver stages и оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile/local MonoScript runs уже связаны с FileRecord IDs; остаются external MonoScript/PPtr, scene/UnityFS и другие стадии |
+| P1 | Per-file statuses для оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile/local MonoScript/scene graph и external MonoScript/PPtr/MonoBehaviour resolver runs уже связаны с FileRecord IDs; остаются другие analyzer stages, cross-file graph expansion и UnityFS/container readers |
 | P2 | PE/native dependency graph | Понимание нативных границ |
 | P2 | CLR/Mono metadata, IL, P/Invoke и call-site graph | Понимание managed-логики |
 | P2 | SerializedFile/TypeTree/object graph | Понимание сцен и компонентов |
