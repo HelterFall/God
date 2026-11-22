@@ -118,7 +118,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - SerializedFile, TypeTree, сцены и объектные payload декодируются ограниченно; текущий граф сцены не гарантированно полный.
 - Полноценный декодер основных категорий ресурсов отсутствует.
 - Сквозной dependency/wiring graph и porting plan пока не реализованы.
-- Отмена на проверяемых этапах сохраняет inventory-only partial report: JSON содержит все уже найденные entries, Markdown ограничен 20 000 строк. Отчёт помечается `partial=true` и `scanStatus=cancelled`; незавершённые результаты анализаторов не выдаются за полные.
+- Отмена на проверяемых этапах сохраняет partial report с полным уже собранным inventory; после начала PE/CLR-анализа JSON также сохраняет их AnalyzerRun outcomes, включая queued-записи. Markdown ограничен 20 000 строк. Отчёт помечается `partial=true` и `scanStatus=cancelled`; незавершённые результаты не выдаются за полные.
 - Прогресс показывается в основном во время инвентаризации, а не по отдельным стадиям анализаторов.
 - Markdown tree ограничен 20 000 строк, тогда как JSON files[] содержит все записи, собранные текущим обходом (до лимита 100 000 entries и глубины 40).
 - Потоковой записи больших отчётов пока нет; Markdown/JSON полностью формируются в памяти. Экспорт теперь считает null output stream и ошибки открытия, записи или закрытия ошибкой, а не успешным сохранением.
@@ -133,7 +133,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - GameScanner.kt — orchestration инвентаризации, эвристик и ограниченных анализаторов без прямой зависимости от Android SAF API.
 - ScanFiles.kt — read-only `ScanNode`/`ScanFileAccess` и SAF-адаптеры для `DocumentFile`/`ContentResolver`.
 - ScanCoordinator.kt — single-job locking и job-scoped cancellation.
-- PartialReportBuilder.kt — честный inventory-only отчёт при отмене.
+- PartialReportBuilder.kt — partial отчёт с inventory и накопленными analyzer outcomes при отмене.
 - ScanCoverage.kt — счётчики покрытия и статусы анализаторов.
 - PeParser.kt — ограниченный PE-анализ.
 - ClrMetadataParser.kt / ClrSignatureParser.kt — ограниченный CLR metadata и signature analysis.
