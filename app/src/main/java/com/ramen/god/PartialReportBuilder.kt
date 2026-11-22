@@ -2,7 +2,7 @@ package com.ramen.god
 
 import org.json.JSONArray
 
-/** Builds an inventory-only report when analysis is cancelled. */
+/** Builds a partial report with inventory and any analyzer outcomes collected before cancellation. */
 internal object PartialReportBuilder {
     private const val MAX_MARKDOWN_FILES = 20_000
 
