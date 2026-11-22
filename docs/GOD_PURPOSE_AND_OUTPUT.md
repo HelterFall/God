@@ -34,7 +34,7 @@ God должен восстанавливать несколько уровне�
 - Каждая найденная запись получает устойчивый `FileRecord.id` и, если это вложенная запись, `parentId` родительского каталога.
 - Идентификатор строится из хешированного provider key (когда он доступен) или относительного пути; сырые SAF URI не публикуются в отчёте.
 - `inventoryStatus` описывает только полноту обхода (discovered/enumerated/partial/inaccessible), а не успех анализа содержимого.
-- Отдельная запись `AnalyzerRun` связывает запуск конкретного анализатора с `FileRecord.id` через `inputFileId`, хранит `analyzerId`, статус и причину. В текущем коде слой подключён для PE, CLR metadata, Unity header, SerializedFile metadata и локального MonoScript payload. Внешний MonoScript/PPtr resolution, scene-object resolver stages, UnityFS contents и остальные analyzer families будут подключаться поэтапно.
+- Отдельная запись `AnalyzerRun` связывает запуск конкретного анализатора с `FileRecord.id` через `inputFileId`, хранит `analyzerId`, статус и причину. В PR #35 candidate к per-file outcomes PE, CLR metadata, Unity header, SerializedFile metadata и локального MonoScript payload/scene graph подключены существующие external resolver stages: `unity_external_monoscript`, `unity_external_monoscript_payload`, `unity_external_pointers` и `unity_monobehaviour_script_bindings`. EVIDENCE-02 публикует MonoBehaviour script bindings, EVIDENCE-03 — sampled cross-file PPtrs, EVIDENCE-04 — sampled local PPtrs (`fileID=0`) из тех же четырёх scene fields через существующий `unity_scene_graph` run. Локальные и внешние edges используют общий relation vocabulary и одни GraphNode identities. Finding/Evidence/GraphEdge привязаны к owner `FileRecord` и соответствующему `AnalyzerRun`; target node требует реальную object record, иначе сохраняется hint. Runs не дублируются для одной пары analyzer/file; дополнительное чтение внешнего target обновляет ранее созданный skipped metadata run. Это не полный межфайловый scene/prefab graph; UnityFS contents и остальные analyzer families будут подключаться поэтапно.
 - Папка содержит файл.
 - Архив содержит entry.
 - Bundle содержит SerializedFile или ресурс.
@@ -56,7 +56,7 @@ God должен восстанавливать несколько уровне�
 - MonoScript соответствует типу в managed assembly.
 - GameObject содержит Components.
 - Transform связывает родителя и детей.
-- Serialized object ссылается на другой объект через PPtr.
+- Serialized object ссылается на другой объект через PPtr; выбранные внешние ссылки из `gameObject`, `father`, `children` и `components` уже могут быть опубликованы как ограниченные evidence-backed relations в candidate PR #35.
 - Asset, scene, prefab, material, shader и resource используют или ссылаются друг на друга, если такая связь присутствует в данных.
 
 ### 3.4. Уровень платформы и runtime
@@ -219,6 +219,8 @@ God должен создавать документы, по которым ра
 - связанные finding IDs и graph edge IDs.
 
 Диагностики самого процесса сканирования отделяются от игровых findings: `ScanIssue` содержит стабильный код, стадию, серьёзность, необязательный путь и сообщение. В JSON они публикуются отдельно в `issues[]`; старый `warnings[]` остаётся человекочитаемым compatibility-представлением. Такая диагностика объясняет сбои и ограничения анализа, но не заменяет evidence для выводов об устройстве игры.
+
+**Статус реализации в candidate PR #35:** общие JVM models `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` подключены к трём ограниченным Unity paths. EVIDENCE-02 публикует sampled `MonoBehaviour.m_Script → MonoScript`; EVIDENCE-03 — sampled external PPtrs; EVIDENCE-04 — sampled local PPtrs (`fileID=0`) из `gameObject`, `father`, `children`, `components`, используя существующие `UnityObjectDecoder`/`UnitySceneGraphResolver`. Все три пути создают Finding/Evidence/GraphNode/GraphEdge и используют реальные FileRecord/AnalyzerRun links. При наличии object record создаётся target GraphNode; для отсутствующей цели остаётся `targetHint`. Локальные и внешние relations используют одинаковые node identities и relation types; `m_Script` остаётся только в EVIDENCE-02. Full/partial/cancelled JSON schemaVersion 24 содержит `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]`; Markdown показывает script, external и local scene findings. Тесты проверяют resolved/metadata-only/unresolved cases и cancellation preservation. Это **ограниченный graph slice, а не полный scene/prefab/dependency graph**: другие Unity/asset, CLR и PE parser outputs пока остаются в своих summaries; `ScanIssue` отдельно описывает диагностики сканирования.
 
 Должна сохраняться трассировка от вывода в porting plan обратно до первичного файла и конкретного места, где основан вывод.
 

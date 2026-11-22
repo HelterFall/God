@@ -27,13 +27,13 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, progress callback, single-job coordinator и cancellation. Partial report сохраняет inventory и накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. Per-file AnalyzerRun подключён к PE, CLR metadata, Unity header, SerializedFile metadata и локальному MonoScript payload; external resolver stages и остальные analyzer families ещё требуют интеграции.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, progress callback, single-job coordinator и cancellation. Partial report сохраняет inventory и накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. В candidate PR #35 per-file AnalyzerRun покрывает PE, CLR metadata, Unity header, SerializedFile metadata, локальный MonoScript payload, bounded Unity scene graph и существующие external MonoScript/PPtr/MonoBehaviour resolver stages; для остальных analyzer families per-file outcomes ещё требуют интеграции.
 
 **Цель расширения (не повторная реализация):**
 - [x] Добавить stable FileRecord IDs, physical-folder `parentId` и inventory statuses `discovered`, `enumerated`, `partial`, `inaccessible`; raw SAF URI не попадает в JSON.
-- [x] Добавить `AnalyzerRun` с `scanId`, `inputFileId` и статусами queued/analyzed/partial/skipped/unsupported/failed для PE, CLR metadata, Unity header, SerializedFile metadata и local MonoScript payload; сохранять накопленные outcomes в partial report.
+- [x] Добавить `AnalyzerRun` с `scanId`, `inputFileId` и статусами queued/analyzed/partial/skipped/unsupported/failed для PE, CLR metadata, Unity header, SerializedFile metadata, local MonoScript payload, bounded Unity scene graph и (PR #35) Unity external resolver stages; сохранять накопленные outcomes в partial report.
 - [x] Подключить local `mono_script_payload` AnalyzerRun с FileRecord linkage и analyzed/partial/failed/skipped outcomes (PR #33).
-- [ ] Подключить per-file AnalyzerRun к external MonoScript payload, external-reference/PPtr и scene resolvers; не смешивать их с `inventoryStatus`.
+- [x] Подключить per-file AnalyzerRun к уже существующим external MonoScript/PPtr/MonoBehaviour resolvers в PR #35: `unity_external_monoscript` и `unity_monobehaviour_script_bindings` привязаны к owner SerializedFile, `unity_external_monoscript_payload` — к target SerializedFile, `unity_external_pointers` — к source file. Обновлять прежний skipped SerializedFile metadata run при дополнительном bounded чтении target; не создавать duplicate analyzer/file IDs и не смешивать эти статусы с `inventoryStatus`. Full cross-file scene graph ещё не реализован.
 - Сохранить текущий JSON inventory и связать его записи с analyzer runs/findings.
 - Поддержка large-file streaming и positional/random-access reads через SAF abstraction.
 - Потоковое хеширование по опции для сравнения файлов и доказательства идентичности.
@@ -108,6 +108,8 @@ God — самостоятельный Android-first исследователь�
 
 Это сквозной этап: он не должен откладываться до завершения всех декодеров. Новые анализаторы сразу публикуют структурированные nodes, edges и evidence.
 
+**Три ограниченных вертикальных evidence/graph slices (candidate PR #35):** `AnalysisModels.kt` содержит parser-neutral `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` с deterministic scan-scoped IDs. EVIDENCE-02 преобразует sampled `MonoBehaviour.m_Script` в `MonoBehaviour → MonoScript`; EVIDENCE-03 подключает существующий `UnityExternalPointerResolver` для sampled cross-file PPtrs; EVIDENCE-04 подключает локальные `fileID=0` PPtrs из `gameObject`, `father`, `children`, `components` к тому же Graph store. Local/external relations переиспользуют одинаковые relation types и node identities; target GraphNode требует object sample, а unresolved/out-of-sample target остаётся `targetHint`. `m_Script` не дублируется. Full и partial JSON schemaVersion 24 публикуют `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]`; Markdown выводит script, external и local-scene evidence-backed relations. Тесты проверяют AnalyzerRun/FileRecord foreign keys, locators, resolved/metadata-only/out-of-sample outcomes, разные relation fields, local/external shared nodes и partial cancellation. Это не полный cross-file scene/prefab/dependency graph: прочие Unity, asset, CLR и PE parser outputs пока используют собственные summaries.
+
 Типы узлов:
 - файлы, контейнеры и entries;
 - native binaries, managed assemblies, types, methods и fields;
@@ -170,9 +172,9 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | Приоритет | Работа | Результат |
 |---|---|---|
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
-| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; partial report сохраняет PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRun outcomes, но отмена внутри provider reads и external resolver-specific states остаются открытыми |
+| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; PR #35 сохраняет per-file outcomes для external resolver stages, но cancellation inside blocking provider reads, positional reads и Android lifecycle persistence остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
-| P1 | Per-file statuses для external resolver stages и оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile/local MonoScript runs уже связаны с FileRecord IDs; остаются external MonoScript/PPtr, scene/UnityFS и другие стадии |
+| P1 | Расширять evidence/graph coverage на остальные resolver/parser families | EVIDENCE-02 подключил MonoBehaviour→MonoScript, EVIDENCE-03 — sampled external PPtr, EVIDENCE-04 — sampled local PPtr с shared node identity. Следом расширять другие object/scene/prefab/asset relations, затем CLR/PE и asset families теми же типами, сохраняя unresolved reasons и source provenance |
 | P2 | PE/native dependency graph | Понимание нативных границ |
 | P2 | CLR/Mono metadata, IL, P/Invoke и call-site graph | Понимание managed-логики |
 | P2 | SerializedFile/TypeTree/object graph | Понимание сцен и компонентов |
@@ -188,18 +190,21 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Main после PR #33: commit `653e370c74beba48f2f5b8423276db84b6cecc51`, 19 JVM test files / 110 `@Test` methods; [post-merge run #385](https://github.com/HelterFall/God/actions/runs/45000328521) успешно проверил tests, `:app:assembleDebug` и APK artifact upload.
+- Main после PR #34: HEAD `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`, 19 JVM test files / 110 `@Test` methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) прошёл tests, `:app:assembleDebug` и APK artifact upload. Candidate PR #35 на code/test commit `1c124f9` содержит 20 файлов / 149 тестовых метода; [run #45017023410](https://github.com/HelterFall/God/actions/runs/45017023410) подтвердил tests, debug APK и artifact upload.
+- `AnalysisModelsTest` (18 tests) проверяет parser-neutral models; `GameScannerIntegrationTest` покрывает MonoBehaviour, external PPtr и local scene resolver paths → Finding/Evidence/GraphNode/GraphEdge → full JSON path, а `PartialReportBuilderTest` проверяет сохранение этих массивов в cancelled report.
 - Fake-tree inventory tests проверяют повторяемость FileRecord IDs, parent links, duplicate names и directory statuses; PR #29 включён в main.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
-- Fake-tree integration coverage `GameScanner.scan()` включает PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRuns linked to FileRecord IDs, local MonoScript success/partial/failed/skipped cases, synthetic CLR metadata and SerializedFile v22, unsupported SerializedFile version, truncated metadata, header limit 500, deep-read limit 40, provider failures, queued runs при cancellation, ambiguous и successful external MonoScript resolution.
+- Fake-tree integration coverage `GameScanner.scan()` включает PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRuns; candidate PR #35 добавляет `unity_scene_graph`, external MonoScript owner/target payload, external PPtr и MonoBehaviour script-binding outcomes с FileRecord linkage. EVIDENCE-02/03/04 проверяют script bindings, external и local scene pointers с Finding/Evidence, точными locators, graph endpoints, real owner/target FileRecord и AnalyzerRun IDs; partial report сохраняет model arrays. Synthetic CLR metadata, SerializedFile v22, GameObject и MonoBehaviour TypeTree fixtures также проверяют unsupported version, truncated metadata, limits, provider failures, ambiguity и metadata promotion вне initial deep-read window.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ### Надёжность анализа
 
+- Общие Finding/Evidence/Graph модели теперь публикуются для первого Unity MonoBehaviour→MonoScript resolver path в candidate PR #35. Это частичный локальный dependency slice, а не полный game-wide graph: остальные parser families пока не публикуют общие records.
+
 - Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
 - Все ограничения, пропуски и ошибки отражаются в coverage.
-- Отмена на контролируемых границах создаёт partial report с inventory и уже накопленными AnalyzerRun outcomes PE/CLR/Unity header/SerializedFile/local MonoScript; external resolver stages и остальные analyzer families ещё нужно подключить.
+- Отмена на контролируемых границах создаёт partial report с inventory, накопленными AnalyzerRun outcomes и уже сформированными EVIDENCE-02/EVIDENCE-03/EVIDENCE-04 `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]`; остальные analyzer families ещё нужно подключить.
 - Большие файлы читаются потоково/позиционно с контролем памяти.
 - Вложенные архивы имеют защиту от чрезмерной глубины и распакованного объёма.
 - Повреждённые или зашифрованные данные не обозначаются как успешно разобранные.
