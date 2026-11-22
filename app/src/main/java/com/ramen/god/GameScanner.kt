@@ -305,19 +305,24 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         path = entry.path
                     )
                 } else {
+                    val summaryNote = summary.note
+                    val isCompletedSummaryNote = summaryNote?.startsWith(
+                        "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
+                    ) == true && !summaryNote.contains("shared TypeTree subtree payloads пока не разбираются.")
                     val metadataStatus = when {
                         (parsedHeader.formatVersion ?: -1L) !in 19L..26L -> AnalyzerRunStatus.UNSUPPORTED
-                        summary.note != null -> AnalyzerRunStatus.PARTIAL
+                        summaryNote != null && !isCompletedSummaryNote -> AnalyzerRunStatus.PARTIAL
                         else -> AnalyzerRunStatus.ANALYZED
                     }
                     updateAnalyzerRun(
                         metadataRunId,
                         metadataStatus,
-                        summary.note ?: if (metadataStatus == AnalyzerRunStatus.UNSUPPORTED) {
-                            "SerializedFile format ${parsedHeader.formatVersion} is outside the supported metadata range 19-26."
-                        } else {
-                            null
-                        }
+                        summaryNote?.takeUnless { isCompletedSummaryNote } ?:
+                            if (metadataStatus == AnalyzerRunStatus.UNSUPPORTED) {
+                                "SerializedFile format ${parsedHeader.formatVersion} is outside the supported metadata range 19-26."
+                            } else {
+                                null
+                            }
                     )
                 }
             }
