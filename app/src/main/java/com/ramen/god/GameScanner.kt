@@ -358,7 +358,14 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             entries.add(entry)
             onProgress(entries.size, path)
             if (!isDir) totalBytes += size
-            if (isDir) walk(child, path, depth + 1, entry, shouldCancel, onProgress)
+            if (isDir) {
+                try {
+                    walk(child, path, depth + 1, entry, shouldCancel, onProgress)
+                } catch (cancelled: ScanCancelledException) {
+                    directoryEntry?.inventoryStatus = FileInventoryStatus.PARTIAL
+                    throw cancelled
+                }
+            }
         }
     }
 
