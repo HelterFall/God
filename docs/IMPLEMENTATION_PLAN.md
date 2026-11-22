@@ -2,15 +2,15 @@
 
 **Дата:** 22 ноября 2026 года  
 **Базовая ветка:** main  
-**Последний source commit в `main`:** `fc497c90b925bb668bedae08880a0bbb34e04811` (squash merge PR #31).
-**Последний HEAD `main`:** `fc497c90b925bb668bedae08880a0bbb34e04811`.
-**Post-merge main CI:** [run #370](https://github.com/HelterFall/God/actions/runs/44997667707) завершился `success`: 106 JVM tests, debug APK build и artifact upload.
-**Текущая тестовая база `main`:** 19 JVM test files / 106 @Test methods после PR #31. PR #33 branch: 19 files / 110 @Test methods; [run #377](https://github.com/HelterFall/God/actions/runs/44999736545) успешно выполнил JVM tests, debug APK build и artifact upload. Реальные binary fixtures и Android instrumentation отсутствуют.
+**Последний source commit в `main`:** `653e370c74beba48f2f5b8423276db84b6cecc51` (squash merge PR #33).
+**Последний HEAD `main`:** `653e370c74beba48f2f5b8423276db84b6cecc51`.
+**Post-merge main CI:** [run #385](https://github.com/HelterFall/God/actions/runs/45000328521) завершился `success`: JVM tests, debug APK build и artifact upload.
+**Текущая тестовая база `main`:** 19 JVM test files / 110 @Test methods после PR #33. Реальные binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage и анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и partial report с per-file analyzer outcomes реализованы. PR #29 добавил `FileRecord`; PR #30 — PE/CLR AnalyzerRun; PR #31 — Unity header/SerializedFile AnalyzerRun; PR #33 добавляет local MonoScript payload run. [Run #377](https://github.com/HelterFall/God/actions/runs/44999736545) подтвердил 110 тестов и debug APK. QA-01 остаётся открытым для truncated/partial streams, реальных бинарных fixtures, external-reference/scene resolver matrix и Android SAF. Глубокое исследование игры ещё не завершено.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage и анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и partial report с per-file analyzer outcomes реализованы. PR #29 добавил `FileRecord`; PR #30 — PE/CLR AnalyzerRun; PR #31 — Unity header/SerializedFile AnalyzerRun; PR #33 добавил local MonoScript payload run и был слит в main (`653e370`). [Post-merge run #385](https://github.com/HelterFall/God/actions/runs/45000328521) подтвердил main CI. QA-01 остаётся открытым для truncated/partial streams, реальных бинарных fixtures, external-reference/scene resolver matrix и Android SAF. Глубокое исследование игры ещё не завершено.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -100,7 +100,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-В `main` после PR #31: 19 JVM test files / 106 @Test methods. PR #33 branch содержит 110 тестов; [run #377](https://github.com/HelterFall/God/actions/runs/44999736545) подтвердил тесты, `:app:assembleDebug` и upload APK artifact.
+В `main` после PR #33: 19 JVM test files / 110 @Test methods. Post-merge [run #385](https://github.com/HelterFall/God/actions/runs/45000328521) подтвердил JVM tests, `:app:assembleDebug` и APK artifact upload.
 
 ## 3. Последовательность реализации
 
@@ -122,7 +122,7 @@ God уже умеет выполнять ограниченную инвента
 
 В коде есть частные модели результатов парсеров, `FileRecord` для inventory, `ScanResult` и агрегированная `ScanCoverage`. `GameScanner` использует `ScanEntry` как связку записи и read-only `ScanNode`; не вводить второй инвентарь. Общий слой доказательных результатов расширять постепенно.
 
-**Текущий рабочий срез:** модель `AnalyzerRun` и per-file vertical slices для PE/CLR (PR #30), Unity header/SerializedFile metadata (PR #31) и локального `mono_script_payload` (PR #33) реализованы на feature branch. Local payload run связан с `FileRecord.id`; различаются analyzed/partial/failed, а также skipped при отсутствии локальной цели или prerequisites. Существующие `MonoScriptParser` и aggregate `ScanCoverage` сохранены. Следующий шаг — отдельные runs для external MonoScript payload resolution, external PPtr resolution и scene-object decoding.
+**Текущий рабочий срез:** per-file AnalyzerRun для PE/CLR (PR #30), Unity header/SerializedFile (PR #31) и local `mono_script_payload` (PR #33) реализован в main. Local payload run связан с `FileRecord.id`; различаются analyzed/partial/failed, а также skipped при отсутствии локальной цели или prerequisites. Существующие `MonoScriptParser` и aggregate `ScanCoverage` сохранены. Следующий шаг — отдельные runs для external MonoScript payload resolution, external PPtr resolution и scene-object decoding.
 
 **Переиспользовать:**
 - `ScanEntry` уже использует `FileRecord`: SHA-256 ID, `parentId`, источник идентичности и `inventoryStatus`; приоритет — дополнять эту модель, не создавать второй список файлов.
@@ -404,7 +404,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**База `main` после PR #31:** 19 JVM test files / 106 @Test methods. PR #33 branch содержит 110 тестов; `GameScannerIntegrationTest` (19 методов) проверяет per-file PE/CLR/Unity header/SerializedFile/local MonoScript outcomes, limits 500/40, success/partial/failed/skipped и cancellation. Run #377 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+**Тестовая база `main` после PR #33:** 19 JVM test files / 110 @Test methods. `GameScannerIntegrationTest` (19 методов) проверяет PE/CLR/Unity header/SerializedFile/local MonoScript outcomes, limits 500/40, success/partial/failed/skipped и cancellation. Post-merge run #385 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
@@ -444,7 +444,7 @@ God уже умеет выполнять ограниченную инвента
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
 1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и partial report с результатами PE/CLR; 12 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
-2. **Data model:** `FileRecord` и `ScanIssue` добавлены в main; PR #30 добавил PE/CLR AnalyzerRun, PR #31 — Unity header/SerializedFile, PR #33 добавляет local MonoScript payload run. Run #377 успешно проверил 110 тестов и APK build. Следующий шаг — external MonoScript/PPtr/scene resolver runs, затем Finding/Evidence/GraphNode/GraphEdge. Не переписывать работающие ScanCoverage и parser data classes.
+2. **Data model:** `FileRecord` и `ScanIssue` добавлены в main; PR #30 добавил PE/CLR AnalyzerRun, PR #31 — Unity header/SerializedFile, PR #33 — local MonoScript payload и слит в main (`653e370`). [Post-merge run #385](https://github.com/HelterFall/God/actions/runs/45000328521) успешно проверил main. Следующий шаг — external MonoScript/PPtr/scene resolver runs, затем Finding/Evidence/GraphNode/GraphEdge. Не переписывать работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** расширить fake-tree сценарии на контейнерные entries и связку `FileRecord` → AnalyzerRun → Finding/Evidence; текущие tests уже проверяют file IDs, parent links, duplicate names и partial inventory statuses.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.
