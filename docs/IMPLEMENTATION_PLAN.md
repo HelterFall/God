@@ -4,7 +4,7 @@
 **Базовая ветка:** main  
 **Последний коммит с изменениями исходного кода:** `513f1acbf7c08d6de93045d298db8ba0ab3bc517`
 **Текущий HEAD ветки main:** `052c02319f54f97d00007b7ab6e60c2a375edf0b` (последний коммит менял только документацию).
-**Последняя успешная проверка CI:** main run [#333](https://github.com/HelterFall/God/actions/runs/44800837048) проверил текущий HEAD `052c02319f54f97d00007b7ab6e60c2a375edf0b`: `:app:testDebugUnitTest`, `:app:assembleDebug` и загрузка debug APK artifact завершились успешно; исходный код не менялся относительно `513f1ac`.
+**Последняя успешная проверка `main`:** run [#333](https://github.com/HelterFall/God/actions/runs/44800837048) проверил HEAD `052c02319f54f97d00007b7ab6e60c2a375edf0b`. **Проверка этой рабочей ветки:** PR [#28, run #335](https://github.com/HelterFall/God/actions/runs/44982658313) завершился `success` на commit `a03e996760037c376482fd26e42d14bfde8b1ec3`: unit tests, debug APK build и artifact upload успешны.
 **Тестовая база `main` до этой правки:** 16 JVM test files / 91 @Test methods. **В этой рабочей ветке:** 17 files / 92 methods (`ScanIssueTest` добавляет один тест); CLR и Unity SerializedFile/MonoScript scanner integration fixtures остаются синтетическими, реальные binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
