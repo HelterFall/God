@@ -559,6 +559,14 @@ class GameScannerIntegrationTest {
         }
         val ownerId = fileIds.getValue("globalgamemanagers")
         val externalId = fileIds.getValue(targetPath)
+        val ownerMetadata = (0 until report.getJSONArray("unityMetadata").length())
+            .map { report.getJSONArray("unityMetadata").getJSONObject(it) }
+            .single { it.getString("path") == "globalgamemanagers" }
+        assertEquals(1, ownerMetadata.getJSONArray("externalReferences").length())
+        val externalComponentLinks = (0 until ownerMetadata.getJSONArray("externalPointerResolutions").length())
+            .map { ownerMetadata.getJSONArray("externalPointerResolutions").getJSONObject(it) }
+            .filter { it.getString("field") == "components" }
+        assertEquals(1, externalComponentLinks.size)
         val rootNodes = (0 until report.getJSONArray("graphNodes").length())
             .map { report.getJSONArray("graphNodes").getJSONObject(it) }
             .filter {
