@@ -2,20 +2,21 @@
 
 **Дата:** 22 ноября 2026 года  
 **Проверенная ветка:** `main`.  
-**Проверенный source commit:** `653e370c74beba48f2f5b8423276db84b6cecc51` (squash merge PR #33).
-**Последняя успешная post-merge main проверка:** [run #385](https://github.com/HelterFall/God/actions/runs/45000328521) — JVM tests, debug APK build и artifact upload завершились успешно.
+**Проверенная база main:** HEAD `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`; последний source-code commit main — `653e370c74beba48f2f5b8423276db84b6cecc51`.
+**Последняя успешная проверка main:** [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) — JVM tests, debug APK build и artifact upload завершились успешно.
+**Проверенный кандидат PR #35:** `dac7e001ec0782de455014861305fb98dbcbccf9`; [run #388](https://github.com/HelterFall/God/actions/runs/45007383705) также завершился `success`.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 19 JVM test files в `main` после PR #33;
-- 110 методов `@Test` в `main` после PR #33;
+- 19 JVM test files и 110 методов `@Test` в `main` после PR #34;
+- 19 JVM test files и 113 методов `@Test` в candidate PR #35 (добавлены три scanner integration tests);
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata. PR #33 добавил local MonoScript payload AnalyzerRun: FileRecord link, analyzed/partial/failed/skipped outcomes и сохранение результата при cancellation. Post-merge run #385 прошёл 110 тестов, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**.
+PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata. PR #33 добавил local MonoScript payload AnalyzerRun. Кандидат PR #35 добавляет `unity_scene_graph` и тестирует analyzed/partial/skipped/failed outcomes с `FileRecord` linkage. Main run #387 прошёл базовые 110 тестов; PR run #388 прошёл 113 тестов, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -33,7 +34,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 | PartialReportBuilderTest | 6 | Partial/cancelled markers, inventory JSON, escaping, Markdown cap, полный список в JSON, structured `scan.cancelled` issue и сохранение completed/queued AnalyzerRuns |
 | ScanIssueTest | 1 | Stable code/stage/severity/message serialization and null path |
 | FileRecordTest | 3 | Repeatable path-based IDs, provider-key identity across rename without URI disclosure, duplicate-path disambiguation including duplicate parent folders |
-| GameScannerIntegrationTest | 19 | Fake tree: PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRuns linked to FileRecord IDs, limits 500/40, local payload success/partial/failed/skipped, cancellation/queued outcomes, external MonoScript resolver baseline, provider and inventory failures |
+| GameScannerIntegrationTest | 22 | Fake tree: PE/CLR/Unity header/SerializedFile/local MonoScript and PR #35 `unity_scene_graph` AnalyzerRuns linked to FileRecord IDs; scene graph analyzed/partial/skipped/failed; limits 500/40, local payload success/partial/failed/skipped, cancellation/queued outcomes, external MonoScript resolver baseline, provider and inventory failures |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -43,7 +44,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-В `main` после PR #33: **110 тестов в 19 JVM test files**. Post-merge run #385 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+`main` после PR #34 содержит **110 тестов в 19 JVM test files**; run #387 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. Кандидат PR #35 содержит **113 тестов в тех же 19 файлах**; run #388 также прошёл все steps. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -60,7 +61,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 
 ### QA-01 — PE/CLR и Unity header/SerializedFile scanner paths покрыты; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` (19 тестов в `main`) проверяет per-file linkage PE/CLR/Unity header/SerializedFile/local MonoScript, включая local payload analyzed/partial/failed/skipped и сохранение runs при отмене. External MonoScript/PPtr resolution и scene-object decoding пока не имеют собственных AnalyzerRun records.
+`GameScannerIntegrationTest` содержит 19 тестов в main и 22 в candidate PR #35. В кандидате проверяется per-file linkage PE/CLR/Unity header/SerializedFile/local MonoScript/`unity_scene_graph`, включая scene graph analyzed/partial/skipped/failed. External MonoScript payload resolution и external PPtr resolution пока не имеют собственных AnalyzerRun records; scene graph остаётся ограниченным локальными PPtr.
 
 **Пока не покрыто:**
 
@@ -78,11 +79,11 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 - кнопка повторного запуска блокируется; `onDestroy()` запрашивает отмену и вызывает `shutdownNow()`;
 - `GameScanner` использует абстракцию `ScanFileAccess` и не зависит от Android API напрямую; SAF `ContentResolver` изолирован в `SafScanFileAccess`, а worker не удерживает Activity сильной ссылкой;
 - отмена на проверяемых границах inventory/PE/Unity/resolver возвращает partial report;
-- partial report сохраняет весь уже обнаруженный inventory в JSON и ограничивает Markdown 20 000 строк; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile и local MonoScript payload, если соответствующие этапы были достигнуты до отмены.
+- partial report сохраняет весь уже обнаруженный inventory в JSON и ограничивает Markdown 20 000 строк; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile, local MonoScript payload и (в PR #35) Unity scene graph, если соответствующие этапы были достигнуты до отмены.
 
 Шесть тестов `PartialReportBuilderTest` проверяют pure report builder, в том числе сохранение completed/queued AnalyzerRuns; fake-tree `GameScannerIntegrationTest` дополнительно проверяет отмену во время inventory traversal и queued runs после inventory.
 
-**Риск:** per-file AnalyzerRun подключён к PE/CLR, Unity header/SerializedFile и локальному MonoScript payload; external MonoScript/PPtr и scene resolvers пока не отражены как отдельные runs. UI/job state не переживает пересоздание Activity.
+**Риск:** на candidate PR #35 per-file AnalyzerRun покрывает PE/CLR, Unity header/SerializedFile, локальный MonoScript payload и bounded Unity scene graph; external MonoScript/PPtr resolver stages пока не отражены как отдельные runs. UI/job state не переживает пересоздание Activity.
 
 ### QA-03 — исправлено: безопасная запись отчётов
 
