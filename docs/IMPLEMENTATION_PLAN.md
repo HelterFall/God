@@ -2,9 +2,9 @@
 
 **Дата:** 21 ноября 2026 года  
 **Базовая ветка:** main  
-**Текущий source baseline:** 513f1acbf7c08d6de93045d298db8ba0ab3bc517
-**Проверенная ревизия main для этого аудита:** 513f1acbf7c08d6de93045d298db8ba0ab3bc517
-**Последняя успешная проверка CI:** main run [#331](https://github.com/HelterFall/God/actions/runs/44799745772) успешно проверил merge commit `513f1acbf7c08d6de93045d298db8ba0ab3bc517`: JVM tests, `assembleDebug` и загрузка APK artifact; PR #25 run #330 также прошёл.
+**Последний коммит с изменениями исходного кода:** `513f1acbf7c08d6de93045d298db8ba0ab3bc517`
+**Текущий HEAD ветки main:** `052c02319f54f97d00007b7ab6e60c2a375edf0b` (последний коммит менял только документацию).
+**Последняя успешная проверка CI:** main run [#333](https://github.com/HelterFall/God/actions/runs/44800837048) проверил текущий HEAD `052c02319f54f97d00007b7ab6e60c2a375edf0b`: `:app:testDebugUnitTest`, `:app:assembleDebug` и загрузка debug APK artifact завершились успешно; исходный код не менялся относительно `513f1ac`.
 **Текущая тестовая база:** 16 JVM test files / 91 @Test methods; `PeParserTest` — 9, `GameScannerIntegrationTest` — 8, `PartialReportBuilderTest` — 5. CLR и Unity SerializedFile/MonoScript scanner integration fixtures синтетические; реальные binary fixtures и Android instrumentation пока отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
@@ -139,7 +139,8 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
 - [ ] Эволюционировать ScanEntry в FileRecord со стабильным ID, parent/container ID и terminal status.
 - [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
-- [ ] Добавить typed ScanIssue, сохранив текущие warnings при переходном периоде.
+- [ ] Ввести typed `ScanIssue` для диагностик с постоянным кодом, стадией, уровнем серьёзности, необязательным путём и сообщением. На первом срезе сохранить существующий JSON `warnings[]` без изменения текста и добавить структурированный `issues[]`; `schemaVersion=24` оставить без изменений.
+- [ ] Покрыть новый формат интеграционными тестами: коды/стадии/пути стабильны, а legacy `warnings[]` и Markdown сохраняют текущие сообщения.
 - [ ] Ввести GraphNode/GraphEdge здесь один раз; последующие этапы должны наполнять и связывать их, а не создавать новые типы.
 - [ ] Добавить сериализацию/десериализацию и round-trip tests.
 - [ ] Подключить один существующий parser end-to-end как образец и затем постепенно подключить остальные.
@@ -212,10 +213,10 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Формализовать правила bump/backward compatibility для schemaVersion=24 как версии структуры JSON. Не вводить второй report format version с тем же смыслом.
 - [ ] Добавить JSON Schema и тест валидации текущего и будущего report format.
 - [ ] Добавить manifest с версией God/analyzer, schemaVersion, временем, coverage и hashes частей отчёта.
-- [ ] Проверять null output stream и ошибки записи; сейчас openOutputStream()?.use(...) может завершиться без записи, но UI всё равно сообщает «Отчёт сохранён».
+- [x] Проверять null output stream и ошибки открытия/записи/закрытия через `ReportExporter`; helper выбрасывает IOException, а UI сообщает об успехе только после закрытия потока (пять JVM-тестов уже есть).
 - [ ] Поддержать partial/cancelled report с явной маркировкой.
 
-**Обязательные регрессионные тесты:** null output stream, IOException при открытии и записи, write/close failure, partial report после cancellation и повторное чтение сформированного JSON.
+**Проверки экспорта, уже выполненные:** null output stream, IOException при открытии/записи/закрытии, UTF-8 и закрытие потока покрыты пятью тестами `ReportExporterTest`. Для будущего потокового `ReportWriter` отдельно потребуются тесты больших отчётов, частичной записи и совместимости JSON.
 
 **Критерий завершения:** тест генерирует большой отчёт без построения всей структуры в памяти; JSON проходит schema validation; manifest корректен; null stream/ошибка экспорта не обозначаются как успех; partial report содержит completed/partial/failed analyzer states.
 
@@ -405,7 +406,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] Scanner integration: ошибка `listFiles()` у подкаталога сохраняет уже найденный каталог и последующие доступные sibling entries, отмечает inventory partial и записывает inaccessibleDirectoryCount/warning (PR #25).
 - [ ] Расширить scanner integration coverage на truncated/partial streams, прочие provider errors, реальные fixtures и остальные resolver paths.
 - [x] JVM tests для scan locking, job-scoped cancellation и pure partial-report builder; Android Activity/SAF instrumentation остаются.
-- [ ] Добавить tests для export null stream/write/close failures.
+- [x] Тесты `ReportExporter` для null stream и ошибок открытия/записи/закрытия; не дублировать их при реализации потокового `ReportWriter`.
 - [ ] Добавить настоящие legal/redistributable PE/CLR/Unity fixtures и golden reports.
 - [ ] Android instrumentation tests для SAF permissions, provider stream behavior, Activity recreation и export.
 - [x] PE Import/Thunk tests: DLL names, function names, hints, ordinals и parser-to-report JSON/Markdown path.
