@@ -683,6 +683,17 @@ class GameScannerIntegrationTest {
         assertEquals(3, metadataCoverage.getInt("candidateCount"))
         assertEquals(3, metadataCoverage.getInt("parsedCount"))
         assertEquals("completed", metadataCoverage.getString("status"))
+
+        val files = report.getJSONArray("files")
+        val ownerFileId = (0 until files.length()).map { files.getJSONObject(it) }
+            .first { it.getString("path") == "Data/globalgamemanagers" }.getString("id")
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val externalRun = runs.single { it.getString("analyzerId") == "unity_external_monoscript" &&
+            it.getString("inputFileId") == ownerFileId }
+        assertEquals("partial", externalRun.getString("status"))
+        assertTrue(externalRun.getString("reason").contains("unresolved"))
+        assertTrue(runs.none { it.getString("analyzerId") == "unity_external_monoscript_payload" })
     }
 
     @Test
@@ -774,6 +785,237 @@ class GameScannerIntegrationTest {
         assertEquals(2, metadataCoverage.getInt("candidateCount"))
         assertEquals(2, metadataCoverage.getInt("parsedCount"))
         assertEquals("completed", metadataCoverage.getString("status"))
+
+        val files = report.getJSONArray("files")
+        val fileIds = (0 until files.length()).associate { index ->
+            val file = files.getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val ownerRun = runs.single {
+            it.getString("analyzerId") == "unity_external_monoscript" &&
+                it.getString("inputFileId") == fileIds.getValue("Data/globalgamemanagers")
+        }
+        assertEquals("analyzed", ownerRun.getString("status"))
+        val payloadRun = runs.single {
+            it.getString("analyzerId") == "unity_external_monoscript_payload" &&
+                it.getString("inputFileId") == fileIds.getValue(targetPath)
+        }
+        assertEquals("analyzed", payloadRun.getString("status"))
+        val targetMetadata = (0 until metadata.length()).map { metadata.getJSONObject(it) }
+            .first { it.getString("path") == targetPath }
+        assertEquals("HeroController", targetMetadata.getJSONArray("monoScripts")
+            .getJSONObject(0).getString("className"))
+        val targetMetadataRuns = runs.filter {
+            it.getString("analyzerId") == "serialized_file_metadata" &&
+                it.getString("inputFileId") == fileIds.getValue(targetPath)
+        }
+        assertEquals("one deterministic metadata run per target FileRecord", 1, targetMetadataRuns.size)
+    }
+
+    @Test
+    fun recordsFailedExternalMonoScriptPayloadAgainstTargetFileRecord() {
+        val externalPath = "archive:/CAB-123/sharedassets0.assets"
+        val root = MemoryScanNode(
+            name = "ExternalPayloadFailureFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalMonoScriptReference(externalPath)
+                ),
+                MemoryScanNode(
+                    "sharedassets0.assets",
+                    false,
+                    unitySerializedFileWithMonoScriptObject(
+                        minimalMonoScriptPayload(
+                            name = "HeroController",
+                            className = "HeroController",
+                            namespace = "Game",
+                            assemblyName = "Assembly-CSharp",
+                            executionOrder = -12
+                        )
+                    )
+                )
+            )
+        )
+        val openCounts = mutableMapOf<String?, Int>()
+        val fileAccess = ScanFileAccess { node ->
+            val file = node as MemoryScanNode
+            val count = (openCounts[file.name] ?: 0) + 1
+            openCounts[file.name] = count
+            if (file.name == "sharedassets0.assets" && count == 2) {
+                null
+            } else if (file.isDirectory) {
+                null
+            } else {
+                ByteArrayInputStream(file.contents)
+            }
+        }
+
+        val result = GameScanner(fileAccess).scan(root, shouldCancel = { false }) { _, _ -> }
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val fileIds = (0 until files.length()).associate { index ->
+            val file = files.getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val ownerRun = runs.single {
+            it.getString("analyzerId") == "unity_external_monoscript" &&
+                it.getString("inputFileId") == fileIds.getValue("globalgamemanagers")
+        }
+        assertEquals("partial", ownerRun.getString("status"))
+        val targetRun = runs.single {
+            it.getString("analyzerId") == "unity_external_monoscript_payload" &&
+                it.getString("inputFileId") == fileIds.getValue("sharedassets0.assets")
+        }
+        assertEquals("failed", targetRun.getString("status"))
+        assertTrue(targetRun.getString("reason").contains("no input stream"))
+    }
+
+    @Test
+    fun tracksExternalPPtrsAndMonoBehaviourScriptBindingsPerOwnerFile() {
+        val externalPath = "archive:/CAB-123/sharedassets0.assets"
+        val targetPath = "Data/Resources/sharedassets0.assets"
+        val root = MemoryScanNode(
+            name = "ExternalPPtrFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "Data",
+                    true,
+                    children = listOf(
+                        MemoryScanNode(
+                            "globalgamemanagers",
+                            false,
+                            unitySerializedFileWithExternalMonoBehaviourScriptPointer(externalPath)
+                        ),
+                        MemoryScanNode(
+                            "Resources",
+                            true,
+                            children = listOf(
+                                MemoryScanNode(
+                                    "sharedassets0.assets",
+                                    false,
+                                    unitySerializedFileWithMonoScriptObject(
+                                        minimalMonoScriptPayload(
+                                            name = "HeroController",
+                                            className = "HeroController",
+                                            namespace = "Game",
+                                            assemblyName = "Assembly-CSharp",
+                                            executionOrder = -12
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(root, shouldCancel = { false }) { _, _ -> }
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val fileIds = (0 until files.length()).associate { index ->
+            val file = files.getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val ownerId = fileIds.getValue("Data/globalgamemanagers")
+        val targetId = fileIds.getValue(targetPath)
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+
+        val pointerRun = runs.single {
+            it.getString("analyzerId") == "unity_external_pointers" &&
+                it.getString("inputFileId") == ownerId
+        }
+        assertEquals("analyzed", pointerRun.getString("status"))
+        val bindingRun = runs.single {
+            it.getString("analyzerId") == "unity_monobehaviour_script_bindings" &&
+                it.getString("inputFileId") == ownerId
+        }
+        assertEquals("analyzed", bindingRun.getString("status"))
+        val targetPayloadRun = runs.single {
+            it.getString("analyzerId") == "unity_external_monoscript_payload" &&
+                it.getString("inputFileId") == targetId
+        }
+        assertEquals("analyzed", targetPayloadRun.getString("status"))
+
+        val metadata = report.getJSONArray("unityMetadata")
+        val owner = (0 until metadata.length()).map { metadata.getJSONObject(it) }
+            .first { it.getString("path") == "Data/globalgamemanagers" }
+        val pointer = owner.getJSONArray("externalPointerResolutions").getJSONObject(0)
+        assertEquals("resolved-object-record-not-decoded", pointer.getString("status"))
+        assertEquals(targetPath, pointer.getString("targetFilePath"))
+        val binding = owner.getJSONArray("monoBehaviourScriptBindings").getJSONObject(0)
+        assertEquals("resolved-monoscript-class", binding.getString("status"))
+        assertEquals("HeroController", binding.getString("className"))
+        assertEquals("Game", binding.getString("namespace"))
+        assertEquals(targetPath, binding.getString("targetFilePath"))
+    }
+
+    @Test
+    fun promotesExternalTargetMetadataRunWhenItWasOutsideTheInitialDeepReadWindow() {
+        val externalPath = "archive:/CAB-123/zz-sharedassets0.assets"
+        val targetName = "zz-sharedassets0.assets"
+        val root = MemoryScanNode(
+            name = "ExternalMetadataPromotionFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalMonoScriptReference(externalPath)
+                )
+            ) + (0 until 39).map { index ->
+                MemoryScanNode("asset-%03d.assets".format(index), false, minimalUnitySerializedFile())
+            } + listOf(
+                MemoryScanNode(
+                    targetName,
+                    false,
+                    unitySerializedFileWithMonoScriptObject(
+                        minimalMonoScriptPayload(
+                            name = "WindowPromoted",
+                            className = "WindowPromoted",
+                            namespace = "Game",
+                            assemblyName = "Assembly-CSharp",
+                            executionOrder = 0
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(root, shouldCancel = { false }) { _, _ -> }
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val targetId = (0 until files.length()).map { files.getJSONObject(it) }
+            .first { it.getString("path") == targetName }.getString("id")
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { it.getJSONObject(it) }
+        val targetMetadataRun = runs.single {
+            it.getString("analyzerId") == "serialized_file_metadata" &&
+                it.getString("inputFileId") == targetId
+        }
+        assertEquals("analyzed", targetMetadataRun.getString("status"))
+        assertTrue(targetMetadataRun.isNull("reason"))
+        assertEquals(1, runs.count {
+            it.getString("analyzerId") == "serialized_file_metadata" &&
+                it.getString("inputFileId") == targetId
+        })
+
+        val analyzers = report.getJSONObject("scanCoverage").getJSONArray("analyzers")
+        val metadataCoverage = (0 until analyzers.length()).map { analyzers.getJSONObject(it) }
+            .first { it.getString("id") == "serialized_file_metadata" }
+        assertEquals(41, metadataCoverage.getInt("candidateCount"))
+        assertEquals(41, metadataCoverage.getInt("attemptedCount"))
+        assertEquals(0, metadataCoverage.getInt("limitedCount"))
+        assertEquals(41, metadataCoverage.getInt("parsedCount"))
     }
 
     @Test
@@ -1310,6 +1552,88 @@ private fun unitySerializedFileWithLocalMonoScriptObjects(
         payload.copyInto(bytes, position)
         position += payload.size
     }
+    return bytes
+}
+
+private fun unitySerializedFileWithExternalMonoBehaviourScriptPointer(externalPath: String): ByteArray {
+    val treeNodes = listOf(
+        Triple(0, "MonoBehaviour", "Base") to -1,
+        Triple(1, "PPtr<MonoScript>", "m_Script") to -1,
+        Triple(2, "int", "m_FileID") to 4,
+        Triple(2, "SInt64", "m_PathID") to 8
+    )
+    val stringTable = ByteArrayOutputStream()
+    val offsets = linkedMapOf<String, Long>()
+    treeNodes.forEach { (node, _) ->
+        listOf(node.second, node.third).forEach { value ->
+            if (value !in offsets) {
+                offsets[value] = stringTable.size().toLong()
+                stringTable.write(value.toByteArray(Charsets.UTF_8))
+                stringTable.write(0)
+            }
+        }
+    }
+    val treeBytes = ByteArrayOutputStream().apply {
+        u32le(treeNodes.size.toLong())
+        u32le(stringTable.size().toLong())
+        treeNodes.forEachIndexed { index, (node, byteSize) ->
+            u16le(1)
+            write(node.first)
+            write(0)
+            u32le(offsets.getValue(node.second))
+            u32le(offsets.getValue(node.third))
+            u32le(byteSize.toLong())
+            u32le(index.toLong())
+            u32le(0)
+            u64le(0)
+        }
+        write(stringTable.toByteArray())
+    }.toByteArray()
+    val payload = ByteArrayOutputStream().apply {
+        u32le(1) // external fileID
+        u64le(77) // MonoScript pathID
+    }.toByteArray()
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5)
+        write(1) // TypeTree enabled
+        u32le(1) // serialized type count
+        u32le(114) // MonoBehaviour class ID
+        write(0)
+        u16le(0) // script type reference index
+        write(ByteArray(16)) // script ID
+        write(ByteArray(16)) // old type hash
+        write(treeBytes)
+        u32le(0) // type dependencies
+        u32le(1) // object count
+        while (size() % 4 != 0) write(0)
+        u64le(10) // MonoBehaviour object pathID
+        u64le(0) // byte start
+        u32le(payload.size.toLong())
+        u32le(0) // type index
+        u32le(1) // script type reference count
+        u32le(1) // external fileID
+        u64le(77) // external MonoScript pathID
+        u32le(1) // external reference count
+        write("CAB-123".toByteArray(Charsets.US_ASCII))
+        write(0)
+        write(ByteArray(16)) // GUID
+        u32le(0) // external reference type
+        write(externalPath.toByteArray(Charsets.US_ASCII))
+        write(0)
+        u32le(0) // SerializeReference type count
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val bytes = ByteArray(dataOffset + payload.size)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0
+    metadata.copyInto(bytes, 48)
+    payload.copyInto(bytes, dataOffset)
     return bytes
 }
 
