@@ -11,7 +11,9 @@ class ScanCancelledException : Exception()
 
 internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private val entries = mutableListOf<ScanEntry>()
-    private val warnings = mutableListOf<String>()
+    private val issues = mutableListOf<ScanIssue>()
+    private val warnings: List<String>
+        get() = issues.map { it.message }
     private val peResults = linkedMapOf<String, PeInfo>()
     private val clrResults = linkedMapOf<String, ClrAssemblySummary>()
     private val managedTypeResolutions = mutableListOf<UnityManagedTypeResolution>()
@@ -54,7 +56,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         onProgress: (Int, String) -> Unit
     ): ScanResult {
         entries.clear()
-        warnings.clear()
+        issues.clear()
         peResults.clear()
         clrResults.clear()
         managedTypeResolutions.clear()
@@ -106,7 +108,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
 
         val peCandidates = files.filter { it.name.endsWith(".exe", true) || it.name.endsWith(".dll", true) }
-        if (peCandidates.size > MAX_PE_FILES) warnings.add("PE-анализ ограничен первыми " + MAX_PE_FILES + " EXE/DLL.")
+        if (peCandidates.size > MAX_PE_FILES) addIssue(
+            code = "pe.candidate_limit_reached",
+            stage = ScanIssueStage.PE,
+            severity = ScanIssueSeverity.WARNING,
+            message = "PE-анализ ограничен первыми " + MAX_PE_FILES + " EXE/DLL."
+        )
         try {
             peCandidates.take(MAX_PE_FILES).forEach { entry ->
                 if (shouldCancel()) throw ScanCancelledException()
@@ -131,7 +138,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
         }
         if (unityCandidates.size > MAX_UNITY_HEADER_FILES) {
-            warnings.add("Проверка Unity-заголовков ограничена первыми " + MAX_UNITY_HEADER_FILES + " файлами-кандидатами.")
+            addIssue(
+                code = "unity.header_candidate_limit_reached",
+                stage = ScanIssueStage.UNITY_FILE_HEADERS,
+                severity = ScanIssueSeverity.WARNING,
+                message = "Проверка Unity-заголовков ограничена первыми " + MAX_UNITY_HEADER_FILES + " файлами-кандидатами."
+            )
         }
         try {
             unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
@@ -181,7 +193,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             } else if (deepMetadataRead && unityHeaders[entry.path]?.kind == "SerializedFile" && !metadataParsed) {
                 unityMetadataFailedCount++
             }
-            diagnostic?.let { warnings.add("Unity-анализ " + entry.path + ": " + it) }
+            diagnostic?.let { message ->
+                val metadataFailure = headerParsed && unityHeaders[entry.path]?.kind == "SerializedFile"
+                addIssue(
+                    code = if (metadataFailure) "unity.serialized_metadata_analysis_failed" else "unity.header_analysis_failed",
+                    stage = if (metadataFailure) ScanIssueStage.SERIALIZED_FILE_METADATA else ScanIssueStage.UNITY_FILE_HEADERS,
+                    severity = ScanIssueSeverity.WARNING,
+                    message = "Unity-анализ " + entry.path + ": " + message,
+                    path = entry.path
+                )
+            }
             }
         } catch (_: ScanCancelledException) {
             return buildPartialResult(root.name ?: "(unnamed)")
@@ -221,6 +242,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         return ScanResult(md, json)
     }
 
+    private fun addIssue(
+        code: String,
+        stage: ScanIssueStage,
+        severity: ScanIssueSeverity,
+        message: String,
+        path: String? = null
+    ) {
+        issues.add(ScanIssue(code, stage, severity, message, path))
+    }
+
     private fun buildPartialResult(rootName: String): ScanResult =
         PartialReportBuilder.build(
             rootName,
@@ -238,17 +269,35 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         if (shouldCancel()) throw ScanCancelledException()
         if (depth > MAX_DEPTH) {
             depthLimitHitCount++
-            warnings.add("Достигнут лимит глубины " + MAX_DEPTH + " в " + parent)
+            addIssue(
+                code = "inventory.depth_limit_reached",
+                stage = ScanIssueStage.INVENTORY,
+                severity = ScanIssueSeverity.WARNING,
+                message = "Достигнут лимит глубины " + MAX_DEPTH + " в " + parent,
+                path = parent.ifBlank { null }
+            )
             return
         }
         if (entries.size >= MAX_ENTRIES) {
             entryLimitReached = true
-            warnings.add("Достигнут лимит " + MAX_ENTRIES + " записей; дерево неполное.")
+            addIssue(
+                code = "inventory.entry_limit_reached",
+                stage = ScanIssueStage.INVENTORY,
+                severity = ScanIssueSeverity.WARNING,
+                message = "Достигнут лимит " + MAX_ENTRIES + " записей; дерево неполное.",
+                path = parent.ifBlank { null }
+            )
             return
         }
         val children = try { dir.listFiles() } catch (e: Exception) {
             inaccessibleDirectoryCount++
-            warnings.add("Не удалось прочитать каталог " + parent + ": " + e.message)
+            addIssue(
+                code = "inventory.directory_listing_failed",
+                stage = ScanIssueStage.INVENTORY,
+                severity = ScanIssueSeverity.ERROR,
+                message = "Не удалось прочитать каталог " + parent + ": " + e.message,
+                path = parent.ifBlank { null }
+            )
             return
         }
         for (child in children) {
@@ -417,7 +466,13 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         ))
                     }
                 } catch (e: Exception) {
-                    warnings.add("Не удалось прочитать " + entry.path + " для поиска версии Unity: " + e.message)
+                    addIssue(
+                        code = "unity.version_read_failed",
+                        stage = ScanIssueStage.UNITY_VERSION,
+                        severity = ScanIssueSeverity.WARNING,
+                        message = "Не удалось прочитать " + entry.path + " для поиска версии Unity: " + e.message,
+                        path = entry.path
+                    )
                 }
             }
         }
@@ -781,12 +836,24 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     }
                 } catch (e: Exception) {
                     clrFailedCount++
-                    warnings.add("CLR metadata analysis failed for " + entry.path + ": " + e.message)
+                    addIssue(
+                        code = "clr.metadata_analysis_failed",
+                        stage = ScanIssueStage.CLR_METADATA,
+                        severity = ScanIssueSeverity.ERROR,
+                        message = "CLR metadata analysis failed for " + entry.path + ": " + e.message,
+                        path = entry.path
+                    )
                 }
             }
             info
         } catch (e: Exception) {
-            warnings.add("PE-анализ не выполнен для " + entry.path + ": " + e.message)
+            addIssue(
+                code = "pe.analysis_failed",
+                stage = ScanIssueStage.PE,
+                severity = ScanIssueSeverity.ERROR,
+                message = "PE-анализ не выполнен для " + entry.path + ": " + e.message,
+                path = entry.path
+            )
             null
         }
     }
@@ -1316,6 +1383,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         root.put("files", JSONArray(entries.map {
             JSONObject().put("path", it.path).put("directory", it.directory).put("size", it.size)
         }))
+        root.put("issues", JSONArray(issues.map { it.toJsonObject() }))
         root.put("warnings", JSONArray(warnings))
         return root.toString(2)
     }
