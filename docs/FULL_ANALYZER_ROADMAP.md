@@ -27,11 +27,12 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator, job-scoped cancellation и inventory-only partial report при отмене. В MVP есть typed `ScanIssue` слой: code/stage/severity/path/message публикуются в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. Текущий `inventoryStatus` описывает только обход дерева; per-file analyzer statuses остаются будущей задачей.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator и job-scoped cancellation. Partial report сохраняет inventory и, если анализ уже начался, накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. Per-file AnalyzerRun пока подключён к PE и CLR metadata; Unity и другие analyzer families ещё требуют интеграции.
 
 **Цель расширения (не повторная реализация):**
 - [x] Добавить stable FileRecord IDs, physical-folder `parentId` и inventory statuses `discovered`, `enumerated`, `partial`, `inaccessible`; raw SAF URI не попадает в JSON.
-- [ ] Добавить per-file analyzer terminal statuses: queued, analyzed, partial, skipped, unsupported, failed; не смешивать их с `inventoryStatus`.
+- [x] Добавить `AnalyzerRun` с `scanId`, `inputFileId` и статусами queued/analyzed/partial/skipped/unsupported/failed для PE и CLR metadata; сохранять уже собранные и queued outcomes в partial report.
+- [ ] Подключить per-file AnalyzerRun к Unity header/SerializedFile и остальным analyzer families; не смешивать их с `inventoryStatus`.
 - Сохранить текущий JSON inventory и связать его записи с analyzer runs/findings.
 - Поддержка large-file streaming и positional/random-access reads через SAF abstraction.
 - Потоковое хеширование по опции для сравнения файлов и доказательства идентичности.
@@ -186,10 +187,10 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Проверенная main source-ревизия `eaeff8f` содержит 18 JVM test files / 95 `@Test` methods; main run [#347](https://github.com/HelterFall/God/actions/runs/44984900667) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+- Базовая main source-ревизия `eaeff8f` содержала 18 JVM test files / 95 `@Test` methods. PR #30 добавил AnalyzerRun и шесть тестов: feature branch содержит 19 файлов / 101 `@Test` methods; PR run [#350](https://github.com/HelterFall/God/actions/runs/44985603087) успешно выполнил JVM tests, `:app:assembleDebug` и upload APK artifact.
 - Fake-tree inventory tests проверяют повторяемость FileRecord IDs, parent links, duplicate names и directory statuses; PR #29 включён в main.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
-- Fake-tree integration coverage `GameScanner.scan()` включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с partial inventory/coverage и typed `ScanIssue`. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated streams и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
+- Fake-tree integration coverage `GameScanner.scan()` включает PE imports, per-file PE and CLR AnalyzerRuns, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с partial inventory/coverage и typed `ScanIssue`. Добавлены проверки лимита PE и сохранения queued runs при отмене. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated streams и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
