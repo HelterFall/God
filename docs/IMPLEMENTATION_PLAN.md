@@ -5,7 +5,7 @@
 **Последний source commit в `main`:** `eaeff8f97ff2dde3668f4b6349880f290b863502` (squash merge PR #29).
 **Последний HEAD `main`:** `1b3e2173660aa46f07567f711af145601fddf882` (документальный commit поверх проверенной исходной ревизии).
 **Post-merge main CI:** [run #347](https://github.com/HelterFall/God/actions/runs/44984900667) подтвердил код PR #29; последующий [main run #349](https://github.com/HelterFall/God/actions/runs/44985052212) завершился `success` на текущем HEAD: JVM tests, debug APK build и artifact upload.
-**Текущая тестовая база `main`:** 18 JVM test files / 95 @Test methods. Реальные binary fixtures и Android instrumentation отсутствуют.
+**Текущая тестовая база `main` до PR #30:** 18 JVM test files / 95 @Test methods. PR #30 branch: 19 files / 101 @Test methods; [run #350](https://github.com/HelterFall/God/actions/runs/44985603087) успешно завершил тесты, debug APK build и artifact upload. Реальные binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
@@ -122,7 +122,7 @@ God уже умеет выполнять ограниченную инвента
 
 В коде есть частные модели результатов парсеров, `FileRecord` для inventory, `ScanResult` и агрегированная `ScanCoverage`. `GameScanner` использует `ScanEntry` как связку записи и read-only `ScanNode`; не вводить второй инвентарь. Общий слой доказательных результатов расширять постепенно.
 
-**Текущий рабочий срез:** ввести `AnalyzerRun` с `inputFileId` и отдельным статусом попытки, затем подключить его к PE и вложенному CLR metadata path. Статусы `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed` не заменяют aggregate `ScanCoverage`. Отмена должна сохранять уже выполненные и оставшиеся queued-записи в partial report. Другие analyzer families подключаются отдельными вертикальными срезами после этого образца.
+**Текущий рабочий срез:** базовая модель `AnalyzerRun` и первый PE/CLR vertical slice реализованы в PR #30. Отдельные записи связаны с `FileRecord.id` через `inputFileId`; статусы `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed` не заменяют aggregate `ScanCoverage`. Partial report сохраняет уже выполненные и оставшиеся queued-записи. Следующий шаг — подключить Unity header/SerializedFile и остальные analyzer families.
 
 **Переиспользовать:**
 - `ScanEntry` уже использует `FileRecord`: SHA-256 ID, `parentId`, источник идентичности и `inventoryStatus`; приоритет — дополнять эту модель, не создавать второй список файлов.
@@ -140,14 +140,15 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
 - [x] Эволюционировать inventory entries в `FileRecord` со стабильным ID и `parentId`; использовать хеш provider key при наличии, иначе относительный путь, parent identity и порядком дубликата.
 - [x] Добавить `inventoryStatus` (`discovered`, `enumerated`, `partial`, `inaccessible`) и сохранять его в JSON, включая partial report при отмене.
-- [ ] Добавить `AnalyzerRun` с `inputFileId` и статусами `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed`; первый интегрированный срез — PE и CLR metadata. `inventoryStatus` не должен подменять parser status.
+- [x] Добавить `AnalyzerRun` с `inputFileId` и статусами `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed`; PE и CLR metadata подключены в PR #30, partial report сохраняет результаты и queued outcomes.
+- [ ] Подключить per-file statuses к Unity header/SerializedFile и остальным analyzer families. `inventoryStatus` не должен подменять parser status.
 - [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
 - [x] Ввести typed `ScanIssue` для диагностик с постоянным кодом, стадией, уровнем серьёзности, необязательным путём и сообщением. JSON `issues[]` добавлен без изменения существующего `warnings[]`; `schemaVersion=24` сохранён.
 - [x] Проверить структурированные diagnostics на scanner integration paths и при cancellation; коды/стадии/пути проверяются, а legacy `warnings[]` и Markdown сохраняют исходные сообщения.
 - [ ] Ввести GraphNode/GraphEdge здесь один раз; последующие этапы должны наполнять и связывать их, а не создавать новые типы.
 - [ ] Добавить сериализацию/десериализацию и round-trip tests.
 - [ ] Подключить один существующий parser end-to-end как образец и затем постепенно подключить остальные.
-- [ ] Расширить per-file/per-analyzer statuses, не дублируя агрегированную ScanCoverage.
+- [ ] Расширить per-file/per-analyzer statuses на Unity и остальные analyzer families, не дублируя агрегированную ScanCoverage.
 
 **Критерий завершения:** один тестовый scan сохраняет FileRecord, parser finding, Evidence и graph edge в единой модели; после сериализации сохраняются ID, связи и точный source locator.
 
@@ -189,7 +190,8 @@ God уже умеет выполнять ограниченную инвента
 **Что нужно сделать:**
 - [ ] Выделить InventoryScanner / ScanCoordinator из GameScanner, не переписывая существующий обход без необходимости.
 - [x] Добавить стабильные file IDs, `parentId` и `inventoryStatus` в JSON files[]; provider keys хешируются, raw URI не экспортируется.
-- [ ] Добавить отдельные per-file/per-analyzer terminal statuses; текущий `inventoryStatus` относится только к обходу папок.
+- [x] Добавить per-file AnalyzerRun для PE и CLR metadata; текущий `inventoryStatus` по-прежнему относится только к обходу папок.
+- [ ] Подключить AnalyzerRun для Unity header/SerializedFile и остальных анализаторов.
 - [ ] Сохранить aggregate ScanCoverage и расширить его связями с per-file/per-analyzer runs.
 - [ ] Учитывать причины пропусков: permission denied, inaccessible, depth/entry limit, too large, unsupported и другие.
 - [ ] Добавить analyzer jobs с per-file/per-analyzer status и избежать повторной обработки без необходимости.
@@ -399,7 +401,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Тестовая база feature branch:** 17 JVM test files / 92 @Test methods. Scanner fake-tree tests проверяют PE DLL/function/ordinal imports, synthetic CLR metadata, Unity SerializedFile v22 metadata, ambiguous and successful external MonoScript resolution, Unity provider open failure, directory enumeration failure и typed `ScanIssue`; PeParser tests дополнительно покрывают ARM64 recognition и два malformed RVA сценария. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
+**Тестовая база после PR #30 на feature branch:** 19 JVM test files / 101 @Test methods. `AnalyzerRunTest` покрывает scan-scoped ID и JSON serialization; `GameScannerIntegrationTest` (10 методов) проверяет PE/CLR run linkage, status при ошибке, skip по лимиту и queued при cancellation; `PartialReportBuilderTest` (6 методов) проверяет сохранение analyzer runs в partial JSON/Markdown. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
@@ -439,7 +441,7 @@ God уже умеет выполнять ограниченную инвента
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
 1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и inventory-only partial report; 11 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
-2. **Data model:** `FileRecord` со stable ID/parentId/inventoryStatus и `ScanIssue` добавлены в main; PR #29 / run #346 подтвердил последнюю ревизию. Следующий шаг — ввести AnalyzerRun и отдельные per-file analyzer statuses, затем Finding/Evidence/GraphNode/GraphEdge. Не переписывать работающие ScanCoverage и parser data classes.
+2. **Data model:** `FileRecord` со stable ID/parentId/inventoryStatus и `ScanIssue` добавлены в main; PR #29 / run #347 подтвердил исходную ревизию. PR #30 / run #350 добавляет AnalyzerRun и per-file PE/CLR results; следующий шаг — подключить остальные analyzer families, затем Finding/Evidence/GraphNode/GraphEdge. Не переписывать работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** расширить fake-tree сценарии на контейнерные entries и связку `FileRecord` → AnalyzerRun → Finding/Evidence; текущие tests уже проверяют file IDs, parent links, duplicate names и partial inventory statuses.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.
