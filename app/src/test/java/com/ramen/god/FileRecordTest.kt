@@ -82,5 +82,43 @@ class FileRecordTest {
         assertNotEquals(first.id, second.id)
         assertEquals("Data/shared.assets", first.path)
         assertEquals(first.path, second.path)
+
+        val firstFolder = FileRecord.create(
+            path = "Data",
+            name = "Data",
+            directory = true,
+            size = 0,
+            parentId = null,
+            providerKey = null,
+            siblingOccurrence = 0
+        )
+        val secondFolder = firstFolder.copy(
+            id = FileRecord.create(
+                path = "Data",
+                name = "Data",
+                directory = true,
+                size = 0,
+                parentId = null,
+                providerKey = null,
+                siblingOccurrence = 1
+            ).id
+        )
+        val firstChild = FileRecord.create(
+            path = "Data/shared.assets",
+            name = "shared.assets",
+            directory = false,
+            size = 100,
+            parentId = firstFolder.id,
+            providerKey = null
+        )
+        val secondChild = FileRecord.create(
+            path = "Data/shared.assets",
+            name = "shared.assets",
+            directory = false,
+            size = 100,
+            parentId = secondFolder.id,
+            providerKey = null
+        )
+        assertNotEquals(firstChild.id, secondChild.id)
     }
 }
