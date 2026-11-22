@@ -1,17 +1,16 @@
 # God — аудит тестирования и качества
 
 **Дата:** 22 ноября 2026 года  
-**Проверенная база `main`:** `dcbdea1c39743f092f32795b9d54507590e763ad`.  
-**Последний source commit в базе:** `33d268c9e43b504f75fa032a13df33dc0b975eab`.  
-**Последняя успешная проверка `main`:** [run #343](https://github.com/HelterFall/God/actions/runs/44983187122) — 92 JVM tests, debug APK build и artifact upload завершились успешно.  
-**Проверенная feature branch:** `feat/file-record-identities`, 18 test files / 95 `@Test` methods; PR [#29 / run #344](https://github.com/HelterFall/God/actions/runs/44984711337) завершился `success` — tests, debug APK build и artifact upload прошли.
+**Проверенная ветка:** `main`.  
+**Проверенный source commit:** `eaeff8f97ff2dde3668f4b6349880f290b863502` (squash merge PR #29).  
+**Последняя успешная проверка source revision:** PR [#29 / run #346](https://github.com/HelterFall/God/actions/runs/44984816408) — 95 JVM tests, debug APK build и artifact upload завершились успешно. Post-merge main run #347 ещё выполнялся при актуализации.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 18 JVM test files в рабочей ветке (main baseline: 17);
-- 95 методов с аннотацией `@Test` (main baseline: 92);
+- 18 JVM test files в `main`;
+- 95 методов с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
@@ -32,7 +31,7 @@
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap, полный список в JSON и structured `scan.cancelled` issue |
 | ScanIssueTest | 1 | Stable code/stage/severity/message serialization and null path |
-| FileRecordTest | 3 | Repeatable path-based IDs, provider-key identity across rename without URI disclosure, duplicate-path disambiguation |
+| FileRecordTest | 3 | Repeatable path-based IDs, provider-key identity across rename without URI disclosure, duplicate-path disambiguation including duplicate parent folders |
 | GameScannerIntegrationTest | 8 | Fake tree: inventory/progress, PE success/failure/import reporting, CLR path, Unity SerializedFile v22 metadata/version, repeatable FileRecord IDs and parent links, inaccessible directory status, partial parent statuses on nested cancellation, external MonoScript resolution, provider failures and legacy warning compatibility |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
@@ -178,16 +177,16 @@
 
 ## 4. Проверка последнего CI
 
-Проверенный актуальный main run:
+Проверенная последняя source revision:
 
-https://github.com/HelterFall/God/actions/runs/44983187122
+https://github.com/HelterFall/God/actions/runs/44984816408
 
-- Commit: `dcbdea1c39743f092f32795b9d54507590e763ad` (документационные обновления после source commit `33d268c`).
+- Commit: `eaeff8f97ff2dde3668f4b6349880f290b863502` (squash merge PR #29).
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Проверенная main-база содержит 92 метода `@Test` в 17 JVM test files; текущая ветка расширяет её до 95 методов в 18 файлах.
-- PR [#29 / run #344](https://github.com/HelterFall/God/actions/runs/44984711337) подтвердил новый FileRecord model и scanner assertions: `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload завершились успешно.
+- Проверенная main-ревизия содержит 95 методов `@Test` в 18 JVM test files.
+- PR [#29 / run #346](https://github.com/HelterFall/God/actions/runs/44984816408) подтвердил FileRecord model и scanner assertions; post-merge main run #347 выполняется.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем

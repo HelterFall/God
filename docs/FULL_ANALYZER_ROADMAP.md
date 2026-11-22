@@ -186,8 +186,8 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Проверенная main-база `dcbdea1` содержит 17 JVM test files / 92 `@Test` methods; run [#343](https://github.com/HelterFall/God/actions/runs/44983187122) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
-- Feature branch PR #29 добавила `FileRecordTest` (18 files / 95 methods всего) и scanner assertions на стабильность IDs, parent links, дубликаты имён и directory statuses; [run #344](https://github.com/HelterFall/God/actions/runs/44984711337) прошёл tests, APK build и artifact upload.
+- Проверенная main-ревизия `eaeff8f` содержит 18 JVM test files / 95 `@Test` methods; PR #29 / run [#346](https://github.com/HelterFall/God/actions/runs/44984816408) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+- Fake-tree inventory tests проверяют повторяемость FileRecord IDs, parent links, duplicate names и directory statuses; post-merge main run #347 выполняется.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
 - Fake-tree integration coverage `GameScanner.scan()` включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с partial inventory/coverage и typed `ScanIssue`. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated streams и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
 
