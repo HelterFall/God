@@ -177,25 +177,26 @@
 
 Проверенный актуальный main run:
 
-https://github.com/HelterFall/God/actions/runs/44799745772
+https://github.com/HelterFall/God/actions/runs/44800837048
 
-- Commit: `513f1acbf7c08d6de93045d298db8ba0ab3bc517`.
+- Commit: `052c02319f54f97d00007b7ab6e60c2a375edf0b` (документация поверх source commit `513f1ac`).
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Текущая база — 91 метод `@Test` в 16 JVM test files. Это число подсчитано по source annotations; workflow пока не загружает JUnit XML и не печатает отдельную сводку с количеством тестов.
+- Базовая main-версия содержит 91 метод `@Test` в 16 JVM test files. В feature branch typed-issue checks добавлены внутрь существующих методов, количество annotations не увеличивается.
+- PR CI для branch `feat/typed-scan-issues` должен отдельно подтвердить новую модель и assertions.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
 
 1. Довести scan lifecycle: JVM single-job/cancellation и inventory-only partial report реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
-2. Исправить экспорт: null stream и любые write/close errors должны приводить к статусу failure; добавить тесты.
-3. Выделить testable scanner/file-access interfaces, чтобы запускать GameScanner над fake file tree и проверять inventory → analyzers → coverage → JSON/Markdown.
-4. Добавить минимальный набор реальных, легально распространяемых PE/CLR/Unity fixtures и golden reports.
-5. Добавить положительные PE import tests, расширить parser boundary tests и проверить заявленные Unity versions.
-6. Добавить Android SAF instrumentation tests на emulator/device.
-7. Добавить fuzz/property tests для binary readers и ограничений.
-8. Улучшить CI: pull_request trigger, Gradle Wrapper, JUnit XML/coverage artifacts, lint/static checks и обновление deprecated action runtimes.
+2. Расширить общий FileAccess: positional/range reads, sequential fallback, EOF/truncated input и cancellation-aware reads.
+3. Добавить минимальный набор реальных, легально распространяемых PE/CLR/Unity fixtures и golden reports.
+4. Добавить Android SAF instrumentation tests на emulator/device.
+5. Расширить parser boundary tests и проверить заявленные Unity versions на реальных samples.
+6. Добавить fuzz/property tests для binary readers и ограничений.
+7. Улучшить CI: Gradle Wrapper, JUnit XML/coverage artifacts, lint/static checks и обновление deprecated action runtimes.
+8. Продолжить общую Evidence/Finding/Graph model; текущий typed ScanIssue — только первый шаг, не замена findings/evidence.
 
 Не нужно пытаться выполнить всё одним большим изменением. Каждый пункт следует закрывать отдельными тестируемыми commits; после закрытия QA-03 ближайшие пользовательские риски — отмена/жизненный цикл сканирования и отсутствие scanner integration tests.
 
