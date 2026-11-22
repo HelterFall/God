@@ -3,7 +3,8 @@
 **Дата:** 22 ноября 2026 года  
 **Базовая ветка:** main  
 **Последний source commit в `main`:** `eaeff8f97ff2dde3668f4b6349880f290b863502` (squash merge PR #29).
-**Post-merge main CI:** [run #347](https://github.com/HelterFall/God/actions/runs/44984900667) завершился `success` на этом commit: 95 JVM tests, debug APK build и artifact upload. Текущий HEAD `main` — `847a0b8677de517be658c84441026e23f0c79aba`, документальный commit поверх проверенного source baseline.
+**Последний HEAD `main`:** `1b3e2173660aa46f07567f711af145601fddf882` (документальный commit поверх проверенной исходной ревизии).
+**Post-merge main CI:** [run #347](https://github.com/HelterFall/God/actions/runs/44984900667) подтвердил код PR #29; последующий [main run #349](https://github.com/HelterFall/God/actions/runs/44985052212) завершился `success` на текущем HEAD: JVM tests, debug APK build и artifact upload.
 **Текущая тестовая база `main`:** 18 JVM test files / 95 @Test methods. Реальные binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
@@ -121,6 +122,8 @@ God уже умеет выполнять ограниченную инвента
 
 В коде есть частные модели результатов парсеров, `FileRecord` для inventory, `ScanResult` и агрегированная `ScanCoverage`. `GameScanner` использует `ScanEntry` как связку записи и read-only `ScanNode`; не вводить второй инвентарь. Общий слой доказательных результатов расширять постепенно.
 
+**Текущий рабочий срез:** ввести `AnalyzerRun` с `inputFileId` и отдельным статусом попытки, затем подключить его к PE и вложенному CLR metadata path. Статусы `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed` не заменяют aggregate `ScanCoverage`. Отмена должна сохранять уже выполненные и оставшиеся queued-записи в partial report. Другие analyzer families подключаются отдельными вертикальными срезами после этого образца.
+
 **Переиспользовать:**
 - `ScanEntry` уже использует `FileRecord`: SHA-256 ID, `parentId`, источник идентичности и `inventoryStatus`; приоритет — дополнять эту модель, не создавать второй список файлов.
 - AnalyzerCoverage, ScanCoverage и deriveAnalyzerStatus как уже работающую агрегированную модель покрытия.
@@ -137,7 +140,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
 - [x] Эволюционировать inventory entries в `FileRecord` со стабильным ID и `parentId`; использовать хеш provider key при наличии, иначе относительный путь, parent identity и порядком дубликата.
 - [x] Добавить `inventoryStatus` (`discovered`, `enumerated`, `partial`, `inaccessible`) и сохранять его в JSON, включая partial report при отмене.
-- [ ] Добавить отдельные terminal statuses для результатов каждого анализатора; `inventoryStatus` не должен подменять parser status.
+- [ ] Добавить `AnalyzerRun` с `inputFileId` и статусами `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed`; первый интегрированный срез — PE и CLR metadata. `inventoryStatus` не должен подменять parser status.
 - [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
 - [x] Ввести typed `ScanIssue` для диагностик с постоянным кодом, стадией, уровнем серьёзности, необязательным путём и сообщением. JSON `issues[]` добавлен без изменения существующего `warnings[]`; `schemaVersion=24` сохранён.
 - [x] Проверить структурированные diagnostics на scanner integration paths и при cancellation; коды/стадии/пути проверяются, а legacy `warnings[]` и Markdown сохраняют исходные сообщения.
