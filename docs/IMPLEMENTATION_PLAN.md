@@ -430,7 +430,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Тестовая база:** `main` после PR #34 — 19 JVM test files / 110 @Test methods; candidate PR #35 code/test commit `8130363` — 19 files / 116 methods. `GameScannerIntegrationTest` в кандидате содержит 25 методов и проверяет `unity_scene_graph`, external MonoScript owner/target payload, external PPtr и MonoBehaviour script bindings, включая promotion ранее skipped SerializedFile metadata run. Run #397 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+**Тестовая база:** `main` после PR #34 — 19 JVM test files / 110 @Test methods; candidate PR #35 code/test commit `538c90b` — 20 files / 138 methods. `GameScannerIntegrationTest` содержит 28 методов, `PartialReportBuilderTest` — 7, `AnalysisModelsTest` — 18. Runs #431 и #432 прошли JVM tests, `:app:assembleDebug` и upload APK artifact; EVIDENCE-02 покрывает resolved/metadata-only/unresolved/null PPtr и сохранение model arrays в partial report.
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
@@ -454,7 +454,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] Кнопка запроса отмены анализа.
 - [ ] Расширить progress до стадий и отдельных analyzers; текущая индикация не показывает прогресс PE/CLR/Unity parsing.
 - [x] Добавить single-job locking и job-scoped cancellation через `ScanCoordinator`; шесть JVM-тестов проверяют state transitions.
-- [x] Сохранять partial report при отмене: inventory плюс завершённые/queued PE/CLR/Unity header/SerializedFile/local MonoScript и bounded Unity scene graph AnalyzerRuns, если соответствующие analyzer stages достигнуты; builder и scanner cancellation tests проверяют поведение.
+- [x] Сохранять partial report при отмене: inventory плюс завершённые/queued AnalyzerRun outcomes и уже сформированные EVIDENCE-02 `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]`; builder и scanner cancellation tests проверяют поведение.
 - [ ] Добавить Android lifecycle/SAF instrumentation tests.
 - [ ] Поиск, фильтры и навигация по findings/graph.
 - [ ] Переход к evidence из итоговых документов.
@@ -469,8 +469,8 @@ God уже умеет выполнять ограниченную инвента
 
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
-1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и partial report с inventory и накопленными PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRun outcomes; 12 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
-2. **Data model:** `FileRecord` и `ScanIssue` добавлены в main; PR #30 добавил PE/CLR AnalyzerRun, PR #31 — Unity header/SerializedFile, PR #33 — local MonoScript payload. PR #35 candidate добавляет bounded `unity_scene_graph` и external MonoScript/PPtr/MonoBehaviour resolver outcomes; code/test commit `8130363` прошёл run #397 (116 JVM tests, debug APK и artifact upload). Следующий этап — общий слой `Finding`/`Evidence`/`GraphNode`/`GraphEdge`, затем постепенное подключение других analyzer families. Не переписывать работающие ScanCoverage и parser data classes.
+1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и partial report с inventory, AnalyzerRun outcomes и уже сформированными EVIDENCE-02 model arrays; 13 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
+2. **Data model:** `FileRecord` и `ScanIssue` добавлены в main; PR #30 добавил PE/CLR AnalyzerRun, PR #31 — Unity header/SerializedFile, PR #33 — local MonoScript payload. PR #35 candidate добавляет bounded `unity_scene_graph`, external MonoScript/PPtr/MonoBehaviour resolver outcomes и первый evidence-backed Unity MonoBehaviour→MonoScript graph в JSON report. Code/test commit `538c90b` прошёл runs #431/#432 (138 JVM tests, debug APK и artifact upload). Следующий этап — подключать остальные resolver/parser families к тем же моделям, не переписывая работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** расширить fake-tree сценарии на контейнерные entries и связку `FileRecord` → AnalyzerRun → Finding/Evidence; текущие tests уже проверяют file IDs, parent links, duplicate names и partial inventory statuses.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.
