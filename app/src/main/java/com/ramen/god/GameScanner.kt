@@ -1319,7 +1319,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val targetClassId = targetDecodedObject?.classId ?: targetObjectRecord?.classId ?: link.targetClassId
         val targetFileRecordId = targetEntry?.record?.id
         val isDecodedTarget = link.status == "resolved-decoded-object" &&
-            targetDecodedObject != null && targetFileRecordId != null
+            targetDecodedObject != null && targetObjectRecord != null && targetFileRecordId != null
         val isMetadataOnlyTarget = link.status == "resolved-object-record-not-decoded" &&
             targetObjectRecord != null && targetDecodedObject == null && targetFileRecordId != null
 
@@ -1423,13 +1423,13 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             findingIds = listOf(findingId),
             evidenceIds = listOf(evidenceItem.id)
         )
-        val targetNode = if ((isDecodedTarget || isMetadataOnlyTarget) && targetFileRecordId != null) {
+        val targetNode = if (isDecodedTarget || isMetadataOnlyTarget) {
             GraphNode.create(
                 scanId = scanId,
                 nodeType = unityObjectGraphNodeType(targetClassId),
                 key = "PathID:" + link.pathId,
                 label = targetLabel,
-                fileRecordId = targetFileRecordId,
+                fileRecordId = requireNotNull(targetFileRecordId),
                 locator = SourceLocator(pathId = link.pathId),
                 findingIds = listOf(findingId),
                 evidenceIds = listOf(evidenceItem.id)
@@ -1634,13 +1634,13 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             findingIds = listOf(findingId),
             evidenceIds = listOf(evidenceItem.id)
         )
-        val targetNode = if ((isResolvedClass || isMetadataOnly) && targetFileRecordId != null) {
+        val targetNode = if (isResolvedClass || isMetadataOnly) {
             GraphNode.create(
                 scanId = scanId,
                 nodeType = "unity-monoscript",
                 key = "PathID:" + binding.scriptPathId,
                 label = if (isResolvedClass) targetLabel else "$targetLabel (payload unavailable)",
-                fileRecordId = targetFileRecordId,
+                fileRecordId = requireNotNull(targetFileRecordId),
                 locator = SourceLocator(pathId = binding.scriptPathId),
                 findingIds = listOf(findingId),
                 evidenceIds = listOf(evidenceItem.id)
