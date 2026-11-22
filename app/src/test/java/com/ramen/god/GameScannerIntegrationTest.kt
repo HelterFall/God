@@ -1020,6 +1020,218 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun publishesResolvedExternalComponentPPtrAsEvidenceAndGraphEdge() {
+        val targetPath = "components.assets"
+        val externalPath = "archive:/CAB-123/components.assets"
+        val root = MemoryScanNode(
+            name = "ExternalComponentPPtrFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalGameObjectComponentPointer(externalPath)
+                ),
+                MemoryScanNode(
+                    targetPath,
+                    false,
+                    unitySerializedFileWithExternalMonoBehaviourScriptPointer(
+                        "archive:/CAB-123/missing-scripts.assets"
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileIds = (0 until report.getJSONArray("files").length()).associate { index ->
+            val file = report.getJSONArray("files").getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val ownerId = fileIds.getValue("globalgamemanagers")
+        val targetId = fileIds.getValue(targetPath)
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val pointerRun = runs.single {
+            it.getString("analyzerId") == "unity_external_pointers" &&
+                it.getString("inputFileId") == ownerId
+        }
+        assertEquals("analyzed", pointerRun.getString("status"))
+
+        val owner = (0 until report.getJSONArray("unityMetadata").length())
+            .map { report.getJSONArray("unityMetadata").getJSONObject(it) }
+            .first { it.getString("path") == "globalgamemanagers" }
+        val resolution = (0 until owner.getJSONArray("externalPointerResolutions").length())
+            .map { owner.getJSONArray("externalPointerResolutions").getJSONObject(it) }
+            .single { it.getString("field") == "components" }
+        assertEquals("resolved-decoded-object", resolution.getString("status"))
+        assertEquals(targetPath, resolution.getString("targetFilePath"))
+
+        val findings = report.getJSONArray("findings")
+        val finding = (0 until findings.length())
+            .map { findings.getJSONObject(it) }
+            .single { it.getString("category") == "unity.external-pointer" }
+        assertEquals("decoded", finding.getString("status"))
+        assertEquals("confirmed", finding.getString("confidence"))
+        assertEquals(ownerId, finding.getString("sourceFileId"))
+        assertEquals(pointerRun.getString("id"), finding.getString("analyzerRunId"))
+        assertEquals(1, finding.getJSONArray("evidenceIds").length())
+        assertEquals(2, finding.getJSONArray("graphNodeIds").length())
+        assertEquals(1, finding.getJSONArray("graphEdgeIds").length())
+
+        val evidence = (0 until report.getJSONArray("evidence").length())
+            .map { report.getJSONArray("evidence").getJSONObject(it) }
+            .single { it.getString("findingId") == finding.getString("id") }
+        assertEquals(ownerId, evidence.getString("sourceFileId"))
+        assertEquals(pointerRun.getString("id"), evidence.getString("analyzerRunId"))
+        assertEquals("resolved-pointer", evidence.getString("method"))
+        assertEquals(1, evidence.getJSONObject("locator").getInt("unityFileId"))
+        assertEquals(10L, evidence.getJSONObject("locator").getLong("pathId"))
+
+        val nodes = (0 until report.getJSONArray("graphNodes").length())
+            .map { report.getJSONArray("graphNodes").getJSONObject(it) }
+        val sourceNode = nodes.single { it.getString("nodeType") == "unity-gameobject" }
+        val targetNode = nodes.single { it.getString("nodeType") == "unity-monobehaviour" }
+        assertEquals(ownerId, sourceNode.getString("fileRecordId"))
+        assertEquals(1L, sourceNode.getJSONObject("locator").getLong("pathId"))
+        assertEquals(targetId, targetNode.getString("fileRecordId"))
+        assertEquals(10L, targetNode.getJSONObject("locator").getLong("pathId"))
+
+        val edge = (0 until report.getJSONArray("graphEdges").length())
+            .map { report.getJSONArray("graphEdges").getJSONObject(it) }
+            .single { it.getString("relationType") == "has-component" }
+        assertEquals("decoded", edge.getString("status"))
+        assertEquals("confirmed", edge.getString("confidence"))
+        assertEquals(sourceNode.getString("id"), edge.getString("sourceNodeId"))
+        assertEquals(targetNode.getString("id"), edge.getString("targetNodeId"))
+        assertEquals(pointerRun.getString("id"), edge.getString("analyzerRunId"))
+        assertTrue(result.markdown.contains("Evidence-backed external Unity PPtr relations"))
+        assertTrue(result.markdown.contains("has-component"))
+    }
+
+    @Test
+    fun publishesMetadataOnlyExternalComponentPPtrWithRealTargetNode() {
+        val targetPath = "components.assets"
+        val externalPath = "archive:/CAB-123/components.assets"
+        val root = MemoryScanNode(
+            name = "MetadataOnlyExternalComponentPPtrFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalGameObjectComponentPointer(externalPath)
+                ),
+                MemoryScanNode(
+                    targetPath,
+                    false,
+                    unitySerializedFileWithExternalMonoBehaviourScriptPointer(
+                        "archive:/CAB-123/missing-scripts.assets",
+                        payloadOverride = byteArrayOf(1)
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileIds = (0 until report.getJSONArray("files").length()).associate { index ->
+            val file = report.getJSONArray("files").getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val finding = (0 until report.getJSONArray("findings").length())
+            .map { report.getJSONArray("findings").getJSONObject(it) }
+            .single { it.getString("category") == "unity.external-pointer" }
+        assertEquals("metadata-only", finding.getString("status"))
+        assertEquals("strong", finding.getString("confidence"))
+        assertEquals(fileIds.getValue("globalgamemanagers"), finding.getString("sourceFileId"))
+
+        val targetNode = (0 until report.getJSONArray("graphNodes").length())
+            .map { report.getJSONArray("graphNodes").getJSONObject(it) }
+            .single {
+                it.getString("fileRecordId") == fileIds.getValue(targetPath) &&
+                    it.getJSONObject("locator").getLong("pathId") == 10L
+            }
+        assertEquals("unity-monobehaviour", targetNode.getString("nodeType"))
+        val edge = (0 until report.getJSONArray("graphEdges").length())
+            .map { report.getJSONArray("graphEdges").getJSONObject(it) }
+            .single { it.getString("relationType") == "has-component" }
+        assertEquals(targetNode.getString("id"), edge.getString("targetNodeId"))
+        assertTrue(edge.isNull("targetHint"))
+    }
+
+    @Test
+    fun preservesExternalComponentTargetHintOutsideBoundedObjectSample() {
+        val targetPath = "components.assets"
+        val externalPath = "archive:/CAB-123/components.assets"
+        val root = MemoryScanNode(
+            name = "UnresolvedExternalComponentPPtrFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalGameObjectComponentPointer(
+                        externalPath,
+                        componentPathId = 99L
+                    )
+                ),
+                MemoryScanNode(
+                    targetPath,
+                    false,
+                    unitySerializedFileWithExternalMonoBehaviourScriptPointer(
+                        "archive:/CAB-123/missing-scripts.assets"
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileIds = (0 until report.getJSONArray("files").length()).associate { index ->
+            val file = report.getJSONArray("files").getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val finding = (0 until report.getJSONArray("findings").length())
+            .map { report.getJSONArray("findings").getJSONObject(it) }
+            .single { it.getString("category") == "unity.external-pointer" }
+        assertEquals("partial", finding.getString("status"))
+        assertEquals("weak", finding.getString("confidence"))
+        assertTrue(finding.getString("reason").contains("bounded object sample"))
+
+        val nodes = (0 until report.getJSONArray("graphNodes").length())
+            .map { report.getJSONArray("graphNodes").getJSONObject(it) }
+        val sourceNode = nodes.single {
+            it.getString("nodeType") == "unity-gameobject" &&
+                it.getString("fileRecordId") == fileIds.getValue("globalgamemanagers")
+        }
+        assertFalse(nodes.any {
+            it.getString("fileRecordId") == fileIds.getValue(targetPath) &&
+                it.getJSONObject("locator").getLong("pathId") == 99L
+        })
+        val edge = (0 until report.getJSONArray("graphEdges").length())
+            .map { report.getJSONArray("graphEdges").getJSONObject(it) }
+            .single { it.getString("relationType") == "has-component" }
+        assertEquals(sourceNode.getString("id"), edge.getString("sourceNodeId"))
+        assertTrue(edge.isNull("targetNodeId"))
+        assertTrue(edge.getString("targetHint").contains("fileID=1"))
+        assertTrue(edge.getString("targetHint").contains("PathID=99"))
+        assertTrue(edge.getString("targetHint").contains("pathID-not-in-object-sample"))
+    }
+
+    @Test
     fun preservesMetadataOnlyMonoBehaviourScriptWhenTargetPayloadCannotBeRead() {
         val externalPath = "archive:/CAB-123/sharedassets0.assets"
         val targetPath = "sharedassets0.assets"
@@ -1782,7 +1994,8 @@ private fun unitySerializedFileWithLocalMonoScriptObjects(
 
 private fun unitySerializedFileWithExternalMonoBehaviourScriptPointer(
     externalPath: String,
-    scriptPathId: Long = 77L
+    scriptPathId: Long = 77L,
+    payloadOverride: ByteArray? = null
 ): ByteArray {
     val treeNodes = listOf(
         Triple(0, "MonoBehaviour", "Base") to -1,
@@ -1817,7 +2030,7 @@ private fun unitySerializedFileWithExternalMonoBehaviourScriptPointer(
         }
         write(stringTable.toByteArray())
     }.toByteArray()
-    val payload = ByteArrayOutputStream().apply {
+    val payload = payloadOverride ?: ByteArrayOutputStream().apply {
         u32le(1) // external fileID
         u64le(scriptPathId) // MonoScript pathID
     }.toByteArray()
@@ -1930,6 +2143,97 @@ private fun unitySerializedFileWithTruncatedMetadata(): ByteArray {
     put64be(bytes, 16, metadataSize.toLong())
     put64be(bytes, 24, truncatedSize.toLong())
     put64be(bytes, 32, truncatedSize.toLong())
+    return bytes
+}
+
+private fun unitySerializedFileWithExternalGameObjectComponentPointer(
+    externalPath: String,
+    componentPathId: Long = 10L
+): ByteArray {
+    val treeNodes = listOf(
+        Triple(0, "GameObject", "Base") to -1,
+        Triple(1, "vector", "m_Component") to -1,
+        Triple(2, "Array", "Array") to -1,
+        Triple(3, "int", "size") to 4,
+        Triple(3, "Component", "data") to -1,
+        Triple(4, "PPtr<Component>", "component") to -1,
+        Triple(5, "int", "m_FileID") to 4,
+        Triple(5, "SInt64", "m_PathID") to 8,
+        Triple(1, "string", "m_Name") to -1,
+        Triple(1, "bool", "m_IsActive") to 1
+    )
+    val stringTable = ByteArrayOutputStream()
+    val offsets = linkedMapOf<String, Long>()
+    treeNodes.forEach { (node, _) ->
+        listOf(node.second, node.third).forEach { value ->
+            if (value !in offsets) {
+                offsets[value] = stringTable.size().toLong()
+                stringTable.write(value.toByteArray(Charsets.UTF_8))
+                stringTable.write(0)
+            }
+        }
+    }
+    val treeBytes = ByteArrayOutputStream().apply {
+        u32le(treeNodes.size.toLong())
+        u32le(stringTable.size().toLong())
+        treeNodes.forEachIndexed { index, (node, byteSize) ->
+            u16le(1)
+            write(node.first)
+            write(0)
+            u32le(offsets.getValue(node.second))
+            u32le(offsets.getValue(node.third))
+            u32le(byteSize.toLong())
+            u32le(index.toLong())
+            u32le(0)
+            u64le(0)
+        }
+        write(stringTable.toByteArray())
+    }.toByteArray()
+    val payload = ByteArrayOutputStream().apply {
+        u32le(1) // component array size
+        u32le(1) // external fileID
+        u64le(componentPathId) // component PathID
+        u32le(0) // empty GameObject name
+        write(1) // active
+    }.toByteArray()
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5)
+        write(1) // TypeTree enabled
+        u32le(1) // serialized type count
+        u32le(1) // GameObject class ID
+        write(0) // not stripped
+        u16le(0xffff) // no script type index
+        write(ByteArray(16)) // old type hash
+        write(treeBytes)
+        u32le(0) // type dependencies
+        u32le(1) // object count
+        while (size() % 4 != 0) write(0)
+        u64le(1) // source GameObject PathID
+        u64le(0) // byte start
+        u32le(payload.size.toLong())
+        u32le(0) // type index
+        u32le(0) // MonoScript references
+        u32le(1) // external reference count
+        write("CAB-123".toByteArray(Charsets.US_ASCII))
+        write(0)
+        write(ByteArray(16)) // GUID
+        u32le(0) // external reference type
+        write(externalPath.toByteArray(Charsets.US_ASCII))
+        write(0)
+        u32le(0) // SerializeReference type count
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val bytes = ByteArray(dataOffset + payload.size)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0
+    metadata.copyInto(bytes, 48)
+    payload.copyInto(bytes, dataOffset)
     return bytes
 }
 
