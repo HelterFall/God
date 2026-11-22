@@ -186,13 +186,13 @@ PR #30 добавляет AnalyzerRun model и per-file linkage для PE/CLR ou
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Проверенный feature branch содержит 101 метод
+- Проверенный feature branch содержит 101 метод `@Test` в 19 JVM test files.
 - Run #350 подтвердил AnalyzerRun linkage, limit/cancellation tests и сборку APK.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
 
-1. Довести scan lifecycle: JVM single-job/cancellation и inventory-only partial report реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
+1. Довести scan lifecycle: JVM single-job/cancellation и partial report с PE/CLR AnalyzerRun outcomes реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
 2. Расширить общий FileAccess: positional/range reads, sequential fallback, EOF/truncated input и cancellation-aware reads.
 3. Добавить минимальный набор реальных, легально распространяемых PE/CLR/Unity fixtures и golden reports.
 4. Добавить Android SAF instrumentation tests на emulator/device.
