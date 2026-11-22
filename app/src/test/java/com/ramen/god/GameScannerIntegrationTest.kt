@@ -996,8 +996,9 @@ class GameScannerIntegrationTest {
         val files = report.getJSONArray("files")
         val targetId = (0 until files.length()).map { files.getJSONObject(it) }
             .first { it.getString("path") == targetName }.getString("id")
-        val runs = (0 until report.getJSONArray("analyzerRuns").length())
-            .map { it.getJSONObject(it) }
+        val analyzerRuns = report.getJSONArray("analyzerRuns")
+        val runs = (0 until analyzerRuns.length())
+            .map { analyzerRuns.getJSONObject(it) }
         val targetMetadataRun = runs.single {
             it.getString("analyzerId") == "serialized_file_metadata" &&
                 it.getString("inputFileId") == targetId
