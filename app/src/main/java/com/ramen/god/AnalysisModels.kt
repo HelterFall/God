@@ -269,7 +269,7 @@ internal data class Evidence(
                 confidence = AnalysisConfidence.fromId(json.requiredString("confidence")),
                 description = json.requiredString("description"),
                 locator = if (json.isNull("locator")) null else
-                    locatorJson ?: throw IllegalArgumentException("locator must be a JSON object or null.")
+                    SourceLocator.fromJsonObject(locatorJson ?: throw IllegalArgumentException("locator must be a JSON object or null."))
             )
         }
     }
@@ -336,7 +336,7 @@ internal data class GraphNode(
                 label = json.requiredString("label"),
                 fileRecordId = json.optionalString("fileRecordId"),
                 locator = if (json.isNull("locator")) null else
-                    locatorJson ?: throw IllegalArgumentException("locator must be a JSON object or null."),
+                    SourceLocator.fromJsonObject(locatorJson ?: throw IllegalArgumentException("locator must be a JSON object or null.")),
                 findingIds = json.requiredStringList("findingIds"),
                 evidenceIds = json.requiredStringList("evidenceIds")
             )
