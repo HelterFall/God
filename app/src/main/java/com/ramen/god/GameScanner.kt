@@ -825,6 +825,17 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 var targetHeader = unityHeaders[targetEntry.path]
                 var targetMetadata = metadataSnapshot[targetEntry.path] ?: discoveredMetadata[targetEntry.path]
 
+                if (targetMetadata == null && targetHeader != null && targetHeader.kind != "SerializedFile") {
+                    val reason = "External MonoScript target is not a SerializedFile; kind=" + targetHeader.kind + "."
+                    setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.SKIPPED, reason)
+                    updatedBindings[ownerPath]?.set(index, current.copy(
+                        matchedExternalFilePath = targetEntry.path,
+                        resolution = "external-file-found-not-parsed"
+                    ))
+                    changedOwners.add(ownerPath)
+                    return@forEachIndexed
+                }
+
                 if (targetMetadata == null && targetEntry.path !in attemptedMetadata) {
                     if (extraMetadataReads >= MAX_EXTERNAL_METADATA_FILES) {
                         updatedBindings[ownerPath]?.set(index, current.copy(
