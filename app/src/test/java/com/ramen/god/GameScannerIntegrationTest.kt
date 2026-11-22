@@ -1020,6 +1020,94 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun preservesMetadataOnlyMonoBehaviourScriptWhenTargetPayloadCannotBeRead() {
+        val externalPath = "archive:/CAB-123/sharedassets0.assets"
+        val targetPath = "sharedassets0.assets"
+        val root = MemoryScanNode(
+            name = "MetadataOnlyMonoBehaviourFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalMonoBehaviourScriptPointer(externalPath)
+                ),
+                MemoryScanNode(
+                    targetPath,
+                    false,
+                    unitySerializedFileWithMonoScriptObject(
+                        minimalMonoScriptPayload(
+                            name = "HeroController",
+                            className = "HeroController",
+                            namespace = "Game",
+                            assemblyName = "Assembly-CSharp",
+                            executionOrder = -12
+                        )
+                    )
+                )
+            )
+        )
+        val openCounts = mutableMapOf<String?, Int>()
+        val fileAccess = ScanFileAccess { node ->
+            val file = node as MemoryScanNode
+            val count = (openCounts[file.name] ?: 0) + 1
+            openCounts[file.name] = count
+            if (file.name == targetPath && count == 2) {
+                null
+            } else if (file.isDirectory) {
+                null
+            } else {
+                ByteArrayInputStream(file.contents)
+            }
+        }
+
+        val result = GameScanner(fileAccess).scan(root, shouldCancel = { false }) { _, _ -> }
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val fileIds = (0 until files.length()).associate { index ->
+            val file = files.getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val ownerId = fileIds.getValue("globalgamemanagers")
+        val targetId = fileIds.getValue(targetPath)
+        val bindingRun = runs.single {
+            it.getString("analyzerId") == "unity_monobehaviour_script_bindings" &&
+                it.getString("inputFileId") == ownerId
+        }
+        val payloadRun = runs.single {
+            it.getString("analyzerId") == "unity_external_monoscript_payload" &&
+                it.getString("inputFileId") == targetId
+        }
+        assertEquals("failed", payloadRun.getString("status"))
+
+        val metadata = report.getJSONArray("unityMetadata")
+        val owner = (0 until metadata.length()).map { metadata.getJSONObject(it) }
+            .single { it.getString("path") == "globalgamemanagers" }
+        assertEquals(
+            "monoscript-object-found-payload-unavailable",
+            owner.getJSONArray("monoBehaviourScriptBindings").getJSONObject(0).getString("status")
+        )
+
+        val finding = report.getJSONArray("findings").getJSONObject(0)
+        assertEquals("metadata-only", finding.getString("status"))
+        assertEquals("strong", finding.getString("confidence"))
+        assertEquals(ownerId, finding.getString("sourceFileId"))
+        assertEquals(bindingRun.getString("id"), finding.getString("analyzerRunId"))
+
+        val targetNode = (0 until report.getJSONArray("graphNodes").length())
+            .map { report.getJSONArray("graphNodes").getJSONObject(it) }
+            .single { it.getString("nodeType") == "unity-monoscript" }
+        assertEquals(targetId, targetNode.getString("fileRecordId"))
+        assertTrue(targetNode.getString("label").contains("payload unavailable"))
+
+        val edge = report.getJSONArray("graphEdges").getJSONObject(0)
+        assertEquals("metadata-only", edge.getString("status"))
+        assertEquals(targetNode.getString("id"), edge.getString("targetNodeId"))
+    }
+
+    @Test
     fun keepsUnresolvedMonoBehaviourScriptAsHintWithoutInventingTargetNode() {
         val externalPath = "archive:/CAB-123/missing-script.assets"
         val root = MemoryScanNode(
