@@ -1286,6 +1286,201 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
     }
 
+    private fun recordLocalUnityScenePointer(
+        ownerPath: String,
+        owner: ScanEntry,
+        metadata: UnityMetadataSummary,
+        sourceObject: UnityDecodedObjectSummary,
+        field: String,
+        targetPathId: Long,
+        analyzerRunId: String
+    ) {
+        // m_Script is owned by EVIDENCE-02; non-local PPtrs are owned by EVIDENCE-03.
+        val relationType = when (field) {
+            "gameObject" -> "belongs-to-gameobject"
+            "father" -> "has-parent-transform"
+            "children" -> "has-child-transform"
+            "components" -> "has-component"
+            else -> return
+        }
+        val expectedTargetClassId = when (field) {
+            "gameObject" -> 1
+            "father", "children" -> 4
+            else -> null
+        }
+        val targetDecodedObject = metadata.decodedObjects.firstOrNull {
+            it.pathId == targetPathId
+        }
+        val targetObjectRecord = metadata.objectSamples.firstOrNull {
+            it.pathId == targetPathId
+        }
+        val targetClassId = targetDecodedObject?.classId ?: targetObjectRecord?.classId
+        val targetClassMatches = expectedTargetClassId == null ||
+            targetClassId == null || targetClassId == expectedTargetClassId
+        val isDecodedTarget = targetDecodedObject != null &&
+            targetObjectRecord != null && targetClassMatches
+        val isMetadataOnlyTarget = targetDecodedObject == null &&
+            targetObjectRecord != null && targetClassMatches
+
+        val findingStatus = when {
+            isDecodedTarget -> FindingStatus.DECODED
+            isMetadataOnlyTarget -> FindingStatus.METADATA_ONLY
+            targetObjectRecord == null -> FindingStatus.PARTIAL
+            else -> FindingStatus.UNRESOLVED
+        }
+        val confidence = when {
+            isDecodedTarget -> AnalysisConfidence.CONFIRMED
+            isMetadataOnlyTarget -> AnalysisConfidence.STRONG
+            findingStatus == FindingStatus.PARTIAL -> AnalysisConfidence.WEAK
+            else -> AnalysisConfidence.UNKNOWN
+        }
+        val reason = when {
+            isDecodedTarget -> null
+            isMetadataOnlyTarget ->
+                "The local target object record exists in the bounded SerializedFile sample, but its payload was not decoded."
+            targetObjectRecord == null ->
+                "The local PPtr target PathID is outside the bounded object sample."
+            else ->
+                "The local PPtr target has ClassID=" + targetClassId +
+                    ", which does not match the expected ClassID=" + expectedTargetClassId + "."
+        }
+
+        val sourceLabel = unityObjectGraphLabel(
+            sourceObject.classId,
+            sourceObject.pathId,
+            sourceObject.name
+        )
+        val targetLabel = if (isDecodedTarget || isMetadataOnlyTarget) {
+            unityObjectGraphLabel(targetClassId, targetPathId, targetDecodedObject?.name)
+        } else {
+            "Local Unity object PathID " + targetPathId
+        }
+        val title = sourceLabel + " " + relationType + " " + targetLabel
+        val summary = buildString {
+            append(ownerPath)
+            append(" source ClassID=").append(sourceObject.classId)
+            append(", PathID=").append(sourceObject.pathId)
+            append(" field=").append(field)
+            append(" points to local PPtr fileID=0, PathID=").append(targetPathId)
+            append("; resolution=")
+            append(
+                when {
+                    isDecodedTarget -> "resolved-decoded-object"
+                    isMetadataOnlyTarget -> "resolved-object-record-not-decoded"
+                    targetObjectRecord == null -> "pathID-not-in-object-sample"
+                    else -> "target-class-id-mismatch"
+                }
+            )
+            append('.')
+        }
+        val findingKey = "local-scene-pointer:" + sourceObject.pathId +
+            ":" + field + ":0:" + targetPathId
+        val findingId = Finding.create(
+            scanId = scanId,
+            findingKey = findingKey,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            category = "unity.local-scene-pointer",
+            title = title,
+            summary = summary,
+            confidence = confidence,
+            status = findingStatus,
+            reason = reason,
+            supportedFormatRange = "SerializedFile metadata v19-v26"
+        ).id
+        val evidenceItem = Evidence.create(
+            scanId = scanId,
+            evidenceKey = "local-scene-pptr:" + sourceObject.pathId +
+                ":" + field + ":" + targetPathId,
+            findingId = findingId,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            method = if (isDecodedTarget || isMetadataOnlyTarget) {
+                EvidenceMethod.RESOLVED_POINTER
+            } else {
+                EvidenceMethod.PARSED
+            },
+            confidence = confidence,
+            description = "Decoded Unity object PathID=" + sourceObject.pathId +
+                " field=" + field + " contains local PPtr fileID=0, PathID=" +
+                targetPathId + "; resolution=" +
+                (if (isDecodedTarget) "resolved-decoded-object"
+                else if (isMetadataOnlyTarget) "resolved-object-record-not-decoded"
+                else if (targetObjectRecord == null) "pathID-not-in-object-sample"
+                else "target-class-id-mismatch") + ".",
+            locator = SourceLocator(unityFileId = 0, pathId = targetPathId)
+        )
+        val sourceNode = GraphNode.create(
+            scanId = scanId,
+            nodeType = unityObjectGraphNodeType(sourceObject.classId),
+            key = "PathID:" + sourceObject.pathId,
+            label = sourceLabel,
+            fileRecordId = owner.record.id,
+            locator = SourceLocator(pathId = sourceObject.pathId),
+            findingIds = listOf(findingId),
+            evidenceIds = listOf(evidenceItem.id)
+        )
+        val targetNode = if (isDecodedTarget || isMetadataOnlyTarget) {
+            GraphNode.create(
+                scanId = scanId,
+                nodeType = unityObjectGraphNodeType(targetClassId),
+                key = "PathID:" + targetPathId,
+                label = targetLabel,
+                fileRecordId = owner.record.id,
+                locator = SourceLocator(pathId = targetPathId),
+                findingIds = listOf(findingId),
+                evidenceIds = listOf(evidenceItem.id)
+            )
+        } else {
+            null
+        }
+        val targetHint = if (targetNode == null) {
+            "fileID=0, PathID=" + targetPathId +
+                if (targetObjectRecord == null) {
+                    " (pathID-not-in-object-sample)"
+                } else {
+                    " (target-class-id-mismatch)"
+                }
+        } else {
+            null
+        }
+        val edge = GraphEdge.create(
+            scanId = scanId,
+            edgeKey = "local-scene-pointer:" + sourceObject.pathId +
+                ":" + field + ":0:" + targetPathId,
+            sourceNodeId = sourceNode.id,
+            targetNodeId = targetNode?.id,
+            relationType = relationType,
+            confidence = confidence,
+            status = findingStatus,
+            evidenceIds = listOf(evidenceItem.id),
+            findingIds = listOf(findingId),
+            analyzerRunId = analyzerRunId,
+            targetHint = targetHint
+        )
+        val finding = Finding.create(
+            scanId = scanId,
+            findingKey = findingKey,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            category = "unity.local-scene-pointer",
+            title = title,
+            summary = summary,
+            confidence = confidence,
+            status = findingStatus,
+            reason = reason,
+            evidenceIds = listOf(evidenceItem.id),
+            graphNodeIds = listOfNotNull(sourceNode.id, targetNode?.id),
+            graphEdgeIds = listOf(edge.id),
+            supportedFormatRange = "SerializedFile metadata v19-v26"
+        )
+        if (findings.none { it.id == finding.id }) findings.add(finding)
+        if (evidenceRecords.none { it.id == evidenceItem.id }) evidenceRecords.add(evidenceItem)
+        addOrMergeGraphNode(sourceNode)
+        targetNode?.let { addOrMergeGraphNode(it) }
+        if (graphEdges.none { it.id == edge.id }) graphEdges.add(edge)
+    }
+
     private fun recordExternalPointerResolution(
         ownerPath: String,
         owner: ScanEntry,
@@ -1889,7 +2084,33 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 AnalyzerRunStatus.ANALYZED
             }
             updateAnalyzerRun(runId, status, result.note)
-            metadata.copy(decodedObjects = result.objects, sceneGraph = graph, sceneDecodeNote = result.note)
+            val updated = metadata.copy(
+                decodedObjects = result.objects,
+                sceneGraph = graph,
+                sceneDecodeNote = result.note
+            )
+            result.objects.forEach { sourceObject ->
+                val localPointers = buildList {
+                    sourceObject.gameObject?.let { add("gameObject" to it) }
+                    sourceObject.father?.let { add("father" to it) }
+                    sourceObject.children.forEach { add("children" to it) }
+                    sourceObject.components.forEach { add("components" to it) }
+                }
+                localPointers.forEach { (field, pointer) ->
+                    if (pointer.fileId == 0 && pointer.pathId != 0L) {
+                        recordLocalUnityScenePointer(
+                            ownerPath = entry.path,
+                            owner = entry,
+                            metadata = updated,
+                            sourceObject = sourceObject,
+                            field = field,
+                            targetPathId = pointer.pathId,
+                            analyzerRunId = runId
+                        )
+                    }
+                }
+            }
+            updated
         } catch (e: Exception) {
             val reason = "Scene object payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
             updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
@@ -2240,6 +2461,30 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             appendLine("- Общие Finding/Evidence/Graph записи для внешних PPtr relations не сформированы")
         }
         externalPointerFindings.forEach { finding ->
+            appendLine("- [" + finding.status.id + "/" + finding.confidence.id + "] " +
+                finding.title + ": " + finding.summary +
+                (finding.reason?.let { " Reason: " + it } ?: ""))
+            finding.evidenceIds.forEach { id ->
+                val item = evidenceRecords.firstOrNull { it.id == id }
+                if (item != null) {
+                    appendLine("  - evidence=" + item.id + "; method=" + item.method.id +
+                        "; sourceFile=" + item.sourceFileId +
+                        "; Unity fileID=" + (item.locator?.unityFileId ?: "?") +
+                        "; PathID=" + (item.locator?.pathId ?: "?"))
+                }
+            }
+            graphEdges.filter { finding.id in it.findingIds }.forEach { edge ->
+                appendLine("  - graph " + edge.relationType + ": " + edge.sourceNodeId + " -> " +
+                    (edge.targetNodeId ?: edge.targetHint.orEmpty()) + " (" + edge.status.id + ")")
+            }
+        }
+        appendLine()
+        appendLine("## Evidence-backed local Unity scene relations")
+        val localSceneFindings = findings.filter { it.category == "unity.local-scene-pointer" }
+        if (localSceneFindings.isEmpty()) {
+            appendLine("- Общие Finding/Evidence/Graph записи для локальных scene PPtrs не сформированы")
+        }
+        localSceneFindings.forEach { finding ->
             appendLine("- [" + finding.status.id + "/" + finding.confidence.id + "] " +
                 finding.title + ": " + finding.summary +
                 (finding.reason?.let { " Reason: " + it } ?: ""))
