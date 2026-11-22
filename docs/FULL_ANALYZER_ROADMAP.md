@@ -27,12 +27,13 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator и job-scoped cancellation. Partial report сохраняет inventory и накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. Per-file AnalyzerRun подключён к PE, CLR metadata, Unity header и SerializedFile metadata; resolver stages и остальные analyzer families ещё требуют интеграции.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, progress callback, single-job coordinator и cancellation. Partial report сохраняет inventory и накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. Per-file AnalyzerRun подключён к PE, CLR metadata, Unity header, SerializedFile metadata и локальному MonoScript payload; external resolver stages и остальные analyzer families ещё требуют интеграции.
 
 **Цель расширения (не повторная реализация):**
 - [x] Добавить stable FileRecord IDs, physical-folder `parentId` и inventory statuses `discovered`, `enumerated`, `partial`, `inaccessible`; raw SAF URI не попадает в JSON.
-- [x] Добавить `AnalyzerRun` с `scanId`, `inputFileId` и статусами queued/analyzed/partial/skipped/unsupported/failed для PE, CLR metadata, Unity header и SerializedFile metadata; сохранять уже собранные и queued outcomes в partial report. Unity учитывает header candidate limit 500, metadata deep-read window 40, unsupported formats и truncated metadata.
-- [ ] Подключить per-file AnalyzerRun к MonoScript/external-reference/scene resolvers и остальным analyzer families; не смешивать их с `inventoryStatus`.
+- [x] Добавить `AnalyzerRun` с `scanId`, `inputFileId` и статусами queued/analyzed/partial/skipped/unsupported/failed для PE, CLR metadata, Unity header, SerializedFile metadata и local MonoScript payload; сохранять накопленные outcomes в partial report.
+- [x] Подключить local `mono_script_payload` AnalyzerRun с FileRecord linkage и analyzed/partial/failed/skipped outcomes (PR #33).
+- [ ] Подключить per-file AnalyzerRun к external MonoScript payload, external-reference/PPtr и scene resolvers; не смешивать их с `inventoryStatus`.
 - Сохранить текущий JSON inventory и связать его записи с analyzer runs/findings.
 - Поддержка large-file streaming и positional/random-access reads через SAF abstraction.
 - Потоковое хеширование по опции для сравнения файлов и доказательства идентичности.
@@ -169,9 +170,9 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | Приоритет | Работа | Результат |
 |---|---|---|
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
-| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; partial report сохраняет PE/CLR/Unity header/SerializedFile AnalyzerRun outcomes, но отмена внутри provider reads и resolver-specific states остаются открытыми |
+| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; partial report сохраняет PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRun outcomes, но отмена внутри provider reads и external resolver-specific states остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
-| P1 | Per-file statuses для resolver stages и оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile runs уже связаны с FileRecord IDs; остаются MonoScript/scene/UnityFS и другие стадии |
+| P1 | Per-file statuses для external resolver stages и оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile/local MonoScript runs уже связаны с FileRecord IDs; остаются external MonoScript/PPtr, scene/UnityFS и другие стадии |
 | P2 | PE/native dependency graph | Понимание нативных границ |
 | P2 | CLR/Mono metadata, IL, P/Invoke и call-site graph | Понимание managed-логики |
 | P2 | SerializedFile/TypeTree/object graph | Понимание сцен и компонентов |
@@ -187,10 +188,10 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Main после PR #31: commit `fc497c90b925bb668bedae08880a0bbb34e04811`, 19 JVM test files / 106 `@Test` methods; [post-merge run #370](https://github.com/HelterFall/God/actions/runs/44997667707) успешно проверил JVM tests, `:app:assembleDebug` и upload APK artifact.
+- Main до PR #33: commit `e51551f997168e637342fd403b3a1f04502b8508`, 19 JVM test files / 106 `@Test` methods. PR #33 branch: 19 files / 110 methods; [run #377](https://github.com/HelterFall/God/actions/runs/44999736545) успешно выполнил tests, `:app:assembleDebug` и APK artifact upload.
 - Fake-tree inventory tests проверяют повторяемость FileRecord IDs, parent links, duplicate names и directory statuses; PR #29 включён в main.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
-- Fake-tree integration coverage `GameScanner.scan()` включает PE/CLR/Unity header/SerializedFile AnalyzerRuns, synthetic CLR metadata и SerializedFile v22, unsupported SerializedFile version, truncated metadata, header limit 500, deep-read limit 40, provider failures, queued runs при cancellation, ambiguous и successful external MonoScript resolution. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated provider streams, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
+- Fake-tree integration coverage `GameScanner.scan()` включает PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRuns linked to FileRecord IDs, local MonoScript success/partial/failed/skipped cases, synthetic CLR metadata and SerializedFile v22, unsupported SerializedFile version, truncated metadata, header limit 500, deep-read limit 40, provider failures, queued runs при cancellation, ambiguous и successful external MonoScript resolution.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
@@ -198,7 +199,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 - Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
 - Все ограничения, пропуски и ошибки отражаются в coverage.
-- Отмена на контролируемых границах создаёт partial report с inventory и уже накопленными AnalyzerRun outcomes PE/CLR/Unity header/SerializedFile; resolver stages и остальные analyzer families ещё нужно подключить.
+- Отмена на контролируемых границах создаёт partial report с inventory и уже накопленными AnalyzerRun outcomes PE/CLR/Unity header/SerializedFile/local MonoScript; external resolver stages и остальные analyzer families ещё нужно подключить.
 - Большие файлы читаются потоково/позиционно с контролем памяти.
 - Вложенные архивы имеют защиту от чрезмерной глубины и распакованного объёма.
 - Повреждённые или зашифрованные данные не обозначаются как успешно разобранные.
