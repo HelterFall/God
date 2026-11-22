@@ -131,7 +131,7 @@ God уже умеет выполнять ограниченную инвента
 - ContainerRecord для обычных и вложенных архивных entries.
 - AnalyzerRun с parser version, input IDs, supported format range, limits и итоговым статусом.
 - Finding и Evidence с точными source locators.
-- Полноценные `AnalyzerRun`, per-file analyzer outcomes, `Finding` и `Evidence` с точными source locators.
+- `Finding` и `Evidence` с точными source locators, связанные с `AnalyzerRun` и `FileRecord`.
 - GraphNode и GraphEdge для межфайловых, native, managed, Unity и asset dependencies.
 
 **Задачи:**
