@@ -1285,7 +1285,7 @@ class GameScannerIntegrationTest {
             .map { report.getJSONArray("graphEdges").getJSONObject(it) }
             .single { it.getString("relationType") == "belongs-to-gameobject" }
         assertEquals(targetNode.getString("id"), edge.getString("targetNodeId"))
-        assertFalse(edge.has("targetHint"))
+        assertTrue(edge.isNull("targetHint"))
         assertTrue(finding.getString("summary").contains("field=gameObject"))
     }
 
