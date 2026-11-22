@@ -4,19 +4,19 @@
 **Проверенная ветка:** `main`.  
 **Проверенная база main:** HEAD `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`; последний source-code commit main — `653e370c74beba48f2f5b8423276db84b6cecc51`.
 **Последняя успешная проверка main:** [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) — JVM tests, debug APK build и artifact upload завершились успешно.
-**Проверенный кандидат PR #35:** code/test commit `8130363cb154efd30088eed99ff86d1359847fa4`; [run #397](https://github.com/HelterFall/God/actions/runs/45009371396) завершился `success`.
+**Проверенный кандидат PR #35:** code/test commit `f4e281d75a075bb0b6c394217ce27aef6ef53719`; [run #416](https://github.com/HelterFall/God/actions/runs/45010429343) завершился `success`.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
 - 19 JVM test files и 110 методов `@Test` в `main` после PR #34;
-- 19 JVM test files и 116 методов `@Test` в candidate PR #35 (на 6 тестов больше main: три scene graph tests и три новых external-resolver integration tests);
+- 20 JVM test files и 134 метода `@Test` в candidate PR #35 (на 24 теста больше main: три scene graph, три external-resolver integration tests и 18 тестов общей evidence/graph-модели);
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata. PR #33 добавил local MonoScript payload AnalyzerRun. PR #35 candidate добавляет `unity_scene_graph` и per-file outcomes для `unity_external_monoscript`, `unity_external_monoscript_payload`, `unity_external_pointers` и `unity_monobehaviour_script_bindings`, связанные с owner/target `FileRecord.id`. Дополнительно проверяется обновление ранее skipped SerializedFile metadata run при reread внешнего target без дублирования analyzer/file IDs. Main run #387 прошёл базовые 110 тестов; candidate code/test run #397 прошёл 116 тестов, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**.
+PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata. PR #33 добавил local MonoScript payload AnalyzerRun. PR #35 candidate добавляет `unity_scene_graph` и per-file outcomes для `unity_external_monoscript`, `unity_external_monoscript_payload`, `unity_external_pointers` и `unity_monobehaviour_script_bindings`, связанные с owner/target `FileRecord.id`. Дополнительно проверяется promotion ранее skipped SerializedFile metadata run при reread внешнего target без дублирования analyzer/file IDs. В том же candidate добавлены parser-neutral модели `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge`; их 18 unit tests проверяют JSON round-trip, scan-scoped identity, locator ranges/address spaces, enum IDs, optional links и unresolved target hints. Эти модели ещё не подключены к parser outputs или report JSON. Main run #387 прошёл базовые 110 тестов; candidate code/test run #416 прошёл 134 теста, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -31,6 +31,7 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 | ReportExporterTest | 5 | Null output stream, UTF-8 запись, ошибки открытия/записи/закрытия и закрытие потока |
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | AnalyzerRunTest | 3 | Scan-scoped deterministic run IDs, file/analyzer linkage, stable status strings and JSON serialization |
+| AnalysisModelsTest | 18 | Finding/Evidence/GraphNode/GraphEdge JSON round-trip, stable scan-scoped IDs, byte ranges/RVA/metadata token/Unity fileID/PathID/IL locators, enum stability, overflow validation and unresolved edge hints |
 | PartialReportBuilderTest | 6 | Partial/cancelled markers, inventory JSON, escaping, Markdown cap, полный список в JSON, structured `scan.cancelled` issue и сохранение completed/queued AnalyzerRuns |
 | ScanIssueTest | 1 | Stable code/stage/severity/message serialization and null path |
 | FileRecordTest | 3 | Repeatable path-based IDs, provider-key identity across rename without URI disclosure, duplicate-path disambiguation including duplicate parent folders |
@@ -44,7 +45,9 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-`main` после PR #34 содержит **110 тестов в 19 JVM test files**; run #387 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. Кандидат PR #35 на code/test commit `8130363` содержит **116 тестов в тех же 19 файлах**; run #397 также прошёл все steps. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+Общая модель EVIDENCE-01 проверяется отдельно от scanner integration: `AnalysisModelsTest` не утверждает, что текущие parser outputs уже создают Findings/Graph records или что эти массивы присутствуют в report JSON. Следующий интеграционный тест должен проследить один реальный resolver output до Finding, Evidence, GraphNode/GraphEdge и JSON отчёта.
+
+`main` после PR #34 содержит **110 тестов в 19 JVM test files**; run #387 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. Кандидат PR #35 на code/test commit `f4e281d` содержит **134 теста в 20 файлах** (из них 18 в `AnalysisModelsTest`); run #416 также прошёл все steps. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
