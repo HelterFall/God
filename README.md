@@ -104,6 +104,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - Строить ограниченный локальный граф GameObject–Transform–Component.
 - Базовый прогресс обхода папок (путь и счётчик, UI обновляется каждые 128 записей) и запрос отмены анализа.
 - Экспортировать Markdown и JSON schemaVersion 24 с начальной ScanCoverage; JSON files[] содержит все entries, а `nativeImportSymbols` — прочитанные DLL/function/ordinal imports в пределах текущих лимитов.
+- Публиковать структурированные ScanIssue в JSON `issues[]` с постоянными кодом, стадией, серьёзностью и путём. Существующий массив `warnings[]` и текст Markdown сохраняют человекочитаемые сообщения; версия JSON остаётся schemaVersion 24.
 
 ### Главные ограничения текущего MVP
 
