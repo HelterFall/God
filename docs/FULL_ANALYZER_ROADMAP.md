@@ -27,13 +27,13 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, progress callback, single-job coordinator и cancellation. Partial report сохраняет inventory и накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. В candidate PR #35 per-file AnalyzerRun покрывает PE, CLR metadata, Unity header, SerializedFile metadata, локальный MonoScript payload и bounded Unity scene graph; external MonoScript/PPtr resolver stages и остальные analyzer families ещё требуют интеграции.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, progress callback, single-job coordinator и cancellation. Partial report сохраняет inventory и накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. В candidate PR #35 per-file AnalyzerRun покрывает PE, CLR metadata, Unity header, SerializedFile metadata, локальный MonoScript payload, bounded Unity scene graph и существующие external MonoScript/PPtr/MonoBehaviour resolver stages; для остальных analyzer families per-file outcomes ещё требуют интеграции.
 
 **Цель расширения (не повторная реализация):**
 - [x] Добавить stable FileRecord IDs, physical-folder `parentId` и inventory statuses `discovered`, `enumerated`, `partial`, `inaccessible`; raw SAF URI не попадает в JSON.
-- [x] Добавить `AnalyzerRun` с `scanId`, `inputFileId` и статусами queued/analyzed/partial/skipped/unsupported/failed для PE, CLR metadata, Unity header, SerializedFile metadata, local MonoScript payload и (PR #35) bounded Unity scene graph; сохранять накопленные outcomes в partial report.
+- [x] Добавить `AnalyzerRun` с `scanId`, `inputFileId` и статусами queued/analyzed/partial/skipped/unsupported/failed для PE, CLR metadata, Unity header, SerializedFile metadata, local MonoScript payload, bounded Unity scene graph и (PR #35) Unity external resolver stages; сохранять накопленные outcomes в partial report.
 - [x] Подключить local `mono_script_payload` AnalyzerRun с FileRecord linkage и analyzed/partial/failed/skipped outcomes (PR #33).
-- [ ] Подключить per-file AnalyzerRun к external MonoScript payload resolution и external-reference/PPtr resolver stages; не смешивать их с `inventoryStatus`. `unity_scene_graph` run для bounded local scene decoding добавлен в PR #35, но full cross-file graph ещё не реализован.
+- [x] Подключить per-file AnalyzerRun к уже существующим external MonoScript/PPtr/MonoBehaviour resolvers в PR #35: `unity_external_monoscript` и `unity_monobehaviour_script_bindings` привязаны к owner SerializedFile, `unity_external_monoscript_payload` — к target SerializedFile, `unity_external_pointers` — к source file. Обновлять прежний skipped SerializedFile metadata run при дополнительном bounded чтении target; не создавать duplicate analyzer/file IDs и не смешивать эти статусы с `inventoryStatus`. Full cross-file scene graph ещё не реализован.
 - Сохранить текущий JSON inventory и связать его записи с analyzer runs/findings.
 - Поддержка large-file streaming и positional/random-access reads через SAF abstraction.
 - Потоковое хеширование по опции для сравнения файлов и доказательства идентичности.
@@ -188,10 +188,10 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Main после PR #34: HEAD `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`, 19 JVM test files / 110 `@Test` methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) прошёл tests, `:app:assembleDebug` и APK artifact upload. Candidate PR #35 добавляет три теста (113 total); [run #388](https://github.com/HelterFall/God/actions/runs/45007383705) также прошёл.
+- Main после PR #34: HEAD `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`, 19 JVM test files / 110 `@Test` methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) прошёл tests, `:app:assembleDebug` и APK artifact upload. Candidate PR #35 на code/test commit `8130363` содержит 19 файлов / 116 тестовых методов; [run #397](https://github.com/HelterFall/God/actions/runs/45009371396) также прошёл все steps.
 - Fake-tree inventory tests проверяют повторяемость FileRecord IDs, parent links, duplicate names и directory statuses; PR #29 включён в main.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
-- Fake-tree integration coverage `GameScanner.scan()` включает PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRuns; candidate PR #35 добавляет `unity_scene_graph` outcomes analyzed/partial/skipped/failed с FileRecord linkage. Существуют synthetic CLR metadata, SerializedFile v22 и GameObject TypeTree fixtures; проверяются unsupported version, truncated metadata, header limit 500, deep-read limit 40, provider failures, queued runs при cancellation, ambiguous и successful external MonoScript resolution.
+- Fake-tree integration coverage `GameScanner.scan()` включает PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRuns; candidate PR #35 добавляет `unity_scene_graph`, external MonoScript owner/target payload, external PPtr и MonoBehaviour script-binding outcomes с FileRecord linkage. Существуют synthetic CLR metadata, SerializedFile v22, GameObject и MonoBehaviour TypeTree fixtures; проверяются unsupported version, truncated metadata, header limit 500, deep-read limit 40, provider failures, queued runs при cancellation, ambiguous и successful/failed external payload resolution, external PPtr target lookup и promotion metadata run за пределами initial deep-read window.
 
 Полная матрица и список QA gaps: [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
@@ -199,7 +199,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 - Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
 - Все ограничения, пропуски и ошибки отражаются в coverage.
-- Отмена на контролируемых границах создаёт partial report с inventory и уже накопленными AnalyzerRun outcomes PE/CLR/Unity header/SerializedFile/local MonoScript; external resolver stages и остальные analyzer families ещё нужно подключить.
+- Отмена на контролируемых границах создаёт partial report с inventory и уже накопленными AnalyzerRun outcomes PE/CLR/Unity header/SerializedFile/local MonoScript, bounded `unity_scene_graph` и external MonoScript/PPtr/MonoBehaviour resolver stages (PR #35); остальные analyzer families ещё нужно подключить.
 - Большие файлы читаются потоково/позиционно с контролем памяти.
 - Вложенные архивы имеют защиту от чрезмерной глубины и распакованного объёма.
 - Повреждённые или зашифрованные данные не обозначаются как успешно разобранные.
