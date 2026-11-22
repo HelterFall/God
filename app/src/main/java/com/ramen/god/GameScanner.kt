@@ -844,10 +844,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         val prefix = readPrefix(targetEntry.node, MAX_UNITY_METADATA_READ)
                         if (prefix == null) {
                             val reason = "External MonoScript target provider returned no input stream."
-                            if (unityHeaderFailedPaths.add(targetEntry.path)) {
-                                unityHeaderFailedCount = unityHeaderFailedPaths.size
+                            if (targetHeader == null) {
+                                if (unityHeaderFailedPaths.add(targetEntry.path)) {
+                                    unityHeaderFailedCount = unityHeaderFailedPaths.size
+                                }
+                                setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
                             }
-                            setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
                             if (unityMetadataCandidatePaths.add(targetEntry.path)) {
                                 unityMetadataCandidateCount = unityMetadataCandidatePaths.size
                             }
@@ -954,7 +956,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         throw e
                     } catch (e: Exception) {
                         val reason = e.message ?: e.javaClass.simpleName
-                        setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                        if (targetHeader == null) {
+                            setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                        }
                         if (unityMetadataAttemptedPaths.add(targetEntry.path)) {
                             unityMetadataAttemptedCount = unityMetadataAttemptedPaths.size
                         }
