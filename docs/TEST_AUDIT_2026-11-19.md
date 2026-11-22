@@ -4,19 +4,19 @@
 **Проверенная ветка:** `main`.  
 **Проверенная база main:** HEAD `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`; последний source-code commit main — `653e370c74beba48f2f5b8423276db84b6cecc51`.
 **Последняя успешная проверка main:** [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) — JVM tests, debug APK build и artifact upload завершились успешно.
-**Проверенный кандидат PR #35:** latest code/test commit `538c90bf93973fff2cd778d2e0d7ef80064f4a84`; [run #432](https://github.com/HelterFall/God/actions/runs/45012087896) завершился `success`.
+**Проверенный кандидат PR #35:** latest code/test commit `1da9a2916a96d97af18a2a02d7e30d27fdf6dfe2`; [run #45014386292](https://github.com/HelterFall/God/actions/runs/45014386292) завершился `success`.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
 - 19 JVM test files и 110 методов `@Test` в `main` после PR #34;
-- 20 JVM test files и 138 методов `@Test` в candidate PR #35 (на 28 тестов больше main; включая 18 tests общей evidence/graph-модели и четыре новых EVIDENCE-02/partial-report integration tests);
+- 20 JVM test files и 144 метода `@Test` в candidate PR #35 (на 34 теста больше main; включая 18 tests общей evidence/graph-модели, EVIDENCE-02/EVIDENCE-03 integration cases и отдельную проверку partial external-PPtr report);
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata. PR #33 добавил local MonoScript payload AnalyzerRun. PR #35 candidate добавляет `unity_scene_graph` и per-file outcomes для `unity_external_monoscript`, `unity_external_monoscript_payload`, `unity_external_pointers` и `unity_monobehaviour_script_bindings`, связанные с owner/target `FileRecord.id`; дополнительное чтение внешнего target продвигает ранее skipped metadata run без duplicate analyzer/file IDs. EVIDENCE-01 добавил parser-neutral модели `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` и 18 unit tests. EVIDENCE-02 подключил их к существующему `UnityMonoBehaviourScriptResolver`: sampled `MonoBehaviour.m_Script` bindings превращаются в Finding/Evidence и `attaches-script` graph relation в full/partial schemaVersion 24 JSON. Тесты проверяют реальные AnalyzerRun/FileRecord links, source/target locators, resolved, metadata-only, unresolved target hint без фиктивного узла и null PPtr без edge. Main run #387 прошёл 110 тестов; candidate run #432 прошёл 138 тестов, debug APK build и artifact upload. Но **это не доказывает полноту глубокого исследования реальной игры или всего cross-file graph**.
+PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile metadata. PR #33 добавил local MonoScript payload AnalyzerRun. PR #35 candidate добавляет `unity_scene_graph` и per-file outcomes для `unity_external_monoscript`, `unity_external_monoscript_payload`, `unity_external_pointers` и `unity_monobehaviour_script_bindings`, связанные с owner/target `FileRecord.id`; дополнительное чтение внешнего target продвигает ранее skipped metadata run без duplicate analyzer/file IDs. EVIDENCE-01 добавил parser-neutral модели и 18 unit tests. EVIDENCE-02 подключил `UnityMonoBehaviourScriptResolver` для `MonoBehaviour.m_Script → MonoScript`. EVIDENCE-03 подключил `UnityExternalPointerResolver` для sampled external PPtrs полей `gameObject`, `father`, `children`, `components`. Тесты проверяют настоящие FileRecord/AnalyzerRun links, locators, resolved и metadata-only targets, out-of-sample hints без выдуманных nodes, отдельные father/children relations с общими nodes, отсутствие дублирования `m_Script` и external-PPtr preservation в cancelled report. Main run #387 прошёл 110 тестов; candidate run #45014386292 прошёл 144 теста, debug APK build и artifact upload. Но **это не доказывает полноту глубокого исследования реальной игры или всего cross-file graph**.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -32,10 +32,10 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 | ScanCoordinatorTest | 6 | Один активный job, job-scoped cancellation, cancelActive, безопасное завершение и повторное использование координатора |
 | AnalyzerRunTest | 3 | Scan-scoped deterministic run IDs, file/analyzer linkage, stable status strings and JSON serialization |
 | AnalysisModelsTest | 18 | Finding/Evidence/GraphNode/GraphEdge JSON round-trip, stable scan-scoped IDs, byte ranges/RVA/metadata token/Unity fileID/PathID/IL locators, enum stability, overflow validation and unresolved edge hints |
-| PartialReportBuilderTest | 7 | Partial/cancelled markers, inventory JSON, escaping, Markdown cap, полный список в JSON, structured `scan.cancelled` issue, completed/queued AnalyzerRuns и сохранение Finding/Evidence/GraphNode/GraphEdge arrays с unresolved targetHint |
+| PartialReportBuilderTest | 8 | Partial/cancelled markers, inventory JSON, escaping, Markdown cap, полный список в JSON, structured `scan.cancelled` issue, completed/queued AnalyzerRuns, сохранение EVIDENCE-02 arrays и отдельное сохранение external-PPtr Finding/Evidence/GraphNode/GraphEdge с targetHint |
 | ScanIssueTest | 1 | Stable code/stage/severity/message serialization and null path |
 | FileRecordTest | 3 | Repeatable path-based IDs, provider-key identity across rename without URI disclosure, duplicate-path disambiguation including duplicate parent folders |
-| GameScannerIntegrationTest | 28 | Fake tree: PE/CLR/Unity header/SerializedFile/local MonoScript, `unity_scene_graph`, external MonoScript owner/target payload and external PPtr AnalyzerRuns; EVIDENCE-02 real MonoBehaviour resolver→Finding/Evidence/GraphNode/GraphEdge/report path; owner/target FileRecord and AnalyzerRun foreign keys, exact PPtr locator, resolved/metadata-only/unresolved/null scenarios, no fabricated target, limits 500/40, ambiguous paths, provider failures, metadata promotion and cancellation |
+| GameScannerIntegrationTest | 33 | Fake tree: PE/CLR/Unity header/SerializedFile/local MonoScript, `unity_scene_graph`, external resolver AnalyzerRuns; EVIDENCE-02 MonoBehaviour→MonoScript and EVIDENCE-03 external `gameObject`/`father`/`children`/`components` PPtr paths; resolved/metadata-only/out-of-sample targets, FileRecord/AnalyzerRun foreign keys, exact locators, separate relations, shared nodes, no m_Script duplicate, provider failures, limits 500/40 and cancellation |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -45,9 +45,9 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-EVIDENCE-01 проверяется отдельно через 18 `AnalysisModelsTest` (JSON round-trip, deterministic IDs, source locators и validation). EVIDENCE-02 добавляет первый настоящий вертикальный путь: `UnityMonoBehaviourScriptResolver` создаёт Finding/Evidence и source/target GraphNodes для `MonoBehaviour.m_Script`, публикует их в full/partial schemaVersion 24 JSON и сохраняет при cancellation. Интеграционные тесты проверяют resolved, metadata-only, unresolved/ambiguous и null PPtr, реальные foreign keys `AnalyzerRun`/`FileRecord`, отсутствие фиктивной target node и корректные endpoints. Другие analyzer families пока не публикуют общие records; cross-file graph остаётся частичным.
+EVIDENCE-01 проверяется отдельно через 18 `AnalysisModelsTest`. EVIDENCE-02 публикует sampled `MonoBehaviour.m_Script → MonoScript`; EVIDENCE-03 публикует sampled external PPtr relations для четырёх scene-полей. Интеграционные тесты проверяют resolved и metadata-only targets, out-of-sample hint без фиктивной вершины, раздельные father/children edges с общими source/target nodes и сохранение external-PPtr records в cancelled report. Другие analyzer families пока не публикуют общие records; cross-file graph остаётся частичным.
 
-`main` после PR #34 содержит **110 тестов в 19 JVM test files**; run #387 прошёл JVM tests, `:app:assembleDebug` и APK artifact upload. Кандидат PR #35 на code/test commit `538c90b` содержит **138 тестов в 20 файлах** (28 в `GameScannerIntegrationTest`, 7 в `PartialReportBuilderTest`, 18 в `AnalysisModelsTest`); run #431 и повторный run #432 успешно проверили tests/build/upload. В репозитории всё ещё нет `src/test/resources` с настоящими игровыми бинарными fixtures и `src/androidTest` с Android instrumentation tests.
+`main` после PR #34 содержит **110 тестов в 19 JVM test files**; run #387 прошёл JVM tests, `:app:assembleDebug` и APK artifact upload. Кандидат PR #35 на code/test commit `1da9a29` содержит **144 теста в 20 файлах** (33 в `GameScannerIntegrationTest`, 8 в `PartialReportBuilderTest`, 18 в `AnalysisModelsTest`); run [#45014386292](https://github.com/HelterFall/God/actions/runs/45014386292) успешно проверил tests/build/upload. В репозитории всё ещё нет `src/test/resources` с настоящими игровыми бинарными fixtures и `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -64,9 +64,9 @@ EVIDENCE-01 проверяется отдельно через 18 `AnalysisModel
 
 ### QA-01 — PE/CLR и Unity header/SerializedFile scanner paths покрыты; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` содержит 19 тестов в main и 28 в candidate PR #35. Кроме inventory и per-file AnalyzerRuns, кандидат проверяет external MonoScript/PPtr resolution и EVIDENCE-02: resolver output превращается в Finding/Evidence/GraphNodes/GraphEdge, связывается с реальными owner/target FileRecord и AnalyzerRun, попадает в full JSON; unresolved target остаётся targetHint без target node, null PPtr не создаёт edge. `PartialReportBuilderTest` отдельно проверяет сохранение четырёх model arrays при отмене. Scene graph и script bindings ограничены текущими object samples; полный cross-file graph отсутствует.
+`GameScannerIntegrationTest` содержит 19 тестов в main и 33 в candidate PR #35. Кроме inventory и per-file AnalyzerRuns, кандидат проверяет external MonoScript/PPtr resolution и EVIDENCE-02: resolver output превращается в Finding/Evidence/GraphNodes/GraphEdge, связывается с реальными owner/target FileRecord и AnalyzerRun, попадает в full JSON; unresolved target остаётся targetHint без target node, null PPtr не создаёт edge. `PartialReportBuilderTest` отдельно проверяет сохранение четырёх model arrays при отмене. Scene graph и script bindings ограничены текущими object samples; полный cross-file graph отсутствует.
 
-**EVIDENCE-01 — common data models:** `AnalysisModelsTest` содержит 18 unit tests для пяти parser-neutral моделей и их JSON/locator validation. **EVIDENCE-02 — первый end-to-end resolver:** `UnityMonoBehaviourScriptResolver` уже формирует Finding/Evidence/GraphNodes/GraphEdge и публикует их в full/partial JSON schemaVersion 24; `GameScannerIntegrationTest` проверяет настоящие `AnalyzerRun`/`FileRecord` foreign keys, resolved/metadata-only/unresolved/null PPtr и отсутствие вымышленных target nodes. Остальные parser families ещё не подключены.
+**EVIDENCE-01 — common data models:** `AnalysisModelsTest` содержит 18 unit tests. **EVIDENCE-02 — MonoBehaviour script slice:** `UnityMonoBehaviourScriptResolver` публикует Finding/Evidence/GraphNodes/GraphEdge. **EVIDENCE-03 — external PPtr slice:** `UnityExternalPointerResolver` публикует sampled cross-file relations для `gameObject`, `father`, `children`, `components`; target nodes опираются на реальные object records и FileRecords, нерешённые targets — на hints. Full/partial schemaVersion 24 и cancellation preservation проверены интеграционными/partial-builder tests. Остальные parser families ещё не подключены.
 
 **Пока не покрыто:**
 
@@ -187,7 +187,7 @@ EVIDENCE-01 проверяется отдельно через 18 `AnalysisModel
 Проверенные CI revisions:
 
 - Main HEAD after PR #34: `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`; main run [#387](https://github.com/HelterFall/God/actions/runs/45000959608) succeeded.
-- Candidate PR #35 code/test head: `538c90bf93973fff2cd778d2e0d7ef80064f4a84`; [run #431](https://github.com/HelterFall/God/actions/runs/45012035419) and [run #432](https://github.com/HelterFall/God/actions/runs/45012087896) succeeded (138 JVM test methods, debug APK build, artifact upload).
+- Candidate PR #35 code/test head: `1da9a2916a96d97af18a2a02d7e30d27fdf6dfe2`; [run #45014386292](https://github.com/HelterFall/God/actions/runs/45014386292) succeeded (144 JVM test methods, debug APK build, artifact upload).
 
 - PR #31 code head `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; final PR head including docs `f1fb456f571ea2569bba5029ecf7af7a6a9ec57e`; PR run [#369](https://github.com/HelterFall/God/actions/runs/44997551388) completed successfully.
 - `:app:testDebugUnitTest`: success.

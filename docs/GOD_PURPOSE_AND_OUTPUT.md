@@ -34,7 +34,7 @@ God должен восстанавливать несколько уровне�
 - Каждая найденная запись получает устойчивый `FileRecord.id` и, если это вложенная запись, `parentId` родительского каталога.
 - Идентификатор строится из хешированного provider key (когда он доступен) или относительного пути; сырые SAF URI не публикуются в отчёте.
 - `inventoryStatus` описывает только полноту обхода (discovered/enumerated/partial/inaccessible), а не успех анализа содержимого.
-- Отдельная запись `AnalyzerRun` связывает запуск конкретного анализатора с `FileRecord.id` через `inputFileId`, хранит `analyzerId`, статус и причину. В PR #35 candidate к per-file outcomes PE, CLR metadata, Unity header, SerializedFile metadata и локального MonoScript payload/scene graph подключены существующие external resolver stages: `unity_external_monoscript` (исходный/owner SerializedFile), `unity_external_monoscript_payload` (целевой/target SerializedFile), `unity_external_pointers` (файл-источник PPtr) и `unity_monobehaviour_script_bindings` (owner SerializedFile). Runs не дублируются для одной пары analyzer/file; дополнительное чтение внешнего target обновляет ранее созданный skipped metadata run. Внешние resolver outcomes не означают, что построен полный межфайловый scene graph. UnityFS contents и остальные analyzer families будут подключаться поэтапно.
+- Отдельная запись `AnalyzerRun` связывает запуск конкретного анализатора с `FileRecord.id` через `inputFileId`, хранит `analyzerId`, статус и причину. В PR #35 candidate к per-file outcomes PE, CLR metadata, Unity header, SerializedFile metadata и локального MonoScript payload/scene graph подключены существующие external resolver stages: `unity_external_monoscript`, `unity_external_monoscript_payload`, `unity_external_pointers` и `unity_monobehaviour_script_bindings`. EVIDENCE-02 публикует MonoBehaviour script bindings, а EVIDENCE-03 — только sampled cross-file PPtr для `gameObject`, `father`, `children` и `components`, связывая Finding/Evidence/GraphEdge с owner `FileRecord` и соответствующим `AnalyzerRun`. Target node создаётся только при подтверждённой object record и реальном target `FileRecord`; иначе сохраняется hint. Runs не дублируются для одной пары analyzer/file; дополнительное чтение внешнего target обновляет ранее созданный skipped metadata run. Это не полный межфайловый scene graph; UnityFS contents и остальные analyzer families будут подключаться поэтапно.
 - Папка содержит файл.
 - Архив содержит entry.
 - Bundle содержит SerializedFile или ресурс.
@@ -56,7 +56,7 @@ God должен восстанавливать несколько уровне�
 - MonoScript соответствует типу в managed assembly.
 - GameObject содержит Components.
 - Transform связывает родителя и детей.
-- Serialized object ссылается на другой объект через PPtr.
+- Serialized object ссылается на другой объект через PPtr; выбранные внешние ссылки из `gameObject`, `father`, `children` и `components` уже могут быть опубликованы как ограниченные evidence-backed relations в candidate PR #35.
 - Asset, scene, prefab, material, shader и resource используют или ссылаются друг на друга, если такая связь присутствует в данных.
 
 ### 3.4. Уровень платформы и runtime

@@ -5,14 +5,14 @@
 **Последний source commit в `main`:** `653e370c74beba48f2f5b8423276db84b6cecc51` (код PR #33; после него PR #34 синхронизировал документацию).
 **Последний HEAD `main`:** `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`.
 **Последний main CI:** [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) завершился `success` на HEAD `7f8256b`.
-**Рабочая ветка:** `work/qa02-unity-scene-graph-run`; **последний code/test commit:** `538c90bf93973fff2cd778d2e0d7ef80064f4a84`.
-**CI PR #35:** [run #431](https://github.com/HelterFall/God/actions/runs/45012035419) и повторный [run #432](https://github.com/HelterFall/God/actions/runs/45012087896) завершились `success` на code/test commit `538c90b`: 138 JVM tests, debug APK build и artifact upload.
-**Тестовая база:** `main` — 19 JVM test files / 110 @Test methods; candidate — 20 files / 138 methods. Реальные game binary fixtures и Android instrumentation отсутствуют.
+**Рабочая ветка:** `work/qa02-unity-scene-graph-run`; **последний code/test commit:** `1da9a2916a96d97af18a2a02d7e30d27fdf6dfe2`.
+**CI PR #35:** [run #45014386292](https://github.com/HelterFall/God/actions/runs/45014386292) завершился `success` на code/test commit `1da9a29`: 144 JVM tests, debug APK build и artifact upload.
+**Тестовая база:** `main` — 19 JVM test files / 110 @Test methods; candidate — 20 files / 144 methods. Реальные game binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage и анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и partial report с per-file analyzer outcomes реализованы. PR #29 добавил `FileRecord`; PR #30 — PE/CLR AnalyzerRun; PR #31 — Unity header/SerializedFile AnalyzerRun; PR #33 добавил local MonoScript payload run и был слит в main. PR #35 candidate добавляет `unity_scene_graph`, per-file outcomes для external MonoScript/PPtr/MonoBehaviour resolvers и корректное обновление ранее skipped metadata run при дополнительном чтении внешнего target. EVIDENCE-02 подключает `UnityMonoBehaviourScriptResolver` к `Finding`/`Evidence`/`GraphNode`/`GraphEdge`: полные и partial JSON reports schemaVersion 24 теперь содержат `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]`. Проверены links на реальные `AnalyzerRun`/`FileRecord`, source/target PathID, resolved и metadata-only связи, unresolved target hints и null PPtr без edge. Run #431 прошёл 138 JVM tests, debug APK и artifact upload; последний code head перепроверяется run #432. Это первый вертикальный resolver, не полный межанализаторный граф. Изменения PR #35 находятся в отдельной ветке и не слиты в main. Реальные game fixtures, полная compatibility matrix и Android SAF по-прежнему открыты.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage и анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и partial report с per-file analyzer outcomes реализованы. PR #29 добавил `FileRecord`; PR #30 — PE/CLR AnalyzerRun; PR #31 — Unity header/SerializedFile AnalyzerRun; PR #33 добавил local MonoScript payload run и был слит в main. PR #35 candidate добавляет `unity_scene_graph`, per-file outcomes для external MonoScript/PPtr/MonoBehaviour resolvers и корректное обновление ранее skipped metadata run при дополнительном чтении внешнего target. EVIDENCE-02 подключает `UnityMonoBehaviourScriptResolver` и публикует `MonoBehaviour → MonoScript`; EVIDENCE-03 подключает `UnityExternalPointerResolver` для sampled внешних полей `gameObject`, `father`, `children`, `components`. Оба среза формируют общие `Finding`/`Evidence`/`GraphNode`/`GraphEdge`; target nodes создаются только для реальных object records и `FileRecord`, а unresolved/out-of-sample targets сохраняются как `targetHint`. `m_Script` не дублируется. Полные и partial/cancelled JSON reports schemaVersion 24 сохраняют четыре model arrays. Run #45014386292 подтвердил 144 JVM tests, debug APK и artifact upload; это два ограниченных resolver slices, не полный межанализаторный граф. Изменения PR #35 находятся в отдельной ветке и не слиты в main. Реальные game fixtures, полная compatibility matrix и Android SAF по-прежнему открыты.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -50,7 +50,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] JSON-поле files содержит все записи, собранные текущим обходом в пределах этих лимитов. Markdown-дерево отдельно ограничено 20 000 строк.
 - [x] Базовый callback прогресса во время инвентаризации; UI обновляет путь/счётчик каждые 128 записей.
 - [x] Кнопка запроса отмены и job-scoped cancellation через `ScanCoordinator`.
-- [x] При отмене на этапах inventory/PE/Unity/resolver возвращается partial report с собранным inventory; `analyzerRuns[]` сохраняет завершённые и queued результаты, а `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]` сохраняют уже сформированные EVIDENCE-02 Unity script bindings.
+- [x] При отмене на этапах inventory/PE/Unity/resolver возвращается partial report с собранным inventory; `analyzerRuns[]` сохраняет завершённые и queued результаты, а `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]` сохраняют уже сформированные EVIDENCE-02 Unity script bindings и EVIDENCE-03 external PPtr relations.
 - [x] Агрегированная ScanCoverage: inventory counters, PE/CLR/Unity analyzer candidate/attempt/parsed/partial/failed/limited/skipped counts и derived status.
 
 **Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report остаётся пустым, но `analyzerRuns[]` сохраняет per-file результаты этапов, уже достигнутых к моменту отмены. PE/CLR, Unity header/SerializedFile, local MonoScript payload, bounded Unity scene graph и (PR #35 candidate) external MonoScript/PPtr/MonoBehaviour resolver stages подключены к per-file AnalyzerRun. Отмена проверяется на границах parser/resolver этапов, а не внутри каждого блокирующего provider read. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
@@ -86,11 +86,11 @@ God уже умеет выполнять ограниченную инвента
 
 ### P1 — исправить до расширения функциональности
 
-- [ ] **QA-01 — scanner integration coverage (расширена в PR #35).** Двадцать восемь тестов `GameScannerIntegrationTest` запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/progress, PE/CLR/Unity header/SerializedFile AnalyzerRuns, local MonoScript payload, `unity_scene_graph`, external MonoScript/PPtr resolvers и EVIDENCE-02 Finding/Evidence/GraphNode/GraphEdge для MonoBehaviour→MonoScript; candidate limits 500/40; resolved/metadata-only/unresolved/null PPtr, ambiguous paths, provider failures, cancellation, target metadata promotion и связи AnalyzerRun/FileRecord. Осталось проверить partial-stream/error matrix, реальные Unity fixtures, широкую version compatibility и Android SAF.
+- [ ] **QA-01 — scanner integration coverage (расширена в PR #35).** Тридцать три теста `GameScannerIntegrationTest` запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/progress, PE/CLR/Unity header/SerializedFile AnalyzerRuns, local MonoScript payload, `unity_scene_graph`, external MonoScript/PPtr resolvers, EVIDENCE-02 MonoBehaviour→MonoScript и EVIDENCE-03 cross-file PPtr → Finding/Evidence/GraphNode/GraphEdge. Проверяются resolved/metadata-only/out-of-sample targets, реальные AnalyzerRun/FileRecord links, exact locators, separate father/children relations, shared graph nodes, no m_Script duplication, provider failures и cancellation. Осталось проверить partial-stream/error matrix, реальные Unity fixtures, широкую version compatibility и Android SAF.
 - [ ] **QA-02 — scan lifecycle/cancellation race.** Реализованы single-job `ScanCoordinator`, job-scoped cancellation, Activity-safe worker и partial report при отмене на проверяемых этапах. Семь тестов `PartialReportBuilderTest` проверяют маркеры partial/cancelled, inventory JSON, escaping, Markdown cap, AnalyzerRun outcomes и сохранение всех четырёх Finding/Evidence/Graph arrays при отмене. Осталось: Android lifecycle/SAF instrumentation, cancellation внутри длинных provider reads и сохранение job/report после Activity recreation.
 - [x] **QA-03 — export false success.** Исправлено: `ReportExporter` отклоняет null stream и передаёт ошибки открытия, записи и закрытия; пять JVM-тестов проверяют эти сценарии, UTF-8 и закрытие потока.
 - [ ] **QA-04 — Android SAF tests.** Нет instrumentation tests для реальных document providers, URI permissions, stream errors, Activity recreation и export destination.
-- [ ] **QA-05 — real binary fixtures.** 138 @Test в ветке-кандидате по-прежнему используют преимущественно synthetic byte arrays/model objects и in-memory scanner tree; добавить реальные PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
+- [ ] **QA-05 — real binary fixtures.** 144 @Test в ветке-кандидате по-прежнему используют преимущественно synthetic byte arrays/model objects и in-memory scanner tree; добавить реальные PE, CLR и Unity SerializedFile/TypeTree fixtures, включая Unity 6.
 - [ ] **QA-06 — bounded PE imports реализованы; позитивная ARM64 и часть negative RVA checks добавлены.** `PeParserTest` проверяет PE32/PE32+, named imports с Hint, ordinal imports, OriginalFirstThunk/FirstThunk fallback, truncated thunk table, ARM64 machine recognition, Import Directory RVA вне секций и unreadable DLL-name RVA при продолжении чтения последующих descriptors. `GameScannerIntegrationTest` проверяет вывод DLL/function/ordinal symbols в JSON/Markdown. Осталось: широкая malformed descriptor/thunk matrix, ARM64 real samples, delay imports, exports/forwarded exports и реальные PE fixtures.
 - [ ] **QA-07 — parser compatibility matrix.** Уточнить и расширить проверки CLR signatures/metadata, Unity header versions, SerializedFile v19–v26, TypeTree/shared subtree и scene graph limits. Synthetic tests оставить, но сверять их с реальными samples.
 - [ ] **QA-08 — binary robustness.** Добавить property/fuzz tests для offsets, lengths, counts, overflow, malformed heaps, truncated streams и compression/container boundaries.
@@ -102,7 +102,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-`main` после PR #34: 19 JVM test files / 110 @Test methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) подтвердил JVM tests, `:app:assembleDebug` и APK artifact upload. PR #35 candidate на code/test commit `538c90b` содержит 20 files / 138 methods; [run #431](https://github.com/HelterFall/God/actions/runs/45012035419) и повторный [run #432](https://github.com/HelterFall/God/actions/runs/45012087896) прошли все workflow steps.
+`main` после PR #34: 19 JVM test files / 110 @Test methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) подтвердил JVM tests, `:app:assembleDebug` и APK artifact upload. PR #35 candidate на code/test commit `538c90b` содержит 20 files / 144 methods; [run #431](https://github.com/HelterFall/God/actions/runs/45012035419) и повторный [run #432](https://github.com/HelterFall/God/actions/runs/45012087896) прошли все workflow steps.
 
 ## 3. Последовательность реализации
 
@@ -430,7 +430,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Тестовая база:** `main` после PR #34 — 19 JVM test files / 110 @Test methods; candidate PR #35 code/test commit `538c90b` — 20 files / 138 methods. `GameScannerIntegrationTest` содержит 28 методов, `PartialReportBuilderTest` — 7, `AnalysisModelsTest` — 18. Runs #431 и #432 прошли JVM tests, `:app:assembleDebug` и upload APK artifact; EVIDENCE-02 покрывает resolved/metadata-only/unresolved/null PPtr и сохранение model arrays в partial report.
+**Тестовая база:** `main` после PR #34 — 19 JVM test files / 110 @Test methods; candidate PR #35 code/test commit `1da9a29` — 20 files / 144 methods. `GameScannerIntegrationTest` содержит 33 метода, `PartialReportBuilderTest` — 8, `AnalysisModelsTest` — 18. Run [#45014386292](https://github.com/HelterFall/God/actions/runs/45014386292) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact; EVIDENCE-02/03 покрывают resolved, metadata-only и unresolved external PPtr, разные поля и сохранение model arrays в partial report.
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
@@ -467,7 +467,7 @@ God уже умеет выполнять ограниченную инвента
 
 ## EVIDENCE-03 — публикация внешних Unity PPtr как общих evidence/graph records
 
-**Статус:** запланировано до изменения кода.  
+**Статус:** реализовано в candidate PR #35; code/test commit `1da9a29`, CI run [#45014386292](https://github.com/HelterFall/God/actions/runs/45014386292) — success.  
 **Основа:** существующие `UnityExternalPointerResolver`, `unity_external_pointers` AnalyzerRun и `UnityExternalPointerResolution`; новый формат или новый parser не создаётся.
 
 **Границы вертикального среза:**
@@ -479,14 +479,14 @@ God уже умеет выполнять ограниченную инвента
 - Добавить Markdown-секцию внешних PPtr evidence/relations; сохранить существующие JSON schemaVersion 24 и full/partial массивы.
 
 **Проверки при реализации:**
-- [ ] Resolved cross-file target: корректные Finding/Evidence, owner/target FileRecord IDs, AnalyzerRun ID, source/target PathID и relation endpoint IDs.
-- [ ] Metadata-only target: реальная object-record вершина с metadata-only/strong status.
-- [ ] Неоднозначный/непрочитанный/вне sample target: targetHint без фиктивной target GraphNode.
-- [ ] Разные PPtr fields не сливаются в одну связь; повторные связи используют согласованные shared GraphNodes.
-- [ ] `m_Script` остаётся только в EVIDENCE-02 и не создаёт дублирующий external-pointer finding/edge.
-- [ ] Partial/cancelled report сохраняет уже созданные EVIDENCE-03 массивы; тесты и полный CI проходят.
+- [x] Resolved cross-file targets для `components` и `gameObject`: корректные Finding/Evidence, owner/target FileRecord IDs, AnalyzerRun ID, source/target PathID и relation endpoint IDs.
+- [x] Metadata-only target: реальная object-record вершина с metadata-only/strong status.
+- [x] Target вне bounded object sample: `targetHint` без фиктивной target GraphNode; unresolved resolver outcomes сохраняют причину и hint.
+- [x] `father` и `children` остаются разными directed relations, а source/target nodes для повторных ссылок объединяются без дубликатов.
+- [x] `m_Script` остаётся только в EVIDENCE-02 и не создаёт дублирующий external-pointer finding/edge.
+- [x] Partial/cancelled report сохраняет уже созданные EVIDENCE-03 массивы; отдельный `PartialReportBuilderTest` и полный CI проходят.
 
-**Не входит:** локальный Unity scene graph целиком, все Unity object fields, полная cross-file сцена, новые декодеры, CLR/PE/asset families и реальные игровые fixtures. Следующим отдельным этапом остаются остальные analyzer families.
+**Не входит:** локальный Unity scene graph целиком, все Unity object fields, полная cross-file сцена, новые декодеры, CLR/PE/asset families и реальные игровые fixtures. Следующим отдельным этапом остаются более широкие scene/prefab/asset relationships и остальные analyzer families.
 
 ---
 
@@ -495,7 +495,7 @@ God уже умеет выполнять ограниченную инвента
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
 1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и partial report с inventory, AnalyzerRun outcomes и уже сформированными EVIDENCE-02 model arrays; 13 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
-2. **Data model:** `FileRecord` и `ScanIssue` добавлены в main; PR #30 добавил PE/CLR AnalyzerRun, PR #31 — Unity header/SerializedFile, PR #33 — local MonoScript payload. PR #35 candidate добавляет bounded `unity_scene_graph`, external MonoScript/PPtr/MonoBehaviour resolver outcomes и первый evidence-backed Unity MonoBehaviour→MonoScript graph в JSON report. Code/test commit `538c90b` прошёл runs #431/#432 (138 JVM tests, debug APK и artifact upload). Следующий этап — подключать остальные resolver/parser families к тем же моделям, не переписывая работающие ScanCoverage и parser data classes.
+2. **Data model:** `FileRecord` и `ScanIssue` добавлены в main; PR #30 добавил PE/CLR AnalyzerRun, PR #31 — Unity header/SerializedFile, PR #33 — local MonoScript payload. PR #35 candidate добавляет bounded `unity_scene_graph`, external MonoScript/PPtr/MonoBehaviour resolver outcomes, EVIDENCE-02 MonoBehaviour→MonoScript и EVIDENCE-03 sampled external Unity object relations. Code/test commit `1da9a29` прошёл run #45014386292 (144 JVM tests, debug APK и artifact upload). Следующий этап — подключать остальные resolver/parser families к тем же моделям, не переписывая работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** расширить fake-tree сценарии на контейнерные entries и связку `FileRecord` → AnalyzerRun → Finding/Evidence; текущие tests уже проверяют file IDs, parent links, duplicate names и partial inventory statuses.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.

@@ -108,7 +108,7 @@ God — самостоятельный Android-first исследователь�
 
 Это сквозной этап: он не должен откладываться до завершения всех декодеров. Новые анализаторы сразу публикуют структурированные nodes, edges и evidence.
 
-**Первый вертикальный evidence/graph slice (candidate PR #35):** `AnalysisModels.kt` содержит parser-neutral `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` с deterministic scan-scoped IDs. В EVIDENCE-02 существующий `UnityMonoBehaviourScriptResolver` преобразует sampled `MonoBehaviour.m_Script` bindings в Finding/Evidence и `MonoBehaviour → MonoScript` graph: owner/target GraphNodes создаются только при наличии соответствующих реальных FileRecords/объектов; unresolved target хранится через `targetHint` без фиктивной вершины, null PPtr не создаёт edge. Full и partial JSON schemaVersion 24 публикуют `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]`; Markdown также показывает evidence-backed bindings. Тесты проверяют AnalyzerRun/FileRecord foreign keys, locators и resolved/metadata-only/unresolved/null cases. Это не полный cross-file graph: прочие Unity, scene, asset, CLR и PE parser outputs пока используют свои summaries и не преобразуются в общие модели.
+**Два ограниченных вертикальных evidence/graph slices (candidate PR #35):** `AnalysisModels.kt` содержит parser-neutral `Finding`, `Evidence`, `SourceLocator`, `GraphNode`, `GraphEdge` с deterministic scan-scoped IDs. EVIDENCE-02 преобразует sampled `MonoBehaviour.m_Script` в `MonoBehaviour → MonoScript`; EVIDENCE-03 подключает существующий `UnityExternalPointerResolver` для sampled cross-file PPtrs полей `gameObject`, `father`, `children`, `components`. Target GraphNode создаётся только при наличии соответствующей object record и реального FileRecord; unresolved/out-of-sample target хранится через `targetHint`, не создавая фиктивной вершины. `m_Script` не дублируется во втором срезе. Full и partial JSON schemaVersion 24 публикуют `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]`; Markdown выводит оба типа evidence-backed relations. Тесты проверяют AnalyzerRun/FileRecord foreign keys, locators, resolved/metadata-only/out-of-sample outcomes, разные relation fields, shared nodes и partial cancellation. Это не полный cross-file scene/dependency graph: прочие Unity, asset, CLR и PE parser outputs пока используют собственные summaries.
 
 Типы узлов:
 - файлы, контейнеры и entries;
@@ -174,7 +174,7 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
 | P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; PR #35 сохраняет per-file outcomes для external resolver stages, но cancellation inside blocking provider reads, positional reads и Android lifecycle persistence остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
-| P1 | Расширять evidence/graph coverage на остальные resolver/parser families | Первый вертикальный slice EVIDENCE-02 уже подключил Unity MonoBehaviour→MonoScript к Finding/Evidence/GraphNode/GraphEdge и full/partial report JSON schemaVersion 24; следующими подключать external PPtr/scene, CLR/PE и asset families теми же типами, сохраняя unresolved reasons и source provenance |
+| P1 | Расширять evidence/graph coverage на остальные resolver/parser families | EVIDENCE-02 подключил MonoBehaviour→MonoScript, EVIDENCE-03 — sampled external PPtr для четырёх Unity scene fields. Следом расширять остальные scene/prefab/asset relations, затем CLR/PE и asset families теми же типами, сохраняя unresolved reasons и source provenance |
 | P2 | PE/native dependency graph | Понимание нативных границ |
 | P2 | CLR/Mono metadata, IL, P/Invoke и call-site graph | Понимание managed-логики |
 | P2 | SerializedFile/TypeTree/object graph | Понимание сцен и компонентов |
@@ -190,7 +190,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Main после PR #34: HEAD `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`, 19 JVM test files / 110 `@Test` methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) прошёл tests, `:app:assembleDebug` и APK artifact upload. Candidate PR #35 на code/test commit `538c90b` содержит 20 файлов / 138 тестовых методов; [run #431](https://github.com/HelterFall/God/actions/runs/45012035419) и повторный [run #432](https://github.com/HelterFall/God/actions/runs/45012087896) подтвердили tests, debug APK и artifact upload.
+- Main после PR #34: HEAD `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`, 19 JVM test files / 110 `@Test` methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) прошёл tests, `:app:assembleDebug` и APK artifact upload. Candidate PR #35 на code/test commit `1da9a29` содержит 20 файлов / 144 тестовых метода; [run #45014386292](https://github.com/HelterFall/God/actions/runs/45014386292) подтвердил tests, debug APK и artifact upload.
 - `AnalysisModelsTest` (18 tests) проверяет parser-neutral models; `GameScannerIntegrationTest` покрывает первый реальный MonoBehaviour resolver → Finding/Evidence/GraphNode/GraphEdge → full JSON path, а `PartialReportBuilderTest` проверяет сохранение этих массивов в cancelled report.
 - Fake-tree inventory tests проверяют повторяемость FileRecord IDs, parent links, duplicate names и directory statuses; PR #29 включён в main.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
@@ -204,7 +204,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 - Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
 - Все ограничения, пропуски и ошибки отражаются в coverage.
-- Отмена на контролируемых границах создаёт partial report с inventory, накопленными AnalyzerRun outcomes и уже сформированными EVIDENCE-02 `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]` для MonoBehaviour→MonoScript; остальные analyzer families ещё нужно подключить.
+- Отмена на контролируемых границах создаёт partial report с inventory, накопленными AnalyzerRun outcomes и уже сформированными EVIDENCE-02/EVIDENCE-03 `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]`; остальные analyzer families ещё нужно подключить.
 - Большие файлы читаются потоково/позиционно с контролем памяти.
 - Вложенные архивы имеют защиту от чрезмерной глубины и распакованного объёма.
 - Повреждённые или зашифрованные данные не обозначаются как успешно разобранные.
