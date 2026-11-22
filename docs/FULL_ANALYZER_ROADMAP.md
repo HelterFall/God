@@ -27,7 +27,7 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит записи, собранные обходом; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator, job-scoped cancellation и inventory-only partial report при отмене. В рабочей ветке добавлен начальный typed `ScanIssue` слой: code/stage/severity/path/message публикуются в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит записи, собранные обходом; есть агрегированные ScanCoverage, базовый progress callback, single-job coordinator, job-scoped cancellation и inventory-only partial report при отмене. В MVP есть начальный typed `ScanIssue` слой: code/stage/severity/path/message публикуются в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк.
 
 **Цель расширения (не повторная реализация):**
 - Добавить stable file IDs и per-file terminal statuses: discovered, queued, analyzed, partial, skipped, inaccessible, unsupported, failed.
@@ -185,8 +185,8 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- На проверенной main-базе `052c023` — 16 JVM test files / 91 @Test methods; run [#333](https://github.com/HelterFall/God/actions/runs/44800837048) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. Source code main соответствует `513f1ac`.
-- Feature branch `feat/typed-scan-issues` содержит 17 JVM test files / 92 `@Test` methods: один отдельный `ScanIssueTest` плюс assertions в существующих scanner/partial-report tests. PR [#28 / run #335](https://github.com/HelterFall/God/actions/runs/44982658313) подтвердил эту feature branch: JVM tests, debug APK build и artifact upload прошли.
+- Проверенная main-ревизия `33d268c` содержит 17 JVM test files / 92 `@Test` methods; run [#340](https://github.com/HelterFall/God/actions/runs/44982866804) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+- PR #28 добавил `ScanIssueTest` и scanner/partial-report assertions; изменения включены в main после успешного PR CI #337 и post-merge main CI #340.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
 - Fake-tree integration coverage `GameScanner.scan()` включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с partial inventory/coverage и typed `ScanIssue`. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated streams и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
 

@@ -1,16 +1,16 @@
 # God — аудит тестирования и качества
 
 **Дата:** 22 ноября 2026 года  
-**Проверенная база `main`:** `052c02319f54f97d00007b7ab6e60c2a375edf0b` (после source commit `513f1ac`; последний main-коммит менял только документацию).  
-**Последняя успешная проверка `main`:** [run #333](https://github.com/HelterFall/God/actions/runs/44800837048) — JVM tests, debug APK и artifact upload успешно завершились.  
-**Изменение в этой рабочей ветке:** добавлен typed `ScanIssue` / JSON `issues[]`; ветка содержит 17 test files / 92 `@Test` methods. PR [#28, run #335](https://github.com/HelterFall/God/actions/runs/44982658313) прошёл на feature commit `a03e996760037c376482fd26e42d14bfde8b1ec3`: tests, APK build и artifact upload успешны.
+**Проверенная ветка:** `main`.  
+**Проверенный commit:** `33d268c9e43b504f75fa032a13df33dc0b975eab` (squash merge PR #28).  
+**Последняя успешная проверка `main`:** [run #340](https://github.com/HelterFall/God/actions/runs/44982866804) — 92 JVM tests, debug APK build и artifact upload успешно завершились.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 17 JVM test files в feature branch;
-- 92 метода с аннотацией `@Test` (основной `main` baseline до этой правки: 16 файлов / 91 метод);
+- 17 JVM test files в `main`;
+- 92 метода с аннотацией `@Test`;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
@@ -178,14 +178,14 @@
 
 Проверенный актуальный main run:
 
-https://github.com/HelterFall/God/actions/runs/44800837048
+https://github.com/HelterFall/God/actions/runs/44982866804
 
-- Commit: `052c02319f54f97d00007b7ab6e60c2a375edf0b` (документация поверх source commit `513f1ac`).
+- Commit: `33d268c9e43b504f75fa032a13df33dc0b975eab` (squash merge PR #28).
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- Базовая main-версия содержит 91 метод `@Test` в 16 JVM test files; feature branch содержит 92 метода в 17 файлах из-за отдельного `ScanIssueTest`.
-- PR [#28, run #335](https://github.com/HelterFall/God/actions/runs/44982658313) отдельно подтвердил новую модель и assertions на feature branch: `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload завершились успешно.
+- Текущая main-версия содержит 92 метода `@Test` в 17 JVM test files.
+- PR [#28, run #337](https://github.com/HelterFall/God/actions/runs/44982753613) подтвердил feature revision; post-merge main run #340 повторно проверил итоговый merge commit.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
