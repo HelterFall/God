@@ -176,72 +176,155 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 else -> 3
             }
         }
-        if (unityCandidates.size > MAX_UNITY_HEADER_FILES) {
-            addIssue(
-                code = "unity.header_candidate_limit_reached",
-                stage = ScanIssueStage.UNITY_FILE_HEADERS,
-                severity = ScanIssueSeverity.WARNING,
-                message = "Проверка Unity-заголовков ограничена первыми " + MAX_UNITY_HEADER_FILES + " файлами-кандидатами."
-            )
-        }
-        try {
-            unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
-            if (shouldCancel()) throw ScanCancelledException()
-            val deepMetadataRead = index < MAX_UNITY_METADATA_FILES
-            unityHeaderAttemptedCount++
+        if (unityCandidates.size > MAX_UNITY_HEADER_FILES) addIssue(
+            code = "unity.header_candidate_limit_reached",
+            stage = ScanIssueStage.UNITY_FILE_HEADERS,
+            severity = ScanIssueSeverity.WARNING,
+            message = "Проверка Unity-заголовков ограничена первыми " + MAX_UNITY_HEADER_FILES + " файлами-кандидатами."
+        )
 
-            var headerParsed = false
-            var metadataParsed = false
-            var diagnostic: String? = null
-            try {
-                val readLimit = if (deepMetadataRead) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
-                val prefix = readPrefix(entry.node, readLimit)
-                if (prefix == null) {
-                    diagnostic = "не удалось открыть файл для чтения"
-                } else {
-                    val header = UnityFileHeaderParser.parse(prefix, entry.size)
-                    if (header == null) {
-                        diagnostic = "заголовок не распознан в прочитанном диапазоне"
-                    } else {
-                        headerParsed = true
-                        unityHeaders[entry.path] = header
-                        if (header.kind == "SerializedFile") {
-                            unityMetadataCandidateCount++
-                            if (deepMetadataRead) {
-                                unityMetadataAttemptedCount++
-                                val metadata = UnityMetadataParser.parse(prefix, header)
-                                if (metadata == null) {
-                                    diagnostic = "metadata не разобрана в доступном диапазоне"
-                                } else {
-                                    unityMetadata[entry.path] = readMonoScriptRecords(entry, header, metadata)
-                                    metadataParsed = true
-                                }
-                            } else {
-                                unityMetadataWindowLimitedCount++
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                diagnostic = e.message ?: e.javaClass.simpleName
+        val unityHeaderRunIds = mutableMapOf<String, String>()
+        unityCandidates.forEachIndexed { index, entry ->
+            val limited = index >= MAX_UNITY_HEADER_FILES
+            val reason = if (limited) {
+                "Unity header candidate limit reached ($MAX_UNITY_HEADER_FILES); file kind and SerializedFile metadata were not inspected."
+            } else {
+                null
             }
-            if (!headerParsed) {
-                unityHeaderFailedCount++
-                unityMetadataCandidateCount++
-                unityMetadataPrerequisiteSkippedCount++
-            } else if (deepMetadataRead && unityHeaders[entry.path]?.kind == "SerializedFile" && !metadataParsed) {
-                unityMetadataFailedCount++
-            }
-            diagnostic?.let { message ->
-                val metadataFailure = headerParsed && unityHeaders[entry.path]?.kind == "SerializedFile"
-                addIssue(
-                    code = if (metadataFailure) "unity.serialized_metadata_analysis_failed" else "unity.header_analysis_failed",
-                    stage = if (metadataFailure) ScanIssueStage.SERIALIZED_FILE_METADATA else ScanIssueStage.UNITY_FILE_HEADERS,
-                    severity = ScanIssueSeverity.WARNING,
-                    message = "Unity-анализ " + entry.path + ": " + message,
-                    path = entry.path
+            unityHeaderRunIds[entry.record.id] = addAnalyzerRun(
+                analyzerId = "unity_file_headers",
+                entry = entry,
+                status = if (limited) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                reason = reason
+            )
+            if (limited) {
+                addAnalyzerRun(
+                    analyzerId = "serialized_file_metadata",
+                    entry = entry,
+                    status = AnalyzerRunStatus.SKIPPED,
+                    reason = reason
                 )
             }
+        }
+
+        try {
+            unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
+                if (shouldCancel()) throw ScanCancelledException()
+                val deepMetadataRead = index < MAX_UNITY_METADATA_FILES
+                unityHeaderAttemptedCount++
+                val headerRunId = unityHeaderRunIds.getValue(entry.record.id)
+
+                var prefix: ByteArray? = null
+                var header: UnityFileHeader? = null
+                var headerDiagnostic: String? = null
+                try {
+                    val readLimit = if (deepMetadataRead) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
+                    val readPrefix = readPrefix(entry.node, readLimit)
+                    prefix = readPrefix
+                    if (readPrefix == null) {
+                        headerDiagnostic = "не удалось открыть файл для чтения"
+                    } else {
+                        val parsed = UnityFileHeaderParser.parse(readPrefix, entry.size)
+                        if (parsed == null) {
+                            headerDiagnostic = "заголовок не распознан в прочитанном диапазоне"
+                        } else {
+                            header = parsed
+                            unityHeaders[entry.path] = parsed
+                        }
+                    }
+                } catch (e: Exception) {
+                    headerDiagnostic = e.message ?: e.javaClass.simpleName
+                }
+
+                val parsedHeader = header
+                if (parsedHeader == null) {
+                    unityHeaderFailedCount++
+                    unityMetadataCandidateCount++
+                    unityMetadataPrerequisiteSkippedCount++
+                    val reason = headerDiagnostic ?: "Unity header prerequisite did not produce a recognized format."
+                    updateAnalyzerRun(headerRunId, AnalyzerRunStatus.FAILED, reason)
+                    addAnalyzerRun(
+                        analyzerId = "serialized_file_metadata",
+                        entry = entry,
+                        status = AnalyzerRunStatus.SKIPPED,
+                        reason = "SerializedFile metadata was not attempted because the Unity header was not recognized: $reason"
+                    )
+                    addIssue(
+                        code = "unity.header_analysis_failed",
+                        stage = ScanIssueStage.UNITY_FILE_HEADERS,
+                        severity = ScanIssueSeverity.WARNING,
+                        message = "Unity-анализ " + entry.path + ": " + reason,
+                        path = entry.path
+                    )
+                    return@forEachIndexed
+                }
+
+                updateAnalyzerRun(headerRunId, AnalyzerRunStatus.ANALYZED, parsedHeader.note)
+                if (parsedHeader.kind != "SerializedFile") return@forEachIndexed
+
+                unityMetadataCandidateCount++
+                if (!deepMetadataRead) {
+                    unityMetadataWindowLimitedCount++
+                    addAnalyzerRun(
+                        analyzerId = "serialized_file_metadata",
+                        entry = entry,
+                        status = AnalyzerRunStatus.SKIPPED,
+                        reason = "Deep SerializedFile metadata reads are limited to the first $MAX_UNITY_METADATA_FILES candidates; only the Unity header was read."
+                    )
+                    return@forEachIndexed
+                }
+
+                unityMetadataAttemptedCount++
+                val metadataRunId = addAnalyzerRun("serialized_file_metadata", entry)
+                var metadataSummary: UnityMetadataSummary? = null
+                var metadataDiagnostic: String? = null
+                try {
+                    val metadataPrefix = requireNotNull(prefix)
+                    val parsedMetadata = UnityMetadataParser.parse(metadataPrefix, parsedHeader)
+                    if (parsedMetadata == null) {
+                        metadataDiagnostic = "metadata не разобрана в доступном диапазоне"
+                    } else {
+                        val enrichedMetadata = readMonoScriptRecords(entry, parsedHeader, parsedMetadata)
+                        metadataSummary = enrichedMetadata
+                        unityMetadata[entry.path] = enrichedMetadata
+                    }
+                } catch (e: Exception) {
+                    metadataDiagnostic = e.message ?: e.javaClass.simpleName
+                }
+
+                val summary = metadataSummary
+                if (summary == null) {
+                    unityMetadataFailedCount++
+                    val reason = metadataDiagnostic ?: "SerializedFile metadata parser returned no result."
+                    updateAnalyzerRun(metadataRunId, AnalyzerRunStatus.FAILED, reason)
+                    addIssue(
+                        code = "unity.serialized_metadata_analysis_failed",
+                        stage = ScanIssueStage.SERIALIZED_FILE_METADATA,
+                        severity = ScanIssueSeverity.WARNING,
+                        message = "Unity-анализ " + entry.path + ": " + reason,
+                        path = entry.path
+                    )
+                } else {
+                    val summaryNote = summary.note
+                    val isCompletedSummaryNote = summaryNote?.startsWith(
+                        "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
+                    ) == true && !summaryNote.contains("shared TypeTree subtree payloads пока не разбираются.")
+                    val metadataStatus = when {
+                        (parsedHeader.formatVersion ?: -1L) !in 19L..26L -> AnalyzerRunStatus.UNSUPPORTED
+                        summaryNote != null && !isCompletedSummaryNote -> AnalyzerRunStatus.PARTIAL
+                        else -> AnalyzerRunStatus.ANALYZED
+                    }
+                    updateAnalyzerRun(
+                        metadataRunId,
+                        metadataStatus,
+                        summaryNote?.takeUnless { isCompletedSummaryNote } ?:
+                            if (metadataStatus == AnalyzerRunStatus.UNSUPPORTED) {
+                                "SerializedFile format ${parsedHeader.formatVersion} is outside the supported metadata range 19-26."
+                            } else {
+                                null
+                            }
+                    )
+                }
             }
         } catch (_: ScanCancelledException) {
             return buildPartialResult(root.name ?: "(unnamed)")

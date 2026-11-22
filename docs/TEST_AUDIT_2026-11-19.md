@@ -2,20 +2,20 @@
 
 **Дата:** 22 ноября 2026 года  
 **Проверенная ветка:** `main`.  
-**Проверенный source commit:** `fec50923955e4b411779b3d7ea6f26679db10f93` (squash merge PR #30).
-**Последняя успешная post-merge main проверка:** [run #357](https://github.com/HelterFall/God/actions/runs/44985940318) — 101 JVM tests, debug APK build и artifact upload завершились успешно на merge commit `fec5092`.
+**Main baseline до PR #31:** `fec50923955e4b411779b3d7ea6f26679db10f93` (squash merge PR #30), 19 JVM test files / 101 tests.
+**Проверенный PR #31 head:** `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; [run #364](https://github.com/HelterFall/God/actions/runs/44997242488) завершился `success`: 106 JVM tests, debug APK build и artifact upload.
 
 ## 1. Итог
 
 В God уже есть полезный набор unit-тестов для отдельных бинарных парсеров и resolver'ов. По состоянию на проверенную ветку:
 
-- 19 JVM test files в `main` после PR #30;
-- 101 метод `@Test` в `main`;
+- 19 JVM test files на main baseline и после PR #31;
+- 106 методов `@Test` на feature branch PR #31;
 - JUnit 4.13.2;
 - CI запускает `:app:testDebugUnitTest` и `:app:assembleDebug`;
 - PR #13 run [#297](https://github.com/HelterFall/God/actions/runs/44690179691) прошёл с ARM64 и negative-RVA regression tests; PR #15 run [#301](https://github.com/HelterFall/God/actions/runs/44783788381) добавил успешный CLR metadata scanner integration. PR #11/#12 закрепили function/ordinal imports и schemaVersion 24.
 
-PR #30 добавил AnalyzerRun model и per-file linkage для PE/CLR outcomes, а также проверки candidate-limit, cancellation и partial-report; PR run #356 и post-merge run #357 прошли JVM tests и APK build. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Десять тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE candidate/import reporting; per-file PE/CLR run linkage; CLR metadata; synthetic Unity SerializedFile v22 metadata и version evidence; ambiguous external MonoScript basename не выбирает target; unique external MonoScript payload декодируется и попадает в JSON/Markdown; ошибки открытия Unity provider stream и `listFiles()` у подкаталога сохраняют inventory и partial status; partial inventory и queued outcomes при отмене. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
+PR #31 добавляет per-file AnalyzerRun для Unity header и SerializedFile metadata: file links, header prerequisite skip, status unsupported/partial, header limit 500, metadata deep-read limit 40 и сохранение queued runs при cancellation. PR run #364 прошёл все 106 JVM tests, debug APK build и artifact upload. Но **это не является доказательством корректности глубокого сканирования реальной игры**. Пятнадцать тестов запускают настоящий `GameScanner.scan()` на in-memory tree: inventory/PE/CLR, Unity header/SerializedFile run linkage, metadata limits/status, MonoScript external references/resolution, provider failures и partial reports. Реальные игровые бинарные fixtures, Android SAF providers, UI/lifecycle и полный диапазон parser/resolver paths всё ещё не покрыты.
 
 Главная рекомендация: не наращивать число парсеров без расширения тестовой пирамиды. Сначала добавить проверки реального сквозного сценария и текущих проблем управления сканированием/экспортом.
 
@@ -33,7 +33,7 @@ PR #30 добавил AnalyzerRun model и per-file linkage для PE/CLR outcom
 | PartialReportBuilderTest | 6 | Partial/cancelled markers, inventory JSON, escaping, Markdown cap, полный список в JSON, structured `scan.cancelled` issue и сохранение completed/queued AnalyzerRuns |
 | ScanIssueTest | 1 | Stable code/stage/severity/message serialization and null path |
 | FileRecordTest | 3 | Repeatable path-based IDs, provider-key identity across rename without URI disclosure, duplicate-path disambiguation including duplicate parent folders |
-| GameScannerIntegrationTest | 10 | Fake tree: inventory/progress, PE success/failure/import reporting, per-file PE/CLR AnalyzerRuns, Unity SerializedFile v22 metadata/version, FileRecord IDs/parent links, inaccessible directory, nested cancellation, external MonoScript resolution, provider failures, PE candidate-limit skip and queued outcomes on cancellation |
+| GameScannerIntegrationTest | 15 | Fake tree: inventory/progress, PE/CLR/Unity header/SerializedFile AnalyzerRuns linked to FileRecord IDs, unsupported version, partial metadata, deep-read limit 40, header limit 500, cancellation/queued outcomes, MonoScript resolution, provider and inventory failures |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -43,7 +43,7 @@ PR #30 добавил AnalyzerRun model и per-file linkage для PE/CLR outcom
 | UnitySceneGraphResolverTest | 5 | Local parent/child/component links, unresolved/external links, external PPtr resolver и MonoScript bindings |
 | UnityVersionResolverTest | 6 | Version string extraction, evidence priority, conflict handling и not-found |
 
-В `main` после PR #30 всего: **101 тестовый метод в 19 JVM test files**. Main run #357 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
+На baseline main до PR #31 было 101 тест в 19 JVM test files; feature branch PR #31 содержит **106 тестов в 19 файлах**. Run #364 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. В репозитории не найдено `src/test/resources` с настоящими игровыми бинарными fixtures и не найдено `src/androidTest` с Android instrumentation tests.
 
 ### Что уже хорошо
 
@@ -58,9 +58,9 @@ PR #30 добавил AnalyzerRun model и per-file linkage для PE/CLR outcom
 
 ## 3. Подтверждённые пробелы тестового покрытия
 
-### QA-01 — CLR, SerializedFile и external MonoScript scanner paths покрыты; матрица сканера остаётся неполной
+### QA-01 — PE/CLR и Unity header/SerializedFile scanner paths покрыты; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` (10 тестов в `main` после PR #30)
+`GameScannerIntegrationTest` (15 тестов на feature branch PR #31) проверяет per-file linkage и статусы PE/CLR/Unity header/SerializedFile, включая success, unsupported format, partial metadata, header prerequisite skip, 40-file deep-read limit, 500-candidate header limit и queued header run при cancellation. Сохраняются также существующие synthetic MonoScript resolution и provider/inventory failure cases.
 
 **Пока не покрыто:**
 
@@ -69,7 +69,7 @@ PR #30 добавил AnalyzerRun model и per-file linkage для PE/CLR outcom
 - широкий набор лимитов, частичные/обрезанные stream reads, ошибки чтения посреди stream, дополнительные классы provider exceptions и non-seekable providers; покрыты одиночный `openInputStream` failure и один `listFiles` failure, но не вся матрица чтения;
 - реальные binary fixtures, Android SAF provider и Activity lifecycle.
 
-**Риск:** fake-tree test ловит ошибки orchestration inventory → PE/CLR metadata → report, включая успешную передачу CLR assembly/type results и coverage. Синтетический metadata root может повторять предположения парсера; тест не заменяет реальные compiler-produced assemblies или Android document providers.
+**Риск:** fake-tree test ловит orchestration inventory → PE/CLR/Unity header/SerializedFile → report, включая links и статусы runs. Синтетические metadata fixtures могут повторять предположения парсера; тест не заменяет реальные игровые сборки или Android document providers.
 
 ### QA-02 — JVM lifecycle и partial report укреплены; Android lifecycle tests всё ещё отсутствуют
 
@@ -78,11 +78,11 @@ PR #30 добавил AnalyzerRun model и per-file linkage для PE/CLR outcom
 - кнопка повторного запуска блокируется; `onDestroy()` запрашивает отмену и вызывает `shutdownNow()`;
 - `GameScanner` использует абстракцию `ScanFileAccess` и не зависит от Android API напрямую; SAF `ContentResolver` изолирован в `SafScanFileAccess`, а worker не удерживает Activity сильной ссылкой;
 - отмена на проверяемых границах inventory/PE/Unity/resolver возвращает partial report;
-- partial report сохраняет весь уже обнаруженный inventory в JSON, а Markdown ограничивает 20 000 строк; отчёт явно помечен `scanStatus=cancelled`, `partial=true`, `scanCoverage.status=partial`. Если отмена произошла после начала PE/CLR, `analyzerRuns[]` дополнительно сохраняет завершённые outcomes и оставшиеся `queued` записи; при отмене до analyzer phase отчёт содержит только inventory.
+- partial report сохраняет весь уже обнаруженный inventory в JSON, а Markdown ограничивает 20 000 строк; отчёт явно помечен `scanStatus=cancelled`, `partial=true`, `scanCoverage.status=partial`. `analyzerRuns[]` сохраняет завершённые и queued результаты для этапов PE/CLR/Unity, достигнутых до отмены; до начала соответствующего analyzer stage runs не создаются.
 
 Шесть тестов `PartialReportBuilderTest` проверяют pure report builder, в том числе сохранение completed/queued AnalyzerRuns; fake-tree `GameScannerIntegrationTest` дополнительно проверяет отмену во время inventory traversal и queued runs после inventory.
 
-**Риск:** per-file AnalyzerRun подключён только к PE/CLR; Unity header/SerializedFile и остальные analyzer families ещё не отражены в `analyzerRuns[]`. UI/job state не переживает пересоздание Activity.
+**Риск:** per-file AnalyzerRun подключён к PE/CLR и Unity header/SerializedFile; MonoScript payload, external-reference/scene resolvers и остальные analyzer families ещё не отражены как отдельные runs. UI/job state не переживает пересоздание Activity.
 
 ### QA-03 — исправлено: безопасная запись отчётов
 
@@ -180,19 +180,19 @@ PR #30 добавил AnalyzerRun model и per-file linkage для PE/CLR outcom
 
 Проверенные CI revisions:
 
-- Main source commit after PR #30: `fec50923955e4b411779b3d7ea6f26679db10f93`; post-merge [run #357](https://github.com/HelterFall/God/actions/runs/44985940318) succeeded.
+- Main source commit before PR #31: `fec50923955e4b411779b3d7ea6f26679db10f93`; post-merge run [#357](https://github.com/HelterFall/God/actions/runs/44985940318) succeeded.
 
-- PR #30 final head: `c50ec178058b5bce681acac54fef6f1a9eff9f62`; PR run [#356](https://github.com/HelterFall/God/actions/runs/44985863570) and main run #357 completed successfully.
+- PR #31 head `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; [PR run #364](https://github.com/HelterFall/God/actions/runs/44997242488) completed successfully.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- `main` содержит 101 метод `@Test` в 19 JVM test files; `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload успешны в run #357.
-- Run #357 подтвердил AnalyzerRun linkage, limit/cancellation tests и сборку APK.
+- PR #31 branch содержит 106 методов `@Test` в 19 JVM test files; `:app:testDebugUnitTest`, `:app:assembleDebug` и APK artifact upload успешны в run #364.
+- Run #364 подтвердил Unity AnalyzerRun linkage, 500/40 limits, unsupported/partial/skipped outcomes и сборку APK.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
 
-1. Довести scan lifecycle: JVM single-job/cancellation и partial report с PE/CLR AnalyzerRun outcomes реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
+1. Довести scan lifecycle: JVM single-job/cancellation и partial report с PE/CLR/Unity header/SerializedFile AnalyzerRun outcomes реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
 2. Расширить общий FileAccess: positional/range reads, sequential fallback, EOF/truncated input и cancellation-aware reads.
 3. Добавить минимальный набор реальных, легально распространяемых PE/CLR/Unity fixtures и golden reports.
 4. Добавить Android SAF instrumentation tests на emulator/device.
