@@ -1232,6 +1232,64 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun publishesExternalTransformGameObjectPPtrAsResolvedGraphRelation() {
+        val targetPath = "scene.assets"
+        val externalPath = "archive:/CAB-123/scene.assets"
+        val root = MemoryScanNode(
+            name = "ExternalTransformGameObjectPPtrFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalTransformGameObjectPointer(externalPath)
+                ),
+                MemoryScanNode(
+                    targetPath,
+                    false,
+                    unitySerializedFileWithGameObjectScene(
+                        listOf(1L to minimalGameObjectPayload("Root", active = true))
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileIds = (0 until report.getJSONArray("files").length()).associate { index ->
+            val file = report.getJSONArray("files").getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val ownerId = fileIds.getValue("globalgamemanagers")
+        val targetId = fileIds.getValue(targetPath)
+        val finding = (0 until report.getJSONArray("findings").length())
+            .map { report.getJSONArray("findings").getJSONObject(it) }
+            .single { it.getString("category") == "unity.external-pointer" }
+        assertEquals("decoded", finding.getString("status"))
+        assertEquals("confirmed", finding.getString("confidence"))
+        assertEquals(ownerId, finding.getString("sourceFileId"))
+
+        val targetNode = (0 until report.getJSONArray("graphNodes").length())
+            .map { report.getJSONArray("graphNodes").getJSONObject(it) }
+            .single {
+                it.getString("nodeType") == "unity-gameobject" &&
+                    it.getString("fileRecordId") == targetId &&
+                    it.getJSONObject("locator").getLong("pathId") == 1L
+            }
+        assertEquals("Root", targetNode.getString("label"))
+        val edge = (0 until report.getJSONArray("graphEdges").length())
+            .map { report.getJSONArray("graphEdges").getJSONObject(it) }
+            .single { it.getString("relationType") == "belongs-to-gameobject" }
+        assertEquals(targetNode.getString("id"), edge.getString("targetNodeId"))
+        assertFalse(edge.has("targetHint"))
+        assertTrue(finding.getString("summary").contains("field=gameObject"))
+    }
+
+    @Test
     fun keepsDifferentExternalTransformFieldsAsSeparateRelationsAndMergesSharedNodes() {
         val targetPath = "transforms.assets"
         val externalPath = "archive:/CAB-123/transforms.assets"
@@ -2214,6 +2272,88 @@ private fun unitySerializedFileWithTruncatedMetadata(): ByteArray {
     put64be(bytes, 16, metadataSize.toLong())
     put64be(bytes, 24, truncatedSize.toLong())
     put64be(bytes, 32, truncatedSize.toLong())
+    return bytes
+}
+
+private fun unitySerializedFileWithExternalTransformGameObjectPointer(
+    externalPath: String,
+    targetPathId: Long = 1L
+): ByteArray {
+    val treeNodes = listOf(
+        Triple(0, "Transform", "Base") to -1,
+        Triple(1, "PPtr<GameObject>", "m_GameObject") to -1,
+        Triple(2, "int", "m_FileID") to 4,
+        Triple(2, "SInt64", "m_PathID") to 8
+    )
+    val stringTable = ByteArrayOutputStream()
+    val offsets = linkedMapOf<String, Long>()
+    treeNodes.forEach { (node, _) ->
+        listOf(node.second, node.third).forEach { value ->
+            if (value !in offsets) {
+                offsets[value] = stringTable.size().toLong()
+                stringTable.write(value.toByteArray(Charsets.UTF_8))
+                stringTable.write(0)
+            }
+        }
+    }
+    val treeBytes = ByteArrayOutputStream().apply {
+        u32le(treeNodes.size.toLong())
+        u32le(stringTable.size().toLong())
+        treeNodes.forEachIndexed { index, (node, byteSize) ->
+            u16le(1)
+            write(node.first)
+            write(0)
+            u32le(offsets.getValue(node.second))
+            u32le(offsets.getValue(node.third))
+            u32le(byteSize.toLong())
+            u32le(index.toLong())
+            u32le(0)
+            u64le(0)
+        }
+        write(stringTable.toByteArray())
+    }.toByteArray()
+    val payload = ByteArrayOutputStream().apply {
+        u32le(1) // external fileID
+        u64le(targetPathId)
+    }.toByteArray()
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5)
+        write(1) // TypeTree enabled
+        u32le(1) // serialized type count
+        u32le(4) // Transform class ID
+        write(0) // not stripped
+        u16le(0xffff) // no script type index
+        write(ByteArray(16)) // old type hash
+        write(treeBytes)
+        u32le(0) // type dependencies
+        u32le(1) // object count
+        while (size() % 4 != 0) write(0)
+        u64le(2) // source Transform PathID
+        u64le(0) // byte start
+        u32le(payload.size.toLong())
+        u32le(0) // type index
+        u32le(0) // MonoScript references
+        u32le(1) // external reference count
+        write("CAB-123".toByteArray(Charsets.US_ASCII))
+        write(0)
+        write(ByteArray(16)) // GUID
+        u32le(0) // external reference type
+        write(externalPath.toByteArray(Charsets.US_ASCII))
+        write(0)
+        u32le(0) // SerializeReference type count
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val bytes = ByteArray(dataOffset + payload.size)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0
+    metadata.copyInto(bytes, 48)
+    payload.copyInto(bytes, dataOffset)
     return bytes
 }
 
