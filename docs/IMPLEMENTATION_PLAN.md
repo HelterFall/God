@@ -158,6 +158,23 @@ God уже умеет выполнять ограниченную инвента
 - [x] Проверить структурированные diagnostics на scanner integration paths и при cancellation; коды/стадии/пути проверяются, а legacy `warnings[]` и Markdown сохраняют исходные сообщения.
 - [x] Ввести `GraphNode`/`GraphEdge` здесь один раз; unresolved edges сохраняют `targetHint`, не создавая фиктивный target node. Endpoint existence validation и графовая агрегация ещё впереди.
 - [x] Добавить JSON serialization/deserialization и round-trip tests для всех пяти моделей; enum IDs и optional/null fields фиксируются тестами.
+**EVIDENCE-02 — первая сквозная интеграция (Unity MonoBehaviour → MonoScript):**
+- Выбран существующий `UnityMonoBehaviourScriptResolver`: входом остаются уже декодированные MonoBehaviour PPtr и MonoScript summaries, resolver не переписывается.
+- Для каждого sampled binding owner SerializedFile создаёт `Finding` и `Evidence`, связанные с точным owner `FileRecord.id` и его `unity_monobehaviour_script_bindings` AnalyzerRun.
+- Создаёт source GraphNode для MonoBehaviour; target GraphNode — только если target MonoScript object реально найден в parsed metadata. Не создавать узел по одному имени или неразрешённому path.
+- Создаёт directed `attaches-script` GraphEdge. Null pointer не становится выдуманным edge; unresolved/ambiguous pointer сохраняет `targetHint` без target node.
+- `resolved-monoscript-class` → decoded/confirmed; object record без payload → metadata-only/strong; null reference → skipped; недоступный/неоднозначный target → unresolved или partial с причиной.
+- Добавить top-level JSON arrays `findings[]`, `evidence[]`, `graphNodes[]`, `graphEdges[]` в schemaVersion 24 как additive fields; те же уже накопленные записи включать в partial/cancelled report. Не удалять/переименовывать существующие parser-specific sections.
+- Unit/integration tests проверяют foreign keys AnalyzerRun/FileRecord, evidence locator (Unity fileID/PathID), endpoint validity, unresolved targetHint, отсутствие вымышленных nodes, стабильные IDs и успешный/partial/skipped scenarios.
+- Этот срез не строит полный cross-file graph и не подключает CLR/PE/scene resolvers; после подтверждения одного вертикального пути расширять те же модели, не вводя parallel types.
+
+**Задачи EVIDENCE-02:**
+- [ ] Преобразовать существующие MonoBehaviour script binding results в Finding/Evidence/GraphNode/GraphEdge.
+- [ ] Добавить согласованные model arrays в полный и partial JSON report без изменения schemaVersion 24.
+- [ ] Проверить ссылки на реальные AnalyzerRun/FileRecord и корректность graph endpoints.
+- [ ] Добавить end-to-end tests на resolved, metadata-only, unresolved/ambiguous и null PPtr.
+- [ ] Обновить README, purpose, audit, test audit и roadmap по фактическому объёму.
+
 - [ ] Подключить один существующий resolver/parser end-to-end как образец: создать Finding/Evidence/GraphNode/GraphEdge, проверить ссылки на AnalyzerRun/FileRecord и вывести их в report JSON, затем постепенно подключить остальные.
 - [x] Расширить per-file/per-analyzer statuses на external MonoScript/PPtr/MonoBehaviour resolver stages; остальные analyzer families остаются следующими отдельными задачами. Aggregate ScanCoverage и parser-specific result models сохранены.
 
