@@ -3,7 +3,7 @@
 **Дата:** 22 ноября 2026 года  
 **Проверенная ветка:** `main`.  
 **Проверенный source commit:** `eaeff8f97ff2dde3668f4b6349880f290b863502` (squash merge PR #29).  
-**Последняя успешная проверка source revision:** PR [#29 / run #346](https://github.com/HelterFall/God/actions/runs/44984816408) — 95 JVM tests, debug APK build и artifact upload завершились успешно. Post-merge main run #347 ещё выполнялся при актуализации.
+**Последняя успешная post-merge проверка:** [main run #347](https://github.com/HelterFall/God/actions/runs/44984900667) — 95 JVM tests, debug APK build и artifact upload завершились успешно. Текущий HEAD `main` `847a0b8` содержит только документационные изменения.
 
 ## 1. Итог
 
@@ -177,16 +177,16 @@
 
 ## 4. Проверка последнего CI
 
-Проверенная последняя source revision:
+Проверенная последняя main source revision:
 
-https://github.com/HelterFall/God/actions/runs/44984816408
+https://github.com/HelterFall/God/actions/runs/44984900667
 
 - Commit: `eaeff8f97ff2dde3668f4b6349880f290b863502` (squash merge PR #29).
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
 - Проверенная main-ревизия содержит 95 методов `@Test` в 18 JVM test files.
-- PR [#29 / run #346](https://github.com/HelterFall/God/actions/runs/44984816408) подтвердил FileRecord model и scanner assertions; post-merge main run #347 выполняется.
+- Main run [#347](https://github.com/HelterFall/God/actions/runs/44984900667) повторно подтвердил FileRecord model и scanner assertions после слияния PR #29.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
