@@ -130,13 +130,12 @@ God уже умеет выполнять ограниченную инвента
 **Что ещё не существует как общий межанализаторный слой:**
 - ContainerRecord для обычных и вложенных архивных entries.
 - AnalyzerRun с parser version, input IDs, supported format range, limits и итоговым статусом.
-- Finding и Evidence с точными source locators.
 - `Finding` и `Evidence` с точными source locators, связанные с `AnalyzerRun` и `FileRecord`.
 - GraphNode и GraphEdge для межфайловых, native, managed, Unity и asset dependencies.
 
 **Задачи:**
 - [ ] Спроектировать общий Kotlin data model без зависимости от Android UI.
-- [x] Эволюционировать inventory entries в `FileRecord` со стабильным ID и `parentId`; использовать хеш provider key при наличии, иначе относительный путь с порядком дубликата.
+- [x] Эволюционировать inventory entries в `FileRecord` со стабильным ID и `parentId`; использовать хеш provider key при наличии, иначе относительный путь, parent identity и порядком дубликата.
 - [x] Добавить `inventoryStatus` (`discovered`, `enumerated`, `partial`, `inaccessible`) и сохранять его в JSON, включая partial report при отмене.
 - [ ] Добавить отдельные terminal statuses для результатов каждого анализатора; `inventoryStatus` не должен подменять parser status.
 - [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
