@@ -186,7 +186,7 @@ P1/P2 обозначают приоритет исследования и раз
 ### Текущий уровень проверок
 
 - На проверенной main-базе `052c023` — 16 JVM test files / 91 @Test methods; run [#333](https://github.com/HelterFall/God/actions/runs/44800837048) прошёл JVM tests, `:app:assembleDebug` и upload APK artifact. Source code main соответствует `513f1ac`.
-- Feature branch `feat/typed-scan-issues` добавляет structured-issue assertions в существующие методы `GameScannerIntegrationTest` и `PartialReportBuilderTest`; общее число test methods остаётся 91. Отдельный PR CI необходим для подтверждения именно этих изменений.
+- Feature branch `feat/typed-scan-issues` содержит 17 JVM test files / 92 `@Test` methods: один отдельный `ScanIssueTest` плюс assertions в существующих scanner/partial-report tests. Отдельный PR CI необходим для подтверждения именно этих изменений.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
 - Fake-tree integration coverage `GameScanner.scan()` включает PE imports, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с partial inventory/coverage и typed `ScanIssue`. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated streams и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
 
