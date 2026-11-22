@@ -33,7 +33,7 @@
 | PartialReportBuilderTest | 5 | Partial/cancelled markers, inventory JSON, JSON escaping, Markdown cap, полный список в JSON и structured `scan.cancelled` issue |
 | ScanIssueTest | 1 | Stable code/stage/severity/message serialization and null path |
 | FileRecordTest | 3 | Repeatable path-based IDs, provider-key identity across rename without URI disclosure, duplicate-path disambiguation |
-| GameScannerIntegrationTest | 8 | Fake tree: inventory/progress, PE success/failure/import reporting, CLR path, Unity SerializedFile v22 metadata/version, ambiguous external MonoScript no-guess, unique external MonoScript payload decoded/bound, provider and directory-listing failures with structured `ScanIssue` + legacy warning compatibility, cancellation |
+| GameScannerIntegrationTest | 8 | Fake tree: inventory/progress, PE success/failure/import reporting, CLR path, Unity SerializedFile v22 metadata/version, repeatable FileRecord IDs and parent links, inaccessible directory status, partial parent statuses on nested cancellation, external MonoScript resolution, provider failures and legacy warning compatibility |
 | ScanCoverageTest | 2 | Чистая status policy для analyzer coverage и aggregate scan status |
 | UnityExternalPathResolverTest | 4 | Exact path, unique basename, ambiguity и normalization separators/case |
 | UnityFileHeaderParserTest | 7 | Legacy v9, modern v22, endian flag, UnityFS header recognition, malformed sizes/offsets и pre-v9 note |
@@ -180,14 +180,14 @@
 
 Проверенный актуальный main run:
 
-https://github.com/HelterFall/God/actions/runs/44982866804
+https://github.com/HelterFall/God/actions/runs/44983187122
 
-- Commit: `33d268c9e43b504f75fa032a13df33dc0b975eab` (squash merge PR #28).
+- Commit: `dcbdea1c39743f092f32795b9d54507590e763ad` (документационные обновления после source commit `33d268c`).
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
 - Проверенная main-база содержит 92 метода `@Test` в 17 JVM test files; текущая ветка расширяет её до 95 методов в 18 файлах.
-- PR [#28, run #337](https://github.com/HelterFall/God/actions/runs/44982753613) подтвердил feature revision; post-merge main run #340 повторно проверил итоговый merge commit.
+- CI для ветки feat/file-record-identities должен отдельно подтвердить новый FileRecord model и scanner assertions.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
