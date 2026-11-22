@@ -6,10 +6,20 @@ import org.json.JSONArray
 internal object PartialReportBuilder {
     private const val MAX_MARKDOWN_FILES = 20_000
 
-    fun build(rootName: String, files: List<FileRecord>, totalBytes: Long): ScanResult {
+    fun build(
+        rootName: String,
+        files: List<FileRecord>,
+        totalBytes: Long,
+        scanId: String = java.util.UUID.randomUUID().toString(),
+        analyzerRuns: List<AnalyzerRun> = emptyList()
+    ): ScanResult {
         val fileCount = files.count { !it.directory }
         val directoryCount = files.size - fileCount
-        val warning = "Анализ отменён пользователем. Отчёт содержит только инвентаризацию; результаты анализаторов не завершены."
+        val warning = if (analyzerRuns.isEmpty()) {
+            "Анализ отменён пользователем. Отчёт содержит только инвентаризацию; результаты анализаторов не завершены."
+        } else {
+            "Анализ отменён пользователем. Отчёт сохраняет инвентаризацию и уже известные результаты анализаторов; queued-записи не завершены."
+        }
         val markdown = buildString {
             appendLine("# Unity Game Architecture Report")
             appendLine()
@@ -30,6 +40,14 @@ internal object PartialReportBuilder {
             if (files.size > MAX_MARKDOWN_FILES) {
                 appendLine("- Список Markdown ограничен: пропущено ${files.size - MAX_MARKDOWN_FILES} записей. Полный список находится в JSON.")
             }
+            if (analyzerRuns.isNotEmpty()) {
+                appendLine()
+                appendLine("## Analyzer outcomes before cancellation")
+                analyzerRuns.forEach { run ->
+                    appendLine("- ${run.analyzerId}: ${run.inputFileId} — ${run.status.id}" +
+                        (run.reason?.let { "; $it" } ?: ""))
+                }
+            }
         }
         val jsonFiles = JSONArray().apply {
             files.forEach { put(it.toJsonObject()) }
@@ -39,6 +57,7 @@ internal object PartialReportBuilder {
             append("\"schemaVersion\":24,")
             append("\"rootName\":${jsonString(rootName)},")
             append("\"generatedAt\":${jsonString(java.time.Instant.now().toString())},")
+            append("\"scanId\":${jsonString(scanId)},")
             append("\"scanStatus\":\"cancelled\",")
             append("\"partial\":true,")
             append("\"entryCount\":${files.size},")
@@ -55,6 +74,7 @@ internal object PartialReportBuilder {
             append("\"depthLimitHitCount\":0,")
             append("\"entryLimitReached\":false},")
             append("\"analyzers\":[]},")
+            append("\"analyzerRuns\":").append(JSONArray(analyzerRuns.map { it.toJsonObject() })).append(",")
             append("\"files\":").append(jsonFiles).append(",")
             append("\"issues\":[{")
             append("\"code\":\"scan.cancelled\",")
