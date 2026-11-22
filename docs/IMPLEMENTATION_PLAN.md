@@ -53,7 +53,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] При отмене на этапах inventory/PE/Unity/resolver возвращается partial report с собранным inventory; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile, local MonoScript payload и Unity scene graph, если этапы уже начались.
 - [x] Агрегированная ScanCoverage: inventory counters, PE/CLR/Unity analyzer candidate/attempt/parsed/partial/failed/limited/skipped counts и derived status.
 
-**Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report остаётся пустым, но `analyzerRuns[]` сохраняет per-file результаты этапов, уже достигнутых к моменту отмены. PE/CLR, Unity header/SerializedFile, local MonoScript payload и bounded Unity scene graph decoder подключены; external MonoScript/PPtr resolver stages ещё не имеют отдельных запусков. Отмена проверяется на границах parser/resolver этапов, а не внутри каждого блокирующего provider read. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
+**Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report остаётся пустым, но `analyzerRuns[]` сохраняет per-file результаты этапов, уже достигнутых к моменту отмены. PE/CLR, Unity header/SerializedFile, local MonoScript payload, bounded Unity scene graph и (PR #35 candidate) external MonoScript/PPtr/MonoBehaviour resolver stages подключены к per-file AnalyzerRun. Отмена проверяется на границах parser/resolver этапов, а не внутри каждого блокирующего provider read. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
 
 ### Уже существующие форматы и экспорт
 
@@ -102,7 +102,7 @@ God уже умеет выполнять ограниченную инвента
 - [ ] **QA-11 — deprecated Actions runtime.** Последние workflow logs предупреждают о Node.js 20 deprecation у используемых Actions major versions. Обновить actions до поддерживаемых runtime и проверить workflow повторно.
 - [ ] **QA-12 — измеримость тестов.** Подключить JaCoCo/Kover или аналогичный отчёт. Сначала получить baseline, не вводить произвольный процентный gate до измерения.
 
-`main` после PR #34: 19 JVM test files / 110 @Test methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) подтвердил JVM tests, `:app:assembleDebug` и APK artifact upload. В PR #35-кандидате добавлены три integration tests: 19 files / 113 methods; [run #388](https://github.com/HelterFall/God/actions/runs/45007383705) прошёл все workflow steps.
+`main` после PR #34: 19 JVM test files / 110 @Test methods; [run #387](https://github.com/HelterFall/God/actions/runs/45000959608) подтвердил JVM tests, `:app:assembleDebug` и APK artifact upload. PR #35 candidate на code/test commit `8130363` содержит 19 files / 116 methods; [run #397](https://github.com/HelterFall/God/actions/runs/45009371396) прошёл все workflow steps.
 
 ## 3. Последовательность реализации
 
@@ -196,7 +196,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] Добавить per-file AnalyzerRun для PE, CLR metadata, Unity header, SerializedFile metadata и local MonoScript payload; `inventoryStatus` по-прежнему относится только к обходу папок.
 - [x] Подключить per-file AnalyzerRun к Unity header/SerializedFile metadata в PR #31.
 - [x] Подключить отдельный `mono_script_payload` run для локальных targets в PR #33.
-- [ ] Подключить отдельные runs к external MonoScript payload resolution, external-reference/PPtr и scene resolvers.
+- [x] Подключить отдельные per-file runs к external MonoScript payload resolution, external-reference/PPtr и MonoBehaviour script resolvers в PR #35; проверить owner/target FileRecord IDs, deterministic no-duplicates и promotion previously skipped metadata.
 - [ ] Сохранить aggregate ScanCoverage и расширить его связями с per-file/per-analyzer runs.
 - [ ] Учитывать причины пропусков: permission denied, inaccessible, depth/entry limit, too large, unsupported и другие.
 - [ ] Добавить analyzer jobs с per-file/per-analyzer status и избежать повторной обработки без необходимости.
@@ -406,7 +406,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Тестовая база:** `main` после PR #34 — 19 JVM test files / 110 @Test methods; candidate PR #35 — 19 files / 113 methods. `GameScannerIntegrationTest` в кандидате содержит 22 метода и дополнительно проверяет `unity_scene_graph` analyzed/partial/skipped/failed. Run #388 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+**Тестовая база:** `main` после PR #34 — 19 JVM test files / 110 @Test methods; candidate PR #35 code/test commit `8130363` — 19 files / 116 methods. `GameScannerIntegrationTest` в кандидате содержит 25 методов и проверяет `unity_scene_graph`, external MonoScript owner/target payload, external PPtr и MonoBehaviour script bindings, включая promotion ранее skipped SerializedFile metadata run. Run #397 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
