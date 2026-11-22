@@ -1,6 +1,6 @@
 # God — план дальнейших действий
 
-**Дата:** 21 ноября 2026 года  
+**Дата:** 22 ноября 2026 года  
 **Базовая ветка:** main  
 **Последний коммит с изменениями исходного кода:** `513f1acbf7c08d6de93045d298db8ba0ab3bc517`
 **Текущий HEAD ветки main:** `052c02319f54f97d00007b7ab6e60c2a375edf0b` (последний коммит менял только документацию).
@@ -435,7 +435,7 @@ God уже умеет выполнять ограниченную инвента
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
 1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и inventory-only partial report; 11 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
-2. **Data model:** расширить существующие ScanEntry/ScanCoverage и parser outputs общими Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
+2. **Data model:** первый вертикальный срез `ScanIssue` уже реализован и прошёл PR CI #335; следующий шаг — расширить ScanEntry до FileRecord со стабильным ID/status, затем добавить Finding/Evidence/GraphNode/GraphEdge. Не переписывать уже работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** fake file tree → inventory → parsers → coverage → JSON/Markdown; сохранить текущий JSON files[] и добавить per-file ID/status.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.
