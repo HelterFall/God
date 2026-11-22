@@ -406,7 +406,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Тестовая база `main` после PR #33:** 19 JVM test files / 110 @Test methods. `GameScannerIntegrationTest` (19 методов) проверяет PE/CLR/Unity header/SerializedFile/local MonoScript outcomes, limits 500/40, success/partial/failed/skipped и cancellation. Post-merge run #385 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
+**Тестовая база:** `main` после PR #34 — 19 JVM test files / 110 @Test methods; candidate PR #35 — 19 files / 113 methods. `GameScannerIntegrationTest` в кандидате содержит 22 метода и дополнительно проверяет `unity_scene_graph` analyzed/partial/skipped/failed. Run #388 прошёл JVM tests, `:app:assembleDebug` и upload APK artifact.
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
@@ -430,7 +430,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] Кнопка запроса отмены анализа.
 - [ ] Расширить progress до стадий и отдельных analyzers; текущая индикация не показывает прогресс PE/CLR/Unity parsing.
 - [x] Добавить single-job locking и job-scoped cancellation через `ScanCoordinator`; шесть JVM-тестов проверяют state transitions.
-- [x] Сохранять partial report при отмене: inventory плюс завершённые/queued PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRuns, если соответствующие analyzer stages достигнуты; builder и scanner cancellation tests проверяют поведение.
+- [x] Сохранять partial report при отмене: inventory плюс завершённые/queued PE/CLR/Unity header/SerializedFile/local MonoScript и bounded Unity scene graph AnalyzerRuns, если соответствующие analyzer stages достигнуты; builder и scanner cancellation tests проверяют поведение.
 - [ ] Добавить Android lifecycle/SAF instrumentation tests.
 - [ ] Поиск, фильтры и навигация по findings/graph.
 - [ ] Переход к evidence из итоговых документов.
@@ -446,7 +446,7 @@ God уже умеет выполнять ограниченную инвента
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
 
 1. **QA-02 lifecycle slice (основная JVM-часть реализована):** `ScanCoordinator`, job-scoped cancellation, безопасная работа worker и partial report с inventory и накопленными PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRun outcomes; 12 тестов координатора и partial-report builder. Следом — Android lifecycle/SAF tests и проверки отмены на реальном provider.
-2. **Data model:** `FileRecord` и `ScanIssue` добавлены в main; PR #30 добавил PE/CLR AnalyzerRun, PR #31 — Unity header/SerializedFile, PR #33 — local MonoScript payload и слит в main (`653e370`). [Post-merge run #385](https://github.com/HelterFall/God/actions/runs/45000328521) успешно проверил main. Следующий шаг — external MonoScript/PPtr/scene resolver runs, затем Finding/Evidence/GraphNode/GraphEdge. Не переписывать работающие ScanCoverage и parser data classes.
+2. **Data model:** `FileRecord` и `ScanIssue` добавлены в main; PR #30 добавил PE/CLR AnalyzerRun, PR #31 — Unity header/SerializedFile, PR #33 — local MonoScript payload. Кандидат PR #35 добавляет bounded `unity_scene_graph` outcome и прошёл run #388. Следующий шаг — external MonoScript payload/PPtr resolver runs, затем Finding/Evidence/GraphNode/GraphEdge. Не переписывать работающие ScanCoverage и parser data classes.
 3. **FileAccess:** расширить `ScanNode`/`ScanFileAccess` до range/positional reads, non-seekable fallback и EOF/oversized-range/cancellation tests.
 4. **Scanner integration tests:** расширить fake-tree сценарии на контейнерные entries и связку `FileRecord` → AnalyzerRun → Finding/Evidence; текущие tests уже проверяют file IDs, parent links, duplicate names и partial inventory statuses.
 5. **ReportWriter:** заменить сборку существующих Markdown/JSON строк в памяти на потоковую запись, сохранить schemaVersion=24, добавить JSON Schema/manifest.

@@ -181,14 +181,15 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 
 Проверенные CI revisions:
 
-- Main source commit after PR #33: `653e370c74beba48f2f5b8423276db84b6cecc51`; post-merge run [#385](https://github.com/HelterFall/God/actions/runs/45000328521) succeeded.
+- Main HEAD after PR #34: `7f8256b4b6b2945971283b29fd6b46ba8aa1a616`; main run [#387](https://github.com/HelterFall/God/actions/runs/45000959608) succeeded.
+- Candidate PR #35 head after code/tests: `dac7e001ec0782de455014861305fb98dbcbccf9`; PR run [#388](https://github.com/HelterFall/God/actions/runs/45007383705) succeeded.
 
 - PR #31 code head `9ccb7f4683ed4e043bd3278d830a1d07710e5d11`; final PR head including docs `f1fb456f571ea2569bba5029ecf7af7a6a9ec57e`; PR run [#369](https://github.com/HelterFall/God/actions/runs/44997551388) completed successfully.
 - `:app:testDebugUnitTest`: success.
 - `:app:assembleDebug`: success.
 - `BUILD SUCCESSFUL`; debug APK artifact успешно загружен.
-- `main` содержит 110 методов `@Test` в 19 JVM test files; run #385 успешно выполнил `:app:testDebugUnitTest`, `:app:assembleDebug` и artifact upload.
-- Run #385 подтвердил local MonoScript payload AnalyzerRun linkage, analyzed/partial/failed/skipped outcomes, cancellation preservation и сборку APK.
+- `main` содержит 110 методов `@Test` в 19 JVM test files; run #387 успешно выполнил `:app:testDebugUnitTest`, `:app:assembleDebug` и artifact upload.
+- Candidate PR #35 содержит 113 методов `@Test` в 19 файлах; run #388 подтвердил `BUILD SUCCESSFUL`, `:app:testDebugUnitTest`, `:app:assembleDebug` и upload debug APK artifact. Лог build показывает успешное завершение `:app:testDebugUnitTest`; CI пока не публикует JUnit XML и отчёт с числом фактически исполненных тестов.
 - CI не запускает Android instrumentation, lint/static checks, release build или coverage report.
 
 ## 5. Рекомендуемая очередность закрытия проблем
