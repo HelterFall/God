@@ -5,7 +5,7 @@
 **Последний коммит с изменениями исходного кода:** `513f1acbf7c08d6de93045d298db8ba0ab3bc517`
 **Текущий HEAD ветки main:** `052c02319f54f97d00007b7ab6e60c2a375edf0b` (последний коммит менял только документацию).
 **Последняя успешная проверка CI:** main run [#333](https://github.com/HelterFall/God/actions/runs/44800837048) проверил текущий HEAD `052c02319f54f97d00007b7ab6e60c2a375edf0b`: `:app:testDebugUnitTest`, `:app:assembleDebug` и загрузка debug APK artifact завершились успешно; исходный код не менялся относительно `513f1ac`.
-**Текущая тестовая база:** 16 JVM test files / 91 @Test methods; `PeParserTest` — 9, `GameScannerIntegrationTest` — 8, `PartialReportBuilderTest` — 5. CLR и Unity SerializedFile/MonoScript scanner integration fixtures синтетические; реальные binary fixtures и Android instrumentation пока отсутствуют.
+**Тестовая база `main` до этой правки:** 16 JVM test files / 91 @Test methods. **В этой рабочей ветке:** 17 files / 92 methods (`ScanIssueTest` добавляет один тест); CLR и Unity SerializedFile/MonoScript scanner integration fixtures остаются синтетическими, реальные binary fixtures и Android instrumentation отсутствуют.
 **Связанные документы:** [назначение и конечный результат](GOD_PURPOSE_AND_OUTPUT.md), [полная дорожная карта](FULL_ANALYZER_ROADMAP.md), [технический аудит](AUDIT_2026-11-18.md), [аудит тестирования и CI](TEST_AUDIT_2026-11-19.md).
 
 ## 1. С чего начинаем
@@ -395,7 +395,7 @@ God уже умеет выполнять ограниченную инвента
 
 **Приоритет:** непрерывно; финальная полировка после первых вертикальных срезов.
 
-**Текущая тестовая база:** 16 JVM test files / 91 @Test methods. Scanner fake-tree tests проверяют PE DLL/function/ordinal imports, synthetic CLR metadata, Unity SerializedFile v22 metadata, ambiguous and successful external MonoScript resolution, Unity provider open failure и directory enumeration failure; PeParser tests дополнительно покрывают ARM64 recognition и два malformed RVA сценария. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
+**Тестовая база feature branch:** 17 JVM test files / 92 @Test methods. Scanner fake-tree tests проверяют PE DLL/function/ordinal imports, synthetic CLR metadata, Unity SerializedFile v22 metadata, ambiguous and successful external MonoScript resolution, Unity provider open failure, directory enumeration failure и typed `ScanIssue`; PeParser tests дополнительно покрывают ARM64 recognition и два malformed RVA сценария. Реальные binary fixtures, Android instrumentation, fuzz/property tests и coverage reports пока отсутствуют. См. [test audit](TEST_AUDIT_2026-11-19.md).
 
 - [x] Добавить начальные scanner integration tests для inventory/progress, PE candidate/failure accounting, `ScanCoverage`, JSON/Markdown и partial inventory при cancellation.
 - [x] Scanner integration: успешный bounded CLR metadata path через `GameScanner.scan()` до JSON/Markdown и `ScanCoverage` (PR #15, synthetic managed PE fixture).
