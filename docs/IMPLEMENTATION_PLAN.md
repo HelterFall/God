@@ -122,7 +122,7 @@ God уже умеет выполнять ограниченную инвента
 
 В коде есть частные модели результатов парсеров, `FileRecord` для inventory, `ScanResult` и агрегированная `ScanCoverage`. `GameScanner` использует `ScanEntry` как связку записи и read-only `ScanNode`; не вводить второй инвентарь. Общий слой доказательных результатов расширять постепенно.
 
-**Текущий рабочий срез:** модель `AnalyzerRun` и per-file vertical slices для PE/CLR (PR #30) и Unity header/SerializedFile metadata (PR #31) реализованы. Статусы связаны с `FileRecord.id`; учтены header candidate limit 500, metadata deep-read limit 40, prerequisite skips, unsupported formats, partial metadata и cancellation. Существующие parser logic и aggregate `ScanCoverage` сохранены. Следующий шаг — отдельные runs для MonoScript payload, external-reference resolution и scene-object decoding, затем остальные analyzer families.
+**Текущий рабочий срез:** модель `AnalyzerRun` и per-file vertical slices для PE/CLR (PR #30) и Unity header/SerializedFile metadata (PR #31) реализованы. Следующий небольшой шаг — отдельный `mono_script_payload` run для локальных MonoScript targets: связать его с `FileRecord.id`, различать analyzed/partial/failed и skipped при отсутствии локальной цели или prerequisites. Не смешивать этот шаг с external-reference resolution и scene-object decoding: их подключать отдельными PR после тестирования локального payload path. Существующие `MonoScriptParser` и aggregate `ScanCoverage` переиспользовать без переписывания.
 
 **Переиспользовать:**
 - `ScanEntry` уже использует `FileRecord`: SHA-256 ID, `parentId`, источник идентичности и `inventoryStatus`; приоритет — дополнять эту модель, не создавать второй список файлов.
