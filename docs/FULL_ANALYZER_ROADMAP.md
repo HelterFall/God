@@ -169,7 +169,7 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | Приоритет | Работа | Результат |
 |---|---|---|
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
-| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; inventory-only partial report уже реализован, но отмена внутри provider reads и analyzer-level partial results остаются открытыми |
+| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; partial report уже сохраняет PE/CLR AnalyzerRun outcomes, но отмена внутри provider reads и per-file states для Unity/other analyzers остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
 | P1 | Per-file IDs/statuses и streaming report pipeline поверх существующего JSON files[] inventory | Ничего не теряется между анализаторами |
 | P2 | PE/native dependency graph | Понимание нативных границ |
@@ -198,7 +198,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 - Для каждого файла есть итоговый статус или точное объяснение, почему статус неизвестен.
 - Все ограничения, пропуски и ошибки отражаются в coverage.
-- Отмена на контролируемых границах создаёт inventory-only partial report; незавершённые parser результаты не объявляются завершёнными.
+- Отмена на контролируемых границах создаёт partial report с inventory и PE/CLR AnalyzerRuns, уже накопленными к моменту отмены; другие analyzer families ещё нужно подключить.
 - Большие файлы читаются потоково/позиционно с контролем памяти.
 - Вложенные архивы имеют защиту от чрезмерной глубины и распакованного объёма.
 - Повреждённые или зашифрованные данные не обозначаются как успешно разобранные.
