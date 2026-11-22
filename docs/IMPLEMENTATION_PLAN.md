@@ -465,6 +465,31 @@ God уже умеет выполнять ограниченную инвента
 
 **Критерий завершения:** заявленные форматы подтверждены реальными fixtures, CI стабильно зелёный, а долгий scan остаётся управляемым.
 
+## EVIDENCE-03 — публикация внешних Unity PPtr как общих evidence/graph records
+
+**Статус:** запланировано до изменения кода.  
+**Основа:** существующие `UnityExternalPointerResolver`, `unity_external_pointers` AnalyzerRun и `UnityExternalPointerResolution`; новый формат или новый parser не создаётся.
+
+**Границы вертикального среза:**
+- Подключить к `Finding`, `Evidence`, `GraphNode`, `GraphEdge` только уже разрешаемые sampled cross-file PPtrs из полей `gameObject`, `father`, `children`, `components`.
+- Не дублировать `m_Script`: этот PPtr уже публикуется EVIDENCE-02 как `MonoBehaviour → MonoScript`.
+- Связать Finding/Evidence/edge с настоящими owner `FileRecord.id` и `unity_external_pointers` `AnalyzerRun.id`; locator сохраняет точные Unity `fileID` и `PathID`, а finding identity также различает source PathID и поле.
+- Создавать target GraphNode только если найден соответствующий object record в target metadata и есть настоящий target `FileRecord`. Для target вне sample, неразрешённого/ambiguous пути или непрочитанного target сохранять `targetHint`, не выдумывать вершину.
+- Публиковать понятные направленные relations для четырёх полей; хранить `resolved-decoded-object` как decoded/confirmed, `resolved-object-record-not-decoded` как metadata-only/strong, а ограниченные/unresolved результаты — с честными partial/unresolved status и reason.
+- Добавить Markdown-секцию внешних PPtr evidence/relations; сохранить существующие JSON schemaVersion 24 и full/partial массивы.
+
+**Проверки при реализации:**
+- [ ] Resolved cross-file target: корректные Finding/Evidence, owner/target FileRecord IDs, AnalyzerRun ID, source/target PathID и relation endpoint IDs.
+- [ ] Metadata-only target: реальная object-record вершина с metadata-only/strong status.
+- [ ] Неоднозначный/непрочитанный/вне sample target: targetHint без фиктивной target GraphNode.
+- [ ] Разные PPtr fields не сливаются в одну связь; повторные связи используют согласованные shared GraphNodes.
+- [ ] `m_Script` остаётся только в EVIDENCE-02 и не создаёт дублирующий external-pointer finding/edge.
+- [ ] Partial/cancelled report сохраняет уже созданные EVIDENCE-03 массивы; тесты и полный CI проходят.
+
+**Не входит:** локальный Unity scene graph целиком, все Unity object fields, полная cross-file сцена, новые декодеры, CLR/PE/asset families и реальные игровые fixtures. Следующим отдельным этапом остаются остальные analyzer families.
+
+---
+
 ## 4. Что делать первым — ближайшие маленькие задачи
 
 Не начинать контейнеры и новые декодеры, пока не готова минимальная основа. Ближайшую серию нужно выполнить в следующем порядке:
