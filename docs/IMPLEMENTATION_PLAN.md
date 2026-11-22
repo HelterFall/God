@@ -124,6 +124,8 @@ God уже умеет выполнять ограниченную инвента
 
 **Текущий рабочий срез:** per-file AnalyzerRun для PE/CLR (PR #30), Unity header/SerializedFile (PR #31) и local `mono_script_payload` (PR #33) реализован в main. Local payload run связан с `FileRecord.id`; различаются analyzed/partial/failed, а также skipped при отсутствии локальной цели или prerequisites. Существующие `MonoScriptParser` и aggregate `ScanCoverage` сохранены. Следующий шаг — отдельные runs для external MonoScript payload resolution, external PPtr resolution и scene-object decoding.
 
+**Следующий небольшой срез (запланирован до изменения кода):** добавить `unity_scene_graph` AnalyzerRun для каждого SerializedFile, прошедшего metadata parsing. Он должен быть связан с `FileRecord.id` и честно различать analyzed/partial/skipped/failed для текущего bounded GameObject/Transform/MonoBehaviour decoder. Первый тестовый проход проверяет JSON linkage и skipped при отсутствии пригодных TypeTree/object targets; отдельная проверка успешного/частичного decode остаётся обязательной частью этого среза. Это не заменяет будущие runs для external MonoScript/PPtr resolvers.
+
 **Переиспользовать:**
 - `ScanEntry` уже использует `FileRecord`: SHA-256 ID, `parentId`, источник идентичности и `inventoryStatus`; приоритет — дополнять эту модель, не создавать второй список файлов.
 - AnalyzerCoverage, ScanCoverage и deriveAnalyzerStatus как уже работающую агрегированную модель покрытия.
