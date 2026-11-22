@@ -569,9 +569,18 @@ class GameScannerIntegrationTest {
                 MemoryScanNode(
                     name = "Assets",
                     isDirectory = true,
-                    children = listOf(MemoryScanNode("first.txt", false, byteArrayOf(1)))
+                    children = listOf(
+                        MemoryScanNode(
+                            "nested",
+                            true,
+                            children = listOf(
+                                MemoryScanNode("first.txt", false, byteArrayOf(1)),
+                                MemoryScanNode("later-inside.txt", false, byteArrayOf(2))
+                            )
+                        )
+                    )
                 ),
-                MemoryScanNode("later.txt", false, byteArrayOf(2))
+                MemoryScanNode("later.txt", false, byteArrayOf(3))
             )
         )
         var cancellationChecks = 0
@@ -580,17 +589,24 @@ class GameScannerIntegrationTest {
             root,
             shouldCancel = {
                 cancellationChecks++
-                cancellationChecks >= 5
+                cancellationChecks >= 7
             },
             onProgress = { _, _ -> }
         )
 
         assertTrue(result.isPartial)
-        assertTrue(result.markdown.contains("Assets/first.txt"))
+        assertTrue(result.markdown.contains("Assets/nested/first.txt"))
         assertTrue(result.json.contains("\"scanStatus\":\"cancelled\""))
-        assertTrue(result.json.contains("Assets/first.txt"))
-        assertFalse(result.json.contains("later.txt"))
-        assertTrue(result.json.contains("\"entryCount\":2"))
+        assertTrue(result.json.contains("Assets/nested/first.txt"))
+        assertFalse(result.json.contains("later-inside.txt"))
+        assertFalse(result.json.contains("\"path\":\"later.txt\""))
+        assertTrue(result.json.contains("\"entryCount\":3"))
+
+        val files = JSONObject(result.json).getJSONArray("files")
+        val records = (0 until files.length()).map { files.getJSONObject(it) }
+        assertEquals("partial", records.first { it.getString("path") == "Assets" }.getString("inventoryStatus"))
+        assertEquals("partial", records.first { it.getString("path") == "Assets/nested" }.getString("inventoryStatus"))
+        assertEquals("discovered", records.first { it.getString("path") == "Assets/nested/first.txt" }.getString("inventoryStatus"))
     }
 }
 
