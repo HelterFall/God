@@ -106,7 +106,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - Экспортировать Markdown и JSON schemaVersion 24 с начальной ScanCoverage; JSON files[] содержит все entries, а `nativeImportSymbols` — прочитанные DLL/function/ordinal imports в пределах текущих лимитов.
 - Публиковать JSON inventory с детерминированным `id`, `parentId`, `identitySource` и `inventoryStatus`. ID строится из хешированного SAF document key, если он есть, иначе — из цепочки родительских ID, относительного пути и порядка одноимённых записей; исходный provider URI в отчёт не попадает.
 - Публиковать структурированные ScanIssue в JSON `issues[]` с постоянными кодом, стадией, серьёзностью и путём. Существующий массив `warnings[]` и текст Markdown сохраняют человекочитаемые сообщения; версия JSON остаётся schemaVersion 24.
-- Публиковать `scanId` и `analyzerRuns[]`: отдельные записи PE, CLR metadata, Unity header, SerializedFile metadata и локального MonoScript payload с ссылкой `inputFileId` на `FileRecord.id`, статусом и причиной. Существующая aggregate `ScanCoverage` остаётся отдельной сводкой.
+- Публиковать `scanId` и `analyzerRuns[]`: отдельные записи PE, CLR metadata, Unity header, SerializedFile metadata, локального MonoScript payload и внешних MonoScript bindings с ссылкой `inputFileId` на `FileRecord.id`, статусом и причиной. Существующая aggregate `ScanCoverage` остаётся отдельной сводкой.
 
 ### Главные ограничения текущего MVP
 
@@ -122,7 +122,7 @@ RamenUnity — отдельный проект с другой задачей. G
 - Прогресс показывается в основном во время инвентаризации, а не по отдельным стадиям анализаторов.
 - Markdown tree ограничен 20 000 строк, тогда как JSON files[] содержит все записи, собранные текущим обходом (до лимита 100 000 entries и глубины 40).
 - Потоковой записи больших отчётов пока нет; Markdown/JSON полностью формируются в памяти. Экспорт теперь считает null output stream и ошибки открытия, записи или закрытия ошибкой, а не успешным сохранением.
-- `inventoryStatus` показывает только результат обхода папок (`discovered`, `enumerated`, `partial`, `inaccessible`). `analyzerRuns[]` отдельно фиксирует результаты PE, CLR metadata, Unity headers, SerializedFile metadata и локального MonoScript payload по каждому применимому файлу (`queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed`). Внешний MonoScript/PPtr resolution, scene-object decoding и остальные analyzer families ещё предстоит подключить к per-file runs. `parentId` связывает дочерние записи с найденной папкой; связи с содержимым контейнеров ещё нет.
+- `inventoryStatus` показывает только результат обхода папок (`discovered`, `enumerated`, `partial`, `inaccessible`). `analyzerRuns[]` отдельно фиксирует результаты PE, CLR metadata, Unity headers, SerializedFile metadata, локального MonoScript payload и внешних MonoScript bindings по каждому применимому файлу (`queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed`). Внешние MonoScript bindings теперь получают `external_mono_script_payload` run на исходный SerializedFile; внешние PPtr/scene resolver, scene-object decoding и остальные analyzer families ещё предстоит подключить к per-file runs. `parentId` связывает дочерние записи с найденной папкой; связи с содержимым контейнеров ещё нет.
 
 Подробная оценка реализации: [технический аудит](docs/AUDIT_2026-11-18.md). Отдельно: [аудит тестирования и CI](docs/TEST_AUDIT_2026-11-19.md).
 
