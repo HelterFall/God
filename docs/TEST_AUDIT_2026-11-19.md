@@ -60,7 +60,7 @@ PR #31 добавляет per-file AnalyzerRun для Unity header и Serialized
 
 ### QA-01 — PE/CLR и Unity header/SerializedFile scanner paths покрыты; матрица сканера остаётся неполной
 
-`GameScannerIntegrationTest` (15 тестов на feature branch PR #31)
+`GameScannerIntegrationTest` (15 тестов на feature branch PR #31) проверяет per-file linkage и статусы PE/CLR/Unity header/SerializedFile, включая success, unsupported format, partial metadata, header prerequisite skip, 40-file deep-read limit, 500-candidate header limit и queued header run при cancellation. Сохраняются также существующие synthetic MonoScript resolution и provider/inventory failure cases.
 
 **Пока не покрыто:**
 
@@ -192,7 +192,7 @@ PR #31 добавляет per-file AnalyzerRun для Unity header и Serialized
 
 ## 5. Рекомендуемая очередность закрытия проблем
 
-1. Довести scan lifecycle: JVM single-job/cancellation и partial report с PE/CLR AnalyzerRun outcomes реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
+1. Довести scan lifecycle: JVM single-job/cancellation и partial report с PE/CLR/Unity header/SerializedFile AnalyzerRun outcomes реализованы; добавить Android lifecycle/SAF instrumentation и проверить provider cancellation.
 2. Расширить общий FileAccess: positional/range reads, sequential fallback, EOF/truncated input и cancellation-aware reads.
 3. Добавить минимальный набор реальных, легально распространяемых PE/CLR/Unity fixtures и golden reports.
 4. Добавить Android SAF instrumentation tests на emulator/device.
