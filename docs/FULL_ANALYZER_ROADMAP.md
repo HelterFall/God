@@ -171,7 +171,7 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
 | P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; partial report уже сохраняет PE/CLR AnalyzerRun outcomes, но отмена внутри provider reads и per-file states для Unity/other analyzers остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
-| P1 | Per-file IDs/statuses и streaming report pipeline поверх существующего JSON files[] inventory | Ничего не теряется между анализаторами |
+| P1 | Per-file statuses для Unity/остальных анализаторов и streaming report pipeline поверх существующего JSON files[] inventory | Полная таблица попыток анализа; PE/CLR per-file outcomes уже существуют |
 | P2 | PE/native dependency graph | Понимание нативных границ |
 | P2 | CLR/Mono metadata, IL, P/Invoke и call-site graph | Понимание managed-логики |
 | P2 | SerializedFile/TypeTree/object graph | Понимание сцен и компонентов |
@@ -187,7 +187,7 @@ P1/P2 обозначают приоритет исследования и раз
 
 ### Текущий уровень проверок
 
-- Базовая main source-ревизия `eaeff8f` содержала 18 JVM test files / 95 `@Test` methods. PR #30 добавил AnalyzerRun и шесть тестов: feature branch содержит 19 файлов / 101 `@Test` methods; PR run [#350](https://github.com/HelterFall/God/actions/runs/44985603087) успешно выполнил JVM tests, `:app:assembleDebug` и upload APK artifact.
+- Main merge commit PR #30: `fec50923955e4b411779b3d7ea6f26679db10f93`; [run #357](https://github.com/HelterFall/God/actions/runs/44985940318) подтвердил 19 JVM test files / 101 `@Test` methods, `:app:assembleDebug` и upload APK artifact.
 - Fake-tree inventory tests проверяют повторяемость FileRecord IDs, parent links, duplicate names и directory statuses; PR #29 включён в main.
 - `PeParserTest` проверяет PE32/PE32+ named/ordinal imports, ARM64 machine recognition и negative RVA cases. Parser tests в основном используют synthetic inputs.
 - Fake-tree integration coverage `GameScanner.scan()` включает PE imports, per-file PE and CLR AnalyzerRuns, synthetic CLR metadata, Unity SerializedFile v22, ambiguous и successful external MonoScript resolution, Unity candidate open failure и directory listing failure с partial inventory/coverage и typed `ScanIssue`. Добавлены проверки лимита PE и сохранения queued runs при отмене. Широкая Unity version/TypeTree/scene-PPtr matrix, truncated streams и прочие provider failure cases, реальные compiler-produced/Unity fixtures, Android SAF instrumentation, fuzz/property и coverage metrics пока отсутствуют.
