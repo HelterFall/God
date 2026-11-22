@@ -57,6 +57,18 @@ class GameScannerIntegrationTest {
             listOf("Data", "Data/manifest.txt", "Assembly-CSharp.dll", "UnityPlayer.dll", "readme.txt"),
             paths
         )
+        val dataRecord = (0 until files.length())
+            .map { files.getJSONObject(it) }
+            .first { it.getString("path") == "Data" }
+        val manifestRecord = (0 until files.length())
+            .map { files.getJSONObject(it) }
+            .first { it.getString("path") == "Data/manifest.txt" }
+        assertTrue(dataRecord.getString("id").startsWith("file:"))
+        assertEquals("relative-path", dataRecord.getString("identitySource"))
+        assertTrue(dataRecord.isNull("parentId"))
+        assertEquals("enumerated", dataRecord.getString("inventoryStatus"))
+        assertEquals(dataRecord.getString("id"), manifestRecord.getString("parentId"))
+        assertEquals("discovered", manifestRecord.getString("inventoryStatus"))
 
         val coverage = report.getJSONObject("scanCoverage")
         val inventory = coverage.getJSONObject("inventory")
@@ -521,9 +533,15 @@ class GameScannerIntegrationTest {
         assertEquals(1, inventory.getInt("inaccessibleDirectoryCount"))
 
         val files = report.getJSONArray("files")
-        val paths = (0 until files.length()).map { files.getJSONObject(it).getString("path") }
+        val records = (0 until files.length()).map { files.getJSONObject(it) }
+        val paths = records.map { it.getString("path") }
         assertEquals(listOf("Data", "readme.txt"), paths)
         assertTrue(paths.none { it.contains("hidden.asset") })
+        val inaccessibleDirectory = records.first { it.getString("path") == "Data" }
+        assertEquals("inaccessible", inaccessibleDirectory.getString("inventoryStatus"))
+        val visibleSibling = records.first { it.getString("path") == "readme.txt" }
+        assertEquals("discovered", visibleSibling.getString("inventoryStatus"))
+        assertTrue(visibleSibling.isNull("parentId"))
 
         val warnings = report.getJSONArray("warnings")
         val legacyDirectoryWarning = "Не удалось прочитать каталог Data: synthetic directory listing failure"
