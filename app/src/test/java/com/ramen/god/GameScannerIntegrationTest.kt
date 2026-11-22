@@ -1232,6 +1232,77 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun keepsDifferentExternalTransformFieldsAsSeparateRelationsAndMergesSharedNodes() {
+        val targetPath = "transforms.assets"
+        val externalPath = "archive:/CAB-123/transforms.assets"
+        val root = MemoryScanNode(
+            name = "ExternalTransformPPtrFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithExternalTransformPointers(externalPath)
+                ),
+                MemoryScanNode(
+                    targetPath,
+                    false,
+                    unitySerializedFileWithExternalTransformPointers(externalPath = null, pathId = 10L)
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val fileIds = (0 until report.getJSONArray("files").length()).associate { index ->
+            val file = report.getJSONArray("files").getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val ownerId = fileIds.getValue("globalgamemanagers")
+        val targetId = fileIds.getValue(targetPath)
+        val findings = (0 until report.getJSONArray("findings").length())
+            .map { report.getJSONArray("findings").getJSONObject(it) }
+            .filter { it.getString("category") == "unity.external-pointer" }
+        assertEquals(2, findings.size)
+        assertTrue(findings.any { it.getString("summary").contains("field=father") })
+        assertTrue(findings.any { it.getString("summary").contains("field=children") })
+
+        val nodes = (0 until report.getJSONArray("graphNodes").length())
+            .map { report.getJSONArray("graphNodes").getJSONObject(it) }
+        val sourceNodes = nodes.filter {
+            it.getString("fileRecordId") == ownerId &&
+                it.getString("nodeType") == "unity-transform" &&
+                it.getJSONObject("locator").getLong("pathId") == 2L
+        }
+        val targetNodes = nodes.filter {
+            it.getString("fileRecordId") == targetId &&
+                it.getString("nodeType") == "unity-transform" &&
+                it.getJSONObject("locator").getLong("pathId") == 10L
+        }
+        assertEquals(1, sourceNodes.size)
+        assertEquals(1, targetNodes.size)
+
+        val edges = (0 until report.getJSONArray("graphEdges").length())
+            .map { report.getJSONArray("graphEdges").getJSONObject(it) }
+        val externalEdges = edges.filter { it.getString("relationType") in setOf(
+            "has-parent-transform", "has-child-transform"
+        ) }
+        assertEquals(2, externalEdges.size)
+        assertEquals(
+            setOf("has-parent-transform", "has-child-transform"),
+            externalEdges.map { it.getString("relationType") }.toSet()
+        )
+        assertTrue(externalEdges.all {
+            it.getString("sourceNodeId") == sourceNodes.single().getString("id") &&
+                it.getString("targetNodeId") == targetNodes.single().getString("id")
+        })
+    }
+
+    @Test
     fun preservesMetadataOnlyMonoBehaviourScriptWhenTargetPayloadCannotBeRead() {
         val externalPath = "archive:/CAB-123/sharedassets0.assets"
         val targetPath = "sharedassets0.assets"
@@ -2143,6 +2214,110 @@ private fun unitySerializedFileWithTruncatedMetadata(): ByteArray {
     put64be(bytes, 16, metadataSize.toLong())
     put64be(bytes, 24, truncatedSize.toLong())
     put64be(bytes, 32, truncatedSize.toLong())
+    return bytes
+}
+
+private fun unitySerializedFileWithExternalTransformPointers(
+    externalPath: String?,
+    pathId: Long = 2L
+): ByteArray {
+    val treeNodes = listOf(
+        Triple(0, "Transform", "Base") to -1,
+        Triple(1, "PPtr<GameObject>", "m_GameObject") to -1,
+        Triple(2, "int", "m_FileID") to 4,
+        Triple(2, "SInt64", "m_PathID") to 8,
+        Triple(1, "PPtr<Transform>", "m_Father") to -1,
+        Triple(2, "int", "m_FileID") to 4,
+        Triple(2, "SInt64", "m_PathID") to 8,
+        Triple(1, "vector", "m_Children") to -1,
+        Triple(2, "Array", "Array") to -1,
+        Triple(3, "int", "size") to 4,
+        Triple(3, "PPtr<Transform>", "data") to -1,
+        Triple(4, "int", "m_FileID") to 4,
+        Triple(4, "SInt64", "m_PathID") to 8
+    )
+    val stringTable = ByteArrayOutputStream()
+    val offsets = linkedMapOf<String, Long>()
+    treeNodes.forEach { (node, _) ->
+        listOf(node.second, node.third).forEach { value ->
+            if (value !in offsets) {
+                offsets[value] = stringTable.size().toLong()
+                stringTable.write(value.toByteArray(Charsets.UTF_8))
+                stringTable.write(0)
+            }
+        }
+    }
+    val treeBytes = ByteArrayOutputStream().apply {
+        u32le(treeNodes.size.toLong())
+        u32le(stringTable.size().toLong())
+        treeNodes.forEachIndexed { index, (node, byteSize) ->
+            u16le(1)
+            write(node.first)
+            write(0)
+            u32le(offsets.getValue(node.second))
+            u32le(offsets.getValue(node.third))
+            u32le(byteSize.toLong())
+            u32le(index.toLong())
+            u32le(0)
+            u64le(0)
+        }
+        write(stringTable.toByteArray())
+    }.toByteArray()
+
+    val externalFileId = if (externalPath == null) 0 else 1
+    val externalPathId = if (externalPath == null) 0L else 10L
+    val payload = ByteArrayOutputStream().apply {
+        u32le(0) // local null GameObject PPtr
+        u64le(0)
+        u32le(externalFileId) // father PPtr
+        u64le(externalPathId)
+        u32le(if (externalPath == null) 0 else 1) // children array size
+        if (externalPath != null) {
+            u32le(externalFileId)
+            u64le(externalPathId)
+        }
+    }.toByteArray()
+
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5)
+        write(1) // TypeTree enabled
+        u32le(1) // serialized type count
+        u32le(4) // Transform class ID
+        write(0) // not stripped
+        u16le(0xffff) // no script type index
+        write(ByteArray(16)) // old type hash
+        write(treeBytes)
+        u32le(0) // type dependencies
+        u32le(1) // object count
+        while (size() % 4 != 0) write(0)
+        u64le(pathId)
+        u64le(0) // byte start
+        u32le(payload.size.toLong())
+        u32le(0) // type index
+        u32le(0) // MonoScript references
+        u32le(if (externalPath == null) 0 else 1)
+        if (externalPath != null) {
+            write("CAB-123".toByteArray(Charsets.US_ASCII))
+            write(0)
+            write(ByteArray(16)) // GUID
+            u32le(0) // external reference type
+            write(externalPath.toByteArray(Charsets.US_ASCII))
+            write(0)
+        }
+        u32le(0) // SerializeReference type count
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val bytes = ByteArray(dataOffset + payload.size)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0
+    metadata.copyInto(bytes, 48)
+    payload.copyInto(bytes, dataOffset)
     return bytes
 }
 
