@@ -2269,11 +2269,11 @@ private fun unitySerializedFileWithExternalTransformPointers(
     val payload = ByteArrayOutputStream().apply {
         u32le(0) // local null GameObject PPtr
         u64le(0)
-        u32le(externalFileId) // father PPtr
+        u32le(externalFileId.toLong()) // father PPtr
         u64le(externalPathId)
         u32le(if (externalPath == null) 0 else 1) // children array size
         if (externalPath != null) {
-            u32le(externalFileId)
+            u32le(externalFileId.toLong())
             u64le(externalPathId)
         }
     }.toByteArray()
