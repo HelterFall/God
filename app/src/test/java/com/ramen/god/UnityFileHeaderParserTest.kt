@@ -148,10 +148,6 @@ class UnityFileHeaderParserTest {
         return bytes
     }
 
-    private fun put32be(bytes: ByteArray, offset: Int, value: Long) {
-        for (index in 0 until 4) bytes[offset + index] = (value ushr (24 - index * 8)).toByte()
-    }
-
     private fun put64be(bytes: ByteArray, offset: Int, value: Long) {
         for (index in 0 until 8) bytes[offset + index] = (value ushr (56 - index * 8)).toByte()
     }
