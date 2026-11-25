@@ -6,16 +6,17 @@ import org.junit.Test
 
 class UnityMetadataTypeIndexTest {
     @Test
-    fun rejectsNegativeAndOutOfRangeSerializedTypeIndices() {
-        for (invalidTypeIndex in listOf(-1, 1)) {
+    fun preservesRawTypeIndexAsPersistentTypeIdFallbackAndMarksPartial() {
+        for (rawTypeIndex in listOf(-1, 1)) {
             val result = requireNotNull(UnityMetadataParser.parse(
-                serializedFileWithObjectTypeIndex(invalidTypeIndex),
+                serializedFileWithObjectTypeIndex(rawTypeIndex),
                 UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
             ))
 
             assertEquals(1L, result.objectCount)
-            assertTrue(result.objectSamples.isEmpty())
-            assertTrue(result.note.orEmpty().contains("typeIndex"))
+            assertEquals(rawTypeIndex, result.objectSamples.single().classId)
+            assertTrue(result.note.orEmpty().contains("persistentTypeID fallback"))
+            assertTrue(result.note.orEmpty().contains("analysis is partial"))
         }
     }
 
@@ -26,21 +27,21 @@ class UnityMetadataTypeIndexTest {
         version.copyInto(bytes, p); p += version.size
         bytes[p++] = 0
         put32(bytes, p, 13); p += 4
-        bytes[p++] = 0 // TypeTree disabled
-        put32(bytes, p, 1); p += 4 // one SerializedType
-        put32(bytes, p, 1); p += 4 // class ID
-        bytes[p++] = 0 // stripped
-        put16(bytes, p, 0xffff); p += 2 // no script type index
-        p += 16 // old type hash
-        put32(bytes, p, 0); p += 4 // type dependencies
-        put32(bytes, p, 1); p += 4 // one object
-        put64(bytes, p, 7L); p += 8 // PathID
-        put64(bytes, p, 0L); p += 8 // byte start
-        put32(bytes, p, 24); p += 4 // byte size
+        bytes[p++] = 0
+        put32(bytes, p, 1); p += 4
+        put32(bytes, p, 1); p += 4
+        bytes[p++] = 0
+        put16(bytes, p, 0xffff); p += 2
+        p += 16
+        put32(bytes, p, 0); p += 4
+        put32(bytes, p, 1); p += 4
+        put64(bytes, p, 7L); p += 8
+        put64(bytes, p, 0L); p += 8
+        put32(bytes, p, 24); p += 4
         put32(bytes, p, typeIndex.toLong() and 0xffff_ffffL); p += 4
-        put32(bytes, p, 0); p += 4 // MonoScript references
-        put32(bytes, p, 0); p += 4 // external references
-        put32(bytes, p, 0) // SerializeReference types
+        put32(bytes, p, 0); p += 4
+        put32(bytes, p, 0); p += 4
+        put32(bytes, p, 0)
         return bytes
     }
 
