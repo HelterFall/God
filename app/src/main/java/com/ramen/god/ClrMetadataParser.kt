@@ -158,13 +158,11 @@ internal object ClrMetadataParser {
         )
 
         val notes = listOfNotNull(typeResult.second, referenceResult.second, fieldResult.second, methodResult.second).distinct()
-        val status = when {
-            typeResult.second == "type-table-unavailable" -> "partial-type-table-unavailable"
-            referenceResult.second == "assembly-reference-table-unavailable" -> "partial-assembly-refs-unavailable"
-            fieldResult.second == "field-table-unavailable" -> "partial-field-table-unavailable"
-            methodResult.second == "method-table-unavailable" -> "partial-method-table-unavailable"
-            else -> "parsed"
-        }
+        // Any diagnostic from a bounded table reader means the returned
+        // inventory is incomplete, including deliberate sample caps and
+        // incomplete member ownership. Keep the summary, but never label it
+        // as a complete parse.
+        val status = if (notes.isEmpty()) "parsed" else "partial-metadata-tables"
         return ClrAssemblySummary(
             name = assembly?.name,
             version = assembly?.version,

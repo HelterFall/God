@@ -48,6 +48,17 @@ class ClrMetadataParserTest {
     }
 
     @Test
+    fun reportsTypeSampleLimitAsPartialMetadata() {
+        val metadata = syntheticMetadataRoot(typeRowsCount = 1001)
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+
+        assertEquals(1001, result.typeCount)
+        assertEquals(1000, result.types.size)
+        assertEquals("partial-metadata-tables", result.status)
+        assertTrue(result.note.orEmpty().contains("ограничены первыми 1000"))
+    }
+
+    @Test
     fun reportsMetadataOutsideBoundedReadWindow() {
         val result = ClrMetadataParser.parse(ByteArray(32), 16, 1024, "4.0", 0)
         assertNotNull(result)
@@ -61,7 +72,7 @@ class ClrMetadataParserTest {
         assertEquals("invalid-metadata-signature", result?.status)
     }
 
-    private fun syntheticMetadataRoot(): ByteArray {
+    private fun syntheticMetadataRoot(typeRowsCount: Int = 1): ByteArray {
         val strings = ByteArrayOutputStream().apply {
             write(0)
         }
@@ -85,13 +96,18 @@ class ClrMetadataParserTest {
             u8(2); u8(0); u8(0); u8(1)
             u64((1L shl 0) or (1L shl 2) or (1L shl 4) or (1L shl 6) or (1L shl 32) or (1L shl 35))
             u64(0)
-            u32(1); u32(1); u32(1); u32(1); u32(1); u32(1)
+            u32(1); u32(typeRowsCount.toLong()); u32(1); u32(1); u32(1); u32(1)
 
             // Module row
             u16(0); u16(moduleName); u16(0); u16(0); u16(0)
 
-            // TypeDef row: public class Game.PlayerController
-            u32(1); u16(typeName); u16(namespace); u16(0); u16(1); u16(1)
+            // TypeDef rows: the first row owns the field and method; later
+            // rows start after those tables' only records.
+            repeat(typeRowsCount) { index ->
+                u32(1); u16(typeName); u16(namespace); u16(0)
+                u16(if (index == 0) 1 else 2)
+                u16(if (index == 0) 1 else 2)
+            }
 
             // Field row: private Int32 health
             u16(6); u16(fieldName); u16(1)
