@@ -244,6 +244,7 @@ internal object UnityMetadataParser {
         val monoScriptObjects = ArrayList<UnityObjectSummary>()
         val objectTypeCounts = linkedMapOf<Int, Long>()
         val objectTypePathSamples = linkedMapOf<Int, MutableList<Long>>()
+        var rawTypeIndexFallbackCount = 0L
         val dataSectionSize = if (header.fileSize != null && header.dataOffset != null && header.fileSize >= header.dataOffset) {
             header.fileSize - header.dataOffset
         } else null
@@ -262,19 +263,15 @@ internal object UnityMetadataParser {
                 return partial.copy(objectCount = objectCount, objectSamples = objectSamples,
                     note = "Запись объекта указывает за пределы data section; дальнейший разбор остановлен.")
             }
-            if (typeIndex !in typeClassIds.indices) {
-                return partial.copy(
-                    objectCount = objectCount,
-                    objectSamples = objectSamples,
-                    note = "Запись объекта ссылается на typeIndex вне таблицы SerializedType; разбор остановлен."
-                )
+            val classId = typeClassIds.getOrNull(typeIndex) ?: run {
+                // Stripped SerializedFiles may store persistentTypeID directly
+                // in typeIndex when no matching m_Types entry exists.
+                rawTypeIndexFallbackCount++
+                typeIndex
             }
-            val classId = typeClassIds[typeIndex]
-            if (classId != null) {
-                objectTypeCounts[classId] = (objectTypeCounts[classId] ?: 0L) + 1L
-                val samples = objectTypePathSamples.getOrPut(classId) { mutableListOf() }
-                if (samples.size < 10) samples.add(pathId)
-            }
+            objectTypeCounts[classId] = (objectTypeCounts[classId] ?: 0L) + 1L
+            val samples = objectTypePathSamples.getOrPut(classId) { mutableListOf() }
+            if (samples.size < 10) samples.add(pathId)
             val summary = UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, classId)
             if (objectSamples.size < MAX_OBJECT_SAMPLES) objectSamples.add(summary)
             if (classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES) {
@@ -390,6 +387,11 @@ internal object UnityMetadataParser {
         )
 
         val sampleNotes = mutableListOf<String>()
+        if (rawTypeIndexFallbackCount > 0L) {
+            sampleNotes.add(
+                "$rawTypeIndexFallbackCount object row(s) used the raw typeIndex as a persistentTypeID fallback because no matching SerializedType entry was present; analysis is partial."
+            )
+        }
         if (typeCount > MAX_SERIALIZED_TYPE_SAMPLES) {
             sampleNotes.add("SerializedType выборка ограничена первыми $MAX_SERIALIZED_TYPE_SAMPLES записями.")
         }
