@@ -2,6 +2,7 @@ package com.ramen.god
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnitySceneGraphResolverTest {
@@ -83,6 +84,54 @@ class UnitySceneGraphResolverTest {
         assertEquals("PlayerLogic", link.targetName)
         val ambiguous = UnityExternalPointerResolver.resolve(mapOf("level.assets" to owner, "shared.assets" to target)) { null }
         assertEquals("external-file-path-unmatched-or-ambiguous", ambiguous.getValue("level.assets").single().status)
+    }
+
+    @Test
+    fun externalPointerResolverHonorsCancellationInsidePointerLoop() {
+        val owner = UnityMetadataSummary(
+            null, null, true, 0,
+            externalReferences = listOf(UnityExternalReference(1, "shared.assets", 0)),
+            decodedObjects = listOf(
+                UnityDecodedObjectSummary(
+                    10, 114,
+                    children = listOf(ptr(1, 77), ptr(1, 78))
+                )
+            )
+        )
+        var checks = 0
+        val error = runCatching {
+            UnityExternalPointerResolver.resolve(
+                metadataByPath = mapOf("scene.assets" to owner),
+                resolvePath = { "shared.assets" },
+                shouldCancel = { ++checks >= 4 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(4, checks)
+    }
+
+    @Test
+    fun monoBehaviourResolverHonorsCancellationBetweenBindings() {
+        val owner = UnityMetadataSummary(
+            null, null, true, 0,
+            externalReferences = listOf(UnityExternalReference(1, "scripts.assets", 0)),
+            decodedObjects = listOf(
+                UnityDecodedObjectSummary(11, 114, script = ptr(1, 90)),
+                UnityDecodedObjectSummary(12, 114, script = ptr(1, 91))
+            )
+        )
+        var checks = 0
+        val error = runCatching {
+            UnityMonoBehaviourScriptResolver.resolve(
+                metadataByPath = mapOf("scene.assets" to owner),
+                resolveExternalPath = { "scripts.assets" },
+                shouldCancel = { ++checks >= 3 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(3, checks)
     }
 
     @Test
