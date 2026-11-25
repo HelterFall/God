@@ -187,6 +187,15 @@ class PeParserTest {
     }
 
     @Test
+    fun reportsTruncatedSectionHeaderTable() {
+        val bytes = minimalPe(machine = 0x8664).copyOf(0x1a0)
+        put16(bytes, 0x86, 2) // two section headers declared; only one fits
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.note.orEmpty().contains("section table is truncated"))
+    }
+
+    @Test
     fun ignoresDirectoryBytesOutsideDeclaredOptionalHeader() {
         val bytes = ByteArray(0x400)
         val pe = 0x80

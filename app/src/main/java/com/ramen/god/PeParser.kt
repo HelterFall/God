@@ -80,13 +80,23 @@ internal object PeParser {
         val clrDirectorySize = if (readableDirectoryCount > 14L) u32(bytes, directory + 14 * 8 + 4) else 0L
         val sectionsStart = optional + optionalSize
         val sections = mutableListOf<Section>()
-        for (index in 0 until minOf(sectionCount, MAX_SECTIONS)) {
+        val sectionsToRead = minOf(sectionCount, MAX_SECTIONS)
+        var sectionTableTruncated = false
+        for (index in 0 until sectionsToRead) {
             val offset = sectionsStart + index * 40
-            if (!has(bytes, offset, 40)) break
+            if (!has(bytes, offset, 40)) {
+                sectionTableTruncated = true
+                break
+            }
             sections.add(Section(
                 u32(bytes, offset + 8), u32(bytes, offset + 12),
                 u32(bytes, offset + 16), u32(bytes, offset + 20)
             ))
+        }
+        val sectionNote = when {
+            sectionTableTruncated -> "section table is truncated"
+            sectionCount > MAX_SECTIONS -> "section count exceeds parser limit ($MAX_SECTIONS)"
+            else -> null
         }
 
         val importData = if (importRva == 0L) {
@@ -130,7 +140,7 @@ internal object PeParser {
                 }
             }
         }
-        val note = listOfNotNull(directoryNote, importNote, clrNote)
+        val note = listOfNotNull(directoryNote, sectionNote, importNote, clrNote)
             .distinct().joinToString("; ").ifBlank { null }
         return PeInfo(
             machine = machine,
