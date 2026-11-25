@@ -121,7 +121,21 @@ internal object ClrMetadataParser {
             if (offset < 0 || size < 0 || offset.toLong() + size > metadataSize) {
                 return emptySummary(runtimeVersion, clrFlags, "stream-out-of-range", "Поток $name выходит за границы metadata.")
             }
+            if (streams.containsKey(name)) {
+                return emptySummary(runtimeVersion, clrFlags, "duplicate-stream-name", "Имя потока $name объявлено более одного раза.")
+            }
             streams[name] = StreamInfo(offset, size)
+        }
+
+        // Metadata stream payloads are distinct regions. Overlaps allow one
+        // table/heap to alias another and make indices ambiguous.
+        val orderedStreams = streams.values.filter { it.size > 0 }.sortedBy { it.offset }
+        for (index in 1 until orderedStreams.size) {
+            val previous = orderedStreams[index - 1]
+            val current = orderedStreams[index]
+            if (current.offset.toLong() < previous.offset.toLong() + previous.size.toLong()) {
+                return emptySummary(runtimeVersion, clrFlags, "overlapping-streams", "Диапазоны metadata-потоков пересекаются.")
+            }
         }
 
         val tables = streams["#~"] ?: streams["#-"]

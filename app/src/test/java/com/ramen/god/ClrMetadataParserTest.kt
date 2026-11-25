@@ -79,6 +79,32 @@ class ClrMetadataParserTest {
     }
 
     @Test
+    fun rejectsDuplicateMetadataStreamNames() {
+        val metadata = syntheticMetadataRoot()
+        val blobName = metadata.indexOfSubsequence("#Blob".toByteArray(Charsets.US_ASCII))
+        require(blobName >= 0)
+        metadata[blobName] = '#'.code.toByte()
+        metadata[blobName + 1] = '~'.code.toByte()
+        metadata[blobName + 2] = 0
+
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+        assertEquals("duplicate-stream-name", result.status)
+    }
+
+    @Test
+    fun rejectsOverlappingMetadataStreamPayloads() {
+        val metadata = syntheticMetadataRoot()
+        val tablesName = metadata.indexOfSubsequence("#~".toByteArray(Charsets.US_ASCII))
+        val stringsName = metadata.indexOfSubsequence("#Strings".toByteArray(Charsets.US_ASCII))
+        require(tablesName >= 8 && stringsName >= 8)
+        val tablesOffset = readU32(metadata, tablesName - 8)
+        put32(metadata, stringsName - 8, tablesOffset)
+
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+        assertEquals("overlapping-streams", result.status)
+    }
+
+    @Test
     fun reportsMetadataOutsideBoundedReadWindow() {
         val result = ClrMetadataParser.parse(ByteArray(32), 16, 1024, "4.0", 0)
         assertNotNull(result)
@@ -90,6 +116,24 @@ class ClrMetadataParserTest {
         val result = ClrMetadataParser.parse(ByteArray(64), 0, 64, "4.0", 0)
         assertNotNull(result)
         assertEquals("invalid-metadata-signature", result?.status)
+    }
+
+    private fun ByteArray.indexOfSubsequence(needle: ByteArray): Int {
+        if (needle.isEmpty() || needle.size > size) return -1
+        for (start in 0..(size - needle.size)) {
+            if (needle.indices.all { this[start + it] == needle[it] }) return start
+        }
+        return -1
+    }
+
+    private fun readU32(bytes: ByteArray, offset: Int): Long =
+        (bytes[offset].toLong() and 0xff) or
+            ((bytes[offset + 1].toLong() and 0xff) shl 8) or
+            ((bytes[offset + 2].toLong() and 0xff) shl 16) or
+            ((bytes[offset + 3].toLong() and 0xff) shl 24)
+
+    private fun put32(bytes: ByteArray, offset: Int, value: Long) {
+        for (index in 0 until 4) bytes[offset + index] = (value ushr (8 * index)).toByte()
     }
 
     private fun syntheticMetadataRoot(
