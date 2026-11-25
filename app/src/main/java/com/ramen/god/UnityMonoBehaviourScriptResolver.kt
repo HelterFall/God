@@ -6,8 +6,8 @@ internal object UnityMonoBehaviourScriptResolver {
 
     fun resolve(
         metadataByPath: Map<String, UnityMetadataSummary>,
-        resolveExternalPath: (String) -> String?,
-        shouldCancel: () -> Boolean = { false }
+        shouldCancel: () -> Boolean = { false },
+        resolveExternalPath: (String) -> String?
     ): Map<String, List<UnityMonoBehaviourScriptBinding>> {
         val output = linkedMapOf<String, List<UnityMonoBehaviourScriptBinding>>()
         for ((ownerPath, owner) in metadataByPath) {
