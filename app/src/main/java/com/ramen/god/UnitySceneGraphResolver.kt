@@ -25,9 +25,11 @@ internal object UnitySceneGraphResolver {
     private const val MAX_GRAPH_NODES = 128
     private const val MAX_LINKS_PER_OBJECT = 1024
 
+    private fun isTransformClass(classId: Int?): Boolean = classId == 4 || classId == 224
+
     fun resolve(objects: List<UnityDecodedObjectSummary>): UnitySceneGraphResult {
         val byPathId = objects.associateBy { it.pathId }
-        val transforms = objects.filter { it.classId == 4 }
+        val transforms = objects.filter { isTransformClass(it.classId) }
         val transformByGameObject = transforms.mapNotNull { transform ->
             val gameObject = transform.gameObject
             if (gameObject?.fileId == 0 && byPathId[gameObject.pathId]?.classId == 1) {
@@ -60,17 +62,17 @@ internal object UnitySceneGraphResolver {
                 if (gameObject.components.size > MAX_LINKS_PER_OBJECT) {
                     unresolved += gameObject.components.size - MAX_LINKS_PER_OBJECT
                 }
-                val transform = componentObjects.firstOrNull { it.classId == 4 }
+                val transform = componentObjects.firstOrNull { isTransformClass(it.classId) }
                     ?: transformByGameObject[gameObject.pathId]
                 val parentTransform = resolveLocal(transform?.father)
-                val parentGameObject = if (parentTransform?.classId == 4) {
+                val parentGameObject = if (isTransformClass(parentTransform?.classId)) {
                     resolveLocal(parentTransform.gameObject)?.takeIf { it.classId == 1 }
                 } else null
                 val childGameObjects = transform?.children.orEmpty()
                     .take(MAX_LINKS_PER_OBJECT)
                     .mapNotNull { childPointer ->
                         val childTransform = resolveLocal(childPointer)
-                        if (childTransform?.classId == 4) {
+                        if (isTransformClass(childTransform?.classId)) {
                             resolveLocal(childTransform.gameObject)?.takeIf { it.classId == 1 }?.pathId
                         } else null
                     }.distinct()
