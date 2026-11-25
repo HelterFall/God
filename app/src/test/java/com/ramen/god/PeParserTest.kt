@@ -61,7 +61,7 @@ class PeParserTest {
         put16(bytes, 0x86, 2)
         val secondSection = 0x80 + 24 + 240 + 40
         put32(bytes, secondSection + 8, 0x200)
-        put32(bytes, secondSection + 12, 0x1080)
+        put32(bytes, secondSection + 12, 0x1000)
         put32(bytes, secondSection + 16, 0x200)
         put32(bytes, secondSection + 20, 0x400)
 
