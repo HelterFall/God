@@ -1753,6 +1753,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private fun unityObjectGraphNodeType(classId: Int?): String = when (classId) {
         1 -> "unity-gameobject"
         4 -> "unity-transform"
+        224 -> "unity-rect-transform"
         114 -> "unity-monobehaviour"
         115 -> "unity-monoscript"
         null -> "unity-object"
@@ -1764,6 +1765,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val typeName = when (classId) {
             1 -> "GameObject"
             4 -> "Transform"
+            224 -> "RectTransform"
             114 -> "MonoBehaviour"
             115 -> "MonoScript"
             null -> "Unity object"
