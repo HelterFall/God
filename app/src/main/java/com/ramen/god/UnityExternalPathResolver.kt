@@ -16,7 +16,8 @@ internal object UnityExternalPathResolver {
         externalPath: String,
         candidates: List<T>,
         pathOf: (T) -> String,
-        nameOf: (T) -> String
+        nameOf: (T) -> String,
+        shouldCancel: () -> Boolean = { false }
     ): UnityExternalPathMatch<T> {
         var normalized = externalPath.trim().replace('\\', '/')
         val archiveMarker = normalized.indexOf("archive:/", ignoreCase = true)
@@ -26,15 +27,23 @@ internal object UnityExternalPathResolver {
         normalized = normalized.trimStart('/').lowercase(Locale.ROOT)
         if (normalized.isBlank()) return UnityExternalPathMatch(null, false)
 
-        val pathMatches = candidates.filter { item ->
+        val pathMatches = mutableListOf<T>()
+        for (item in candidates) {
+            if (shouldCancel()) throw ScanCancelledException()
             val candidate = pathOf(item).replace('\\', '/').trimStart('/').lowercase(Locale.ROOT)
-            normalized == candidate || normalized.endsWith("/" + candidate)
+            if (normalized == candidate || normalized.endsWith("/" + candidate)) {
+                pathMatches.add(item)
+            }
         }
         if (pathMatches.size == 1) return UnityExternalPathMatch(pathMatches.single(), false)
         if (pathMatches.size > 1) return UnityExternalPathMatch(null, true)
 
         val baseName = normalized.substringAfterLast('/')
-        val nameMatches = candidates.filter { nameOf(it).equals(baseName, ignoreCase = true) }
+        val nameMatches = mutableListOf<T>()
+        for (item in candidates) {
+            if (shouldCancel()) throw ScanCancelledException()
+            if (nameOf(item).equals(baseName, ignoreCase = true)) nameMatches.add(item)
+        }
         return when {
             nameMatches.size == 1 -> UnityExternalPathMatch(nameMatches.single(), false)
             nameMatches.size > 1 -> UnityExternalPathMatch(null, true)
