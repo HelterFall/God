@@ -243,6 +243,8 @@ internal object UnityMetadataParser {
 
         val objectSamples = ArrayList<UnityObjectSummary>(minOf(objectCount, MAX_OBJECT_SAMPLES.toLong()).toInt())
         val monoScriptObjects = ArrayList<UnityObjectSummary>()
+        // PathIDs are unique within a SerializedFile; avoid retaining ambiguous sampled targets.
+        val retainedPathIds = HashSet<Long>(MAX_OBJECT_SAMPLES + MAX_MONOSCRIPT_OBJECT_SAMPLES)
         val objectTypeCounts = linkedMapOf<Int, Long>()
         val objectTypePathSamples = linkedMapOf<Int, MutableList<Long>>()
         var rawTypeIndexFallbackCount = 0L
@@ -274,10 +276,18 @@ internal object UnityMetadataParser {
             val samples = objectTypePathSamples.getOrPut(classId) { mutableListOf() }
             if (samples.size < 10) samples.add(pathId)
             val summary = UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, classId)
-            if (objectSamples.size < MAX_OBJECT_SAMPLES) objectSamples.add(summary)
-            if (classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES) {
-                monoScriptObjects.add(summary)
+            val retainObjectSample = objectSamples.size < MAX_OBJECT_SAMPLES
+            val retainMonoScriptSample = classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES
+            if ((retainObjectSample || retainMonoScriptSample) && !retainedPathIds.add(pathId)) {
+                return partial.copy(
+                    objectCount = objectCount,
+                    objectSamples = objectSamples.filterNot { it.pathId == pathId },
+                    monoScriptObjects = monoScriptObjects.filterNot { it.pathId == pathId },
+                    note = "Обнаружен повторяющийся PathID в выборке объектов; неоднозначные записи исключены из ссылок и граф сцены помечен как частичный."
+                )
             }
+            if (retainObjectSample) objectSamples.add(summary)
+            if (retainMonoScriptSample) monoScriptObjects.add(summary)
         }
 
         val objectTypeSummaries = objectTypeCounts.entries
