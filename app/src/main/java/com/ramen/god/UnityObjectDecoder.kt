@@ -158,7 +158,7 @@ internal object UnityObjectDecoder {
 
         val note = when {
             skipped == 0 -> null
-            decoded.isEmpty() -> "GameObject/Transform/MonoBehaviour не удалось декодировать в установленных лимитах."
+            decoded.isEmpty() -> "GameObject/Transform/RectTransform/MonoBehaviour не удалось декодировать в установленных лимитах."
             else -> "Декодировано ${decoded.size} scene objects; пропущено $skipped по лимитам или из-за неподдерживаемых полей."
         }
         return UnityObjectDecodeResult(decoded, skipped, note)
