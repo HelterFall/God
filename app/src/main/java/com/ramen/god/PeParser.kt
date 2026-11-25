@@ -58,12 +58,24 @@ internal object PeParser {
             0x20b -> true
             else -> return PeInfo(machine, false, emptyList(), "unknown optional header")
         }
-        val directory = if (is64Bit) optional + 112 else optional + 96
-        if (!has(bytes, directory, 15 * 8)) return PeInfo(machine, false, emptyList(), "data directories truncated")
+        val numberOfDirectoriesOffset = if (is64Bit) 108 else 92
+        val directoryOffset = if (is64Bit) 112 else 96
+        if (optionalSize < numberOfDirectoriesOffset + 4) {
+            return PeInfo(machine, false, emptyList(), "optional header is truncated")
+        }
+        val declaredDirectoryCount = u32(bytes, optional + numberOfDirectoriesOffset)
+        val availableDirectoryCount = (optionalSize - directoryOffset).coerceAtLeast(0) / 8
+        val readableDirectoryCount = minOf(declaredDirectoryCount, availableDirectoryCount.toLong())
+        val directoryNote = if (declaredDirectoryCount > availableDirectoryCount) {
+            "data directories truncated"
+        } else null
+        val directory = optional + directoryOffset
 
-        val importRva = u32(bytes, directory + 8)
-        val clrRva = u32(bytes, directory + 14 * 8)
-        val clrDirectorySize = u32(bytes, directory + 14 * 8 + 4)
+        // Never read a data-directory slot unless it is both declared by the
+        // image and contained inside SizeOfOptionalHeader.
+        val importRva = if (readableDirectoryCount > 1L) u32(bytes, directory + 8) else 0L
+        val clrRva = if (readableDirectoryCount > 14L) u32(bytes, directory + 14 * 8) else 0L
+        val clrDirectorySize = if (readableDirectoryCount > 14L) u32(bytes, directory + 14 * 8 + 4) else 0L
         val sectionsStart = optional + optionalSize
         val sections = mutableListOf<Section>()
         for (index in 0 until minOf(sectionCount, MAX_SECTIONS)) {
@@ -80,11 +92,12 @@ internal object PeParser {
         } else {
             parseImports(bytes, importRva, sections, is64Bit)
         }
-        val note = when {
+        val importNote = when {
             importData.note != null -> importData.note
             importRva != 0L && importData.dllNames.isEmpty() -> "import table outside read window or undecodable"
             else -> null
         }
+        val note = listOfNotNull(directoryNote, importNote).distinct().joinToString("; ").ifBlank { null }
 
         var metadataOffset: Int? = null
         var metadataSize: Long? = null

@@ -67,6 +67,16 @@ class UnityFileHeaderParserTest {
     }
 
     @Test
+    fun rejectsMetadataSizeThatWouldOverflowHeaderEndCalculation() {
+        val bytes = serializedV22()
+        put64be(bytes, 16, Long.MAX_VALUE)
+        put64be(bytes, 24, Long.MAX_VALUE)
+        put64be(bytes, 32, 48L)
+
+        assertNull(UnityFileHeaderParser.parse(bytes, Long.MAX_VALUE))
+    }
+
+    @Test
     fun reportsLegacyPreV9AsNeedingRandomAccess() {
         val bytes = ByteArray(512)
         put32be(bytes, 0, 128)

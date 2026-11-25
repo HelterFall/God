@@ -65,7 +65,9 @@ internal object UnityFileHeaderParser {
         if (fileSize <= 0L || fileSize > actualFileSize) return null
         if (metadataSize <= 0L || metadataSize > fileSize) return null
         if (dataOffset < headerSize.toLong() || dataOffset > fileSize) return null
-        if (headerSize.toLong() + metadataSize > dataOffset) return null
+        // Subtraction avoids overflow when an untrusted UInt64-sized header
+        // advertises a metadata size close to Long.MAX_VALUE.
+        if (metadataSize > dataOffset - headerSize.toLong()) return null
         return UnityFileHeader(
             "SerializedFile", version, fileSize, metadataSize, dataOffset, endian, headerSize,
             if (fileSize < actualFileSize) "В файле есть дополнительные байты после заявленного размера." else null
@@ -90,7 +92,7 @@ internal object UnityFileHeaderParser {
 
     private fun readCString(bytes: ByteArray, offset: Int, maximum: Int): Pair<String, Int>? {
         if (offset < 0 || offset >= bytes.size) return null
-        val limit = minOf(bytes.size, offset + maximum)
+        val limit = minOf(bytes.size.toLong(), offset.toLong() + maximum.toLong()).toInt()
         var end = offset
         while (end < limit && bytes[end].toInt() != 0) end++
         if (end == limit) return null

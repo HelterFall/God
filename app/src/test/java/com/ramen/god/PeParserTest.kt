@@ -128,6 +128,42 @@ class PeParserTest {
         assertTrue(info.managed)
     }
 
+    @Test
+    fun ignoresDirectoryBytesOutsideDeclaredOptionalHeader() {
+        val bytes = ByteArray(512)
+        val pe = 0x80
+        val optional = pe + 24
+        val optionalSize = 112 // PE32+: only fields through NumberOfRvaAndSizes
+        val section = optional + optionalSize
+
+        bytes[0] = 0x4d
+        bytes[1] = 0x5a
+        put32(bytes, 0x3c, pe)
+        bytes[pe] = 0x50
+        bytes[pe + 1] = 0x45
+        put16(bytes, pe + 4, 0x8664)
+        put16(bytes, pe + 6, 1)
+        put16(bytes, pe + 20, optionalSize)
+        put16(bytes, optional, 0x20b)
+        put32(bytes, optional + 108, 2) // claims an import directory, but none fits
+
+        // These section-header bytes overlap the location where an unchecked
+        // parser would look for IMAGE_DIRECTORY_ENTRY_IMPORT.
+        put32(bytes, section + 8, 0x1000) // VirtualSize, misread as Import RVA
+        put32(bytes, section + 12, 0x1000)
+        put32(bytes, section + 16, 0x200)
+        put32(bytes, section + 20, 0x200)
+
+        // A plausible fake import descriptor and DLL name at the mapped RVA.
+        put32(bytes, 0x20c, 0x1040)
+        put32(bytes, 0x210, 0x1050)
+        "FAKE.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x240)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.imports.isEmpty())
+        assertTrue(info.note.orEmpty().contains("data directories truncated"))
+    }
+
     private fun peWithImports(): ByteArray {
         val bytes = ByteArray(1024)
         val pe = 0x80
@@ -144,6 +180,7 @@ class PeParserTest {
         put16(bytes, pe + 6, 1) // one section
         put16(bytes, pe + 20, optionalSize)
         put16(bytes, optional, 0x20b) // PE32+ optional header
+        put32(bytes, optional + 108, 16)
 
         // IMAGE_DIRECTORY_ENTRY_IMPORT: RVA 0x1000, mapped by .rdata.
         put32(bytes, optional + 120, 0x1000)
@@ -193,6 +230,7 @@ class PeParserTest {
         put16(bytes, pe + 6, 1)
         put16(bytes, pe + 20, optionalSize)
         put16(bytes, optional, 0x10b) // PE32
+        put32(bytes, optional + 92, 16)
         put32(bytes, directory + 8, 0x1000)
 
         put32(bytes, section + 8, 0x200)
@@ -224,6 +262,7 @@ class PeParserTest {
         put16(bytes, 0x86, 0)
         put16(bytes, 0x94, 224)
         put16(bytes, 0x98, 0x10b)
+        put32(bytes, 0x98 + 92, 16)
         put32(bytes, 0x98 + 208, clrRva)
         return bytes
     }

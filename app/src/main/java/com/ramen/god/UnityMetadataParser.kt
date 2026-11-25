@@ -179,9 +179,16 @@ internal object UnityMetadataParser {
             )
         }
         val base = header.headerSize
-        if (prefix.size <= base) return null
+        val metadataSize = header.metadataSize ?: return null
+        val dataOffset = header.dataOffset ?: return null
+        if (base < 0 || prefix.size <= base || metadataSize <= 0L ||
+            dataOffset < base.toLong() || metadataSize > dataOffset - base.toLong()) return null
+        // SerializedFile metadata is a bounded region immediately after the
+        // header. Do not let malformed counts consume bytes from the data area.
+        val metadataEnd = base.toLong() + metadataSize
+        val metadataLimit = minOf(prefix.size.toLong(), metadataEnd).toInt()
         val little = header.endianness == "Little Endian"
-        val cursor = Cursor(prefix, base, little)
+        val cursor = Cursor(prefix, base, little, metadataLimit)
 
         val unityVersion = cursor.readCString(MAX_VERSION_STRING) ?: return null
         if (unityVersion.isBlank()) return null
@@ -598,17 +605,19 @@ internal object UnityMetadataParser {
     private class Cursor(
         private val bytes: ByteArray,
         private var position: Int,
-        private val little: Boolean
+        private val little: Boolean,
+        private val limit: Int = bytes.size
     ) {
         fun isLittleEndian(): Boolean = little
 
         fun readBytes(count: Int): ByteArray? {
-            if (count < 0 || position < 0 || position.toLong() + count > bytes.size) return null
+            if (count < 0 || position < 0 || limit > bytes.size ||
+                position.toLong() + count.toLong() > limit.toLong()) return null
             return bytes.copyOfRange(position, position + count).also { position += count }
         }
 
         fun readU8(): Int? {
-            if (position >= bytes.size) return null
+            if (position < 0 || position >= limit) return null
             return bytes[position++].toInt() and 0xff
         }
 
@@ -624,13 +633,11 @@ internal object UnityMetadataParser {
 
         fun readU32(): Long? = readUnsigned(4)
 
-        fun readU64(): Long? {
-            val value = readUnsigned(8) ?: return null
-            return value
-        }
+        fun readU64(): Long? = readUnsigned(8)
 
         fun readCString(maximum: Int): String? {
-            val endLimit = minOf(bytes.size, position + maximum + 1)
+            if (maximum < 0 || position < 0 || position > limit) return null
+            val endLimit = minOf(limit.toLong(), position.toLong() + maximum.toLong() + 1L).toInt()
             var end = position
             while (end < endLimit && bytes[end].toInt() != 0) end++
             if (end >= endLimit) return null
@@ -640,23 +647,23 @@ internal object UnityMetadataParser {
         }
 
         fun skip(count: Long): Boolean {
-            if (count < 0L || count > Int.MAX_VALUE.toLong()) return false
+            if (count < 0L || position < 0) return false
             val next = position.toLong() + count
-            if (next > bytes.size) return false
+            if (next > limit.toLong()) return false
             position = next.toInt()
             return true
         }
 
         fun align4(): Boolean {
-            val relative = position - (if (position >= 0) 0 else 0)
-            val aligned = (relative + 3) and -4
-            if (aligned > bytes.size) return false
-            position = aligned
+            if (position < 0) return false
+            val aligned = (position.toLong() + 3L) and -4L
+            if (aligned > limit.toLong()) return false
+            position = aligned.toInt()
             return true
         }
 
         private fun readUnsigned(count: Int): Long? {
-            if (position < 0 || position + count > bytes.size) return null
+            if (count < 0 || position < 0 || position.toLong() + count.toLong() > limit.toLong()) return null
             var value = 0L
             if (little) {
                 for (i in count - 1 downTo 0) value = (value shl 8) or (bytes[position + i].toLong() and 0xff)
