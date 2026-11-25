@@ -11,7 +11,10 @@ internal data class UnityFileHeader(
     val headerSize: Int,
     val note: String? = null,
     val playerVersion: String? = null,
-    val engineVersion: String? = null
+    val engineVersion: String? = null,
+    val bundleCompressedBlocksInfoSize: Long? = null,
+    val bundleUncompressedBlocksInfoSize: Long? = null,
+    val bundleFlags: Long? = null
 )
 
 internal object UnityFileHeaderParser {
@@ -21,7 +24,7 @@ internal object UnityFileHeaderParser {
 
     fun parse(prefix: ByteArray, actualFileSize: Long): UnityFileHeader? {
         if (actualFileSize <= 0L || prefix.isEmpty()) return null
-        if (startsWith(prefix, "UnityFS")) return parseUnityFs(prefix)
+        if (startsWith(prefix, "UnityFS")) return parseUnityFs(prefix, actualFileSize)
         if (prefix.size < 16) return null
 
         val legacyMetadata = u32be(prefix, 0)
@@ -74,19 +77,43 @@ internal object UnityFileHeaderParser {
         )
     }
 
-    private fun parseUnityFs(bytes: ByteArray): UnityFileHeader? {
-        if (bytes.size < 14 || bytes[7].toInt() != 0) return null
+    private fun parseUnityFs(bytes: ByteArray, actualFileSize: Long): UnityFileHeader? {
+        if (bytes.size < 16 || bytes[7].toInt() != 0) return null
         val version = u32be(bytes, 8)
         if (version !in 1L..20L) return null
         val player = readCString(bytes, 12, 128) ?: return null
         val revisionStart = 12 + player.second
         val revision = readCString(bytes, revisionStart, 128) ?: return null
+        val fieldsOffset = revisionStart.toLong() + revision.second.toLong()
+        if (fieldsOffset > Int.MAX_VALUE || !has(bytes, fieldsOffset.toInt(), 20)) return null
+        val headerEnd = fieldsOffset.toInt() + 20
+
+        // UnityFS fixed tail: UInt64 bundle size, then compressed and
+        // uncompressed block-info sizes and archive flags (all big-endian).
+        val bundleSize = i64be(bytes, fieldsOffset.toInt()) ?: return null
+        val compressedInfoSize = u32be(bytes, fieldsOffset.toInt() + 8)
+        val uncompressedInfoSize = u32be(bytes, fieldsOffset.toInt() + 12)
+        val flags = u32be(bytes, fieldsOffset.toInt() + 16)
+        if (bundleSize < headerEnd.toLong() || bundleSize > actualFileSize) return null
+        if (compressedInfoSize == 0L || uncompressedInfoSize == 0L) return null
+        if (compressedInfoSize > bundleSize - headerEnd.toLong()) return null
+
         return UnityFileHeader(
-            "UnityFS bundle", version, null, null, null, null,
-            revisionStart + revision.second,
-            "Распознан только заголовок контейнера; блоки и сжатие пока не разбираются. Player=" +
-                player.first + ", revision=" + revision.first,
-            player.first, revision.first
+            kind = "UnityFS bundle",
+            formatVersion = version,
+            fileSize = bundleSize,
+            metadataSize = uncompressedInfoSize,
+            dataOffset = headerEnd.toLong(),
+            endianness = null,
+            headerSize = headerEnd,
+            note = "Полный фиксированный заголовок UnityFS проверен; таблица блоков и payload не разбираются. " +
+                "Compression=" + (flags and 0x3f) + ", flags=0x" + flags.toString(16) +
+                ", Player=" + player.first + ", revision=" + revision.first,
+            playerVersion = player.first,
+            engineVersion = revision.first,
+            bundleCompressedBlocksInfoSize = compressedInfoSize,
+            bundleUncompressedBlocksInfoSize = uncompressedInfoSize,
+            bundleFlags = flags
         )
     }
 
@@ -98,6 +125,9 @@ internal object UnityFileHeaderParser {
         if (end == limit) return null
         return String(bytes, offset, end - offset, Charsets.UTF_8) to (end - offset + 1)
     }
+
+    private fun has(bytes: ByteArray, offset: Int, length: Int): Boolean =
+        offset >= 0 && length >= 0 && offset.toLong() + length.toLong() <= bytes.size.toLong()
 
     private fun startsWith(bytes: ByteArray, value: String): Boolean {
         if (bytes.size < value.length) return false
