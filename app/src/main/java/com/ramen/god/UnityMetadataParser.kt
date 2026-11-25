@@ -262,7 +262,14 @@ internal object UnityMetadataParser {
                 return partial.copy(objectCount = objectCount, objectSamples = objectSamples,
                     note = "Запись объекта указывает за пределы data section; дальнейший разбор остановлен.")
             }
-            val classId = typeClassIds.getOrNull(typeIndex)
+            if (typeIndex !in typeClassIds.indices) {
+                return partial.copy(
+                    objectCount = objectCount,
+                    objectSamples = objectSamples,
+                    note = "Запись объекта ссылается на typeIndex вне таблицы SerializedType; разбор остановлен."
+                )
+            }
+            val classId = typeClassIds[typeIndex]
             if (classId != null) {
                 objectTypeCounts[classId] = (objectTypeCounts[classId] ?: 0L) + 1L
                 val samples = objectTypePathSamples.getOrPut(classId) { mutableListOf() }
