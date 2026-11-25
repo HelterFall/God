@@ -6,8 +6,8 @@ internal object UnityExternalPointerResolver {
 
     fun resolve(
         metadataByPath: Map<String, UnityMetadataSummary>,
-        resolvePath: (String) -> String?,
-        shouldCancel: () -> Boolean = { false }
+        shouldCancel: () -> Boolean = { false },
+        resolvePath: (String) -> String?
     ): Map<String, List<UnityExternalPointerResolution>> {
         val output = linkedMapOf<String, List<UnityExternalPointerResolution>>()
         for ((ownerPath, metadata) in metadataByPath) {
