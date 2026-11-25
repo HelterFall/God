@@ -54,6 +54,47 @@ class UnitySceneGraphResolverTest {
     }
 
     @Test
+    fun resolvesRectTransformObjectsAsUiParentAndChildTransforms() {
+        val objects = listOf(
+            UnityDecodedObjectSummary(
+                pathId = 100L,
+                classId = 1,
+                name = "CanvasRoot",
+                components = listOf(ptr(0, 220))
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 101L,
+                classId = 1,
+                name = "Button",
+                components = listOf(ptr(0, 221))
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 220L,
+                classId = 224,
+                gameObject = ptr(0, 100),
+                father = ptr(0, 0),
+                children = listOf(ptr(0, 221))
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 221L,
+                classId = 224,
+                gameObject = ptr(0, 101),
+                father = ptr(0, 220)
+            )
+        )
+
+        val graph = UnitySceneGraphResolver.resolve(objects)
+        val root = graph.nodes.single { it.gameObjectPathId == 100L }
+        val child = graph.nodes.single { it.gameObjectPathId == 101L }
+
+        assertEquals(220L, root.transformPathId)
+        assertEquals(listOf(101L), root.childGameObjectPathIds)
+        assertEquals(100L, child.parentGameObjectPathId)
+        assertEquals(221L, child.transformPathId)
+        assertEquals(0, graph.unresolvedReferenceCount)
+    }
+
+    @Test
     fun preservesExternalAndMissingLinksAsUnresolved() {
         val objects = listOf(
             UnityDecodedObjectSummary(
