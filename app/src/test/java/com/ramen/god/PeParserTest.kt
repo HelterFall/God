@@ -121,6 +121,64 @@ class PeParserTest {
     }
 
     @Test
+    fun limitsImportDescriptorsToDeclaredDirectorySize() {
+        val bytes = peWithImports()
+        // Only the first descriptor is part of the declared import directory.
+        put32(bytes, 0x80 + 24 + 124, 20)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertEquals(listOf("KERNEL32.dll"), info.imports)
+        assertEquals(
+            listOf(
+                PeImportedSymbol("KERNEL32.dll", name = "CreateFileW", hint = 5),
+                PeImportedSymbol("KERNEL32.dll", ordinal = 7)
+            ),
+            info.importedSymbols
+        )
+        assertTrue(info.note.orEmpty().contains("no terminator within declared directory size"))
+    }
+
+    @Test
+    fun rejectsClrMetadataThatCrossesSectionRawDataBoundary() {
+        val bytes = ByteArray(0x500)
+        val pe = 0x80
+        val optional = pe + 24
+        val optionalSize = 240
+        val section = optional + optionalSize
+        bytes[0] = 0x4d
+        bytes[1] = 0x5a
+        put32(bytes, 0x3c, pe)
+        bytes[pe] = 0x50
+        bytes[pe + 1] = 0x45
+        put16(bytes, pe + 4, 0x8664)
+        put16(bytes, pe + 6, 1)
+        put16(bytes, pe + 20, optionalSize)
+        put16(bytes, optional, 0x20b)
+        put32(bytes, optional + 108, 16)
+        put32(bytes, optional + 224, 0x1000)
+        put32(bytes, optional + 228, 20)
+        put32(bytes, section + 8, 0x200)
+        put32(bytes, section + 12, 0x1000)
+        put32(bytes, section + 16, 0x100)
+        put32(bytes, section + 20, 0x200)
+
+        // CLR header occupies the beginning of the section, but its metadata
+        // RVA points at the last 16 bytes while claiming 64 bytes.
+        put32(bytes, 0x200, 72)
+        put16(bytes, 0x204, 2)
+        put16(bytes, 0x206, 5)
+        put32(bytes, 0x208, 0x10f0)
+        put32(bytes, 0x20c, 64)
+        put32(bytes, 0x210, 1)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.managed)
+        assertNull(info.clrMetadataOffset)
+        assertEquals(64L, info.clrMetadataSize)
+        assertTrue(info.note.orEmpty().contains("extends beyond readable section data"))
+    }
+
+    @Test
     fun detectsClrDirectory() {
         val info = PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x2000))
         requireNotNull(info)
@@ -182,8 +240,9 @@ class PeParserTest {
         put16(bytes, optional, 0x20b) // PE32+ optional header
         put32(bytes, optional + 108, 16)
 
-        // IMAGE_DIRECTORY_ENTRY_IMPORT: RVA 0x1000, mapped by .rdata.
+        // IMAGE_DIRECTORY_ENTRY_IMPORT: two entries plus zero terminator.
         put32(bytes, optional + 120, 0x1000)
+        put32(bytes, optional + 124, 60)
 
         // One section: RVA 0x1000..0x11ff maps to file offset 0x200..0x3ff.
         put32(bytes, section + 8, 0x200) // VirtualSize
@@ -232,6 +291,7 @@ class PeParserTest {
         put16(bytes, optional, 0x10b) // PE32
         put32(bytes, optional + 92, 16)
         put32(bytes, directory + 8, 0x1000)
+        put32(bytes, directory + 12, 40)
 
         put32(bytes, section + 8, 0x200)
         put32(bytes, section + 12, 0x1000)

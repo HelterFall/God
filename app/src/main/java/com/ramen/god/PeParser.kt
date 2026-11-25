@@ -21,6 +21,7 @@ internal data class PeInfo(
 
 internal object PeParser {
     private data class Section(val virtualSize: Long, val virtualAddress: Long, val rawSize: Long, val rawPointer: Long)
+    private data class RvaMapping(val offset: Int, val availableBytes: Int)
     private data class ImportParseResult(
         val dllNames: List<String>,
         val symbols: List<PeImportedSymbol>,
@@ -74,6 +75,7 @@ internal object PeParser {
         // Never read a data-directory slot unless it is both declared by the
         // image and contained inside SizeOfOptionalHeader.
         val importRva = if (readableDirectoryCount > 1L) u32(bytes, directory + 8) else 0L
+        val importDirectorySize = if (readableDirectoryCount > 1L) u32(bytes, directory + 12) else 0L
         val clrRva = if (readableDirectoryCount > 14L) u32(bytes, directory + 14 * 8) else 0L
         val clrDirectorySize = if (readableDirectoryCount > 14L) u32(bytes, directory + 14 * 8 + 4) else 0L
         val sectionsStart = optional + optionalSize
@@ -90,31 +92,46 @@ internal object PeParser {
         val importData = if (importRva == 0L) {
             ImportParseResult(emptyList(), emptyList())
         } else {
-            parseImports(bytes, importRva, sections, is64Bit)
+            parseImports(bytes, importRva, importDirectorySize, sections, is64Bit)
         }
         val importNote = when {
             importData.note != null -> importData.note
             importRva != 0L && importData.dllNames.isEmpty() -> "import table outside read window or undecodable"
             else -> null
         }
-        val note = listOfNotNull(directoryNote, importNote).distinct().joinToString("; ").ifBlank { null }
-
         var metadataOffset: Int? = null
         var metadataSize: Long? = null
         var runtimeVersion: String? = null
         var clrFlags: Long? = null
-        if (clrRva != 0L && clrDirectorySize >= 16L) {
-            val clrOffset = rvaToOffset(clrRva, sections)
-            if (clrOffset != null && has(bytes, clrOffset, 16)) {
+        var clrNote: String? = null
+        if (clrRva != 0L) {
+            val clrMapping = rvaMapping(clrRva, sections, bytes)
+            if (clrDirectorySize < 16L || clrMapping == null || clrMapping.availableBytes < 16) {
+                clrNote = "CLR header is outside readable section data or truncated"
+            } else {
+                val clrOffset = clrMapping.offset
                 val runtimeMajor = u16(bytes, clrOffset + 4)
                 val runtimeMinor = u16(bytes, clrOffset + 6)
                 runtimeVersion = "$runtimeMajor.$runtimeMinor"
                 val metadataRva = u32(bytes, clrOffset + 8)
-                metadataSize = u32(bytes, clrOffset + 12)
-                metadataOffset = rvaToOffset(metadataRva, sections)
-                if (has(bytes, clrOffset, 20)) clrFlags = u32(bytes, clrOffset + 16)
+                val declaredMetadataSize = u32(bytes, clrOffset + 12)
+                if (clrDirectorySize >= 20L && clrMapping.availableBytes >= 20) {
+                    clrFlags = u32(bytes, clrOffset + 16)
+                }
+                metadataSize = declaredMetadataSize
+                val metadataMapping = if (declaredMetadataSize > 0L) {
+                    rvaMapping(metadataRva, sections, bytes)
+                } else null
+                if (metadataMapping != null &&
+                    declaredMetadataSize <= metadataMapping.availableBytes.toLong()) {
+                    metadataOffset = metadataMapping.offset
+                } else {
+                    clrNote = "CLR metadata directory extends beyond readable section data"
+                }
             }
         }
+        val note = listOfNotNull(directoryNote, importNote, clrNote)
+            .distinct().joinToString("; ").ifBlank { null }
         return PeInfo(
             machine = machine,
             managed = clrRva != 0L,
@@ -131,11 +148,26 @@ internal object PeParser {
     private fun parseImports(
         bytes: ByteArray,
         rva: Long,
+        directorySize: Long,
         sections: List<Section>,
         is64Bit: Boolean
     ): ImportParseResult {
-        val start = rvaToOffset(rva, sections)
+        if (directorySize <= 0L) {
+            return ImportParseResult(emptyList(), emptyList(), "import directory has an empty declared size")
+        }
+        val mapping = rvaMapping(rva, sections, bytes)
             ?: return ImportParseResult(emptyList(), emptyList(), "import directory RVA is outside readable sections")
+        val readableDirectoryBytes = minOf(directorySize, mapping.availableBytes.toLong())
+        val readableDescriptorCount = (readableDirectoryBytes / 20L)
+            .coerceAtMost(MAX_IMPORT_DESCRIPTORS.toLong()).toInt()
+        if (readableDescriptorCount == 0) {
+            return ImportParseResult(
+                emptyList(), emptyList(),
+                if (readableDirectoryBytes < directorySize) "import descriptor table is truncated by section/read window"
+                else "import directory is smaller than one descriptor"
+            )
+        }
+        val start = mapping.offset
 
         val dllNames = linkedSetOf<String>()
         val symbols = mutableListOf<PeImportedSymbol>()
@@ -143,7 +175,7 @@ internal object PeParser {
         var descriptorTerminated = false
         var descriptorTableTruncated = false
 
-        for (descriptorIndex in 0 until MAX_IMPORT_DESCRIPTORS) {
+        for (descriptorIndex in 0 until readableDescriptorCount) {
             val descriptorOffsetLong = start.toLong() + descriptorIndex.toLong() * 20L
             if (descriptorOffsetLong > Int.MAX_VALUE || !has(bytes, descriptorOffsetLong.toInt(), 20)) {
                 descriptorTableTruncated = true
@@ -160,8 +192,10 @@ internal object PeParser {
             val originalFirstThunkRva = fields[0]
             val nameRva = fields[3]
             val firstThunkRva = fields[4]
-            val nameOffset = rvaToOffset(nameRva, sections)
-            val dllName = nameOffset?.let { readCString(bytes, it, MAX_DLL_NAME_BYTES) }.orEmpty()
+            val nameMapping = rvaMapping(nameRva, sections, bytes)
+            val dllName = nameMapping?.let {
+                readCString(bytes, it.offset, minOf(MAX_DLL_NAME_BYTES, it.availableBytes))
+            }.orEmpty()
             if (dllName.isBlank()) {
                 notes.add("import descriptor has an unreadable DLL name")
                 continue
@@ -171,11 +205,12 @@ internal object PeParser {
             // OriginalFirstThunk is the lookup table. Some binaries leave it
             // empty; in that case the on-disk FirstThunk is the fallback.
             val lookupTableRva = if (originalFirstThunkRva != 0L) originalFirstThunkRva else firstThunkRva
-            val thunkStart = rvaToOffset(lookupTableRva, sections)
-            if (thunkStart == null) {
+            val thunkMapping = rvaMapping(lookupTableRva, sections, bytes)
+            if (thunkMapping == null) {
                 notes.add("thunk table for $dllName is outside readable sections")
                 continue
             }
+            val thunkStart = thunkMapping.offset
 
             val pointerSize = if (is64Bit) 8 else 4
             val ordinalFlag = if (is64Bit) Long.MIN_VALUE else 0x80000000L
@@ -183,7 +218,10 @@ internal object PeParser {
             var thunkTableTruncated = false
             for (thunkIndex in 0 until MAX_THUNKS_PER_DLL) {
                 val thunkOffsetLong = thunkStart.toLong() + thunkIndex.toLong() * pointerSize
-                if (thunkOffsetLong > Int.MAX_VALUE || !has(bytes, thunkOffsetLong.toInt(), pointerSize)) {
+                val thunkRelativeOffset = thunkIndex.toLong() * pointerSize
+                if (thunkOffsetLong > Int.MAX_VALUE ||
+                    thunkRelativeOffset + pointerSize > thunkMapping.availableBytes.toLong() ||
+                    !has(bytes, thunkOffsetLong.toInt(), pointerSize)) {
                     thunkTableTruncated = true
                     notes.add("thunk table for $dllName is truncated")
                     break
@@ -211,13 +249,17 @@ internal object PeParser {
                     notes.add("invalid import-by-name RVA in thunk table for $dllName")
                     continue
                 }
-                val importByNameOffset = rvaToOffset(thunkValue, sections)
-                if (importByNameOffset == null || !has(bytes, importByNameOffset, 2)) {
+                val importByNameMapping = rvaMapping(thunkValue, sections, bytes)
+                if (importByNameMapping == null || importByNameMapping.availableBytes < 2) {
                     notes.add("import-by-name record for $dllName is outside readable sections")
                     continue
                 }
+                val importByNameOffset = importByNameMapping.offset
                 val hint = u16(bytes, importByNameOffset)
-                val functionName = readCString(bytes, importByNameOffset + 2, MAX_FUNCTION_NAME_BYTES)
+                val functionName = readCString(
+                    bytes, importByNameOffset + 2,
+                    minOf(MAX_FUNCTION_NAME_BYTES, importByNameMapping.availableBytes - 2)
+                )
                 if (functionName.isNotBlank()) {
                     symbols.add(PeImportedSymbol(dllName = dllName, name = functionName, hint = hint))
                 } else {
@@ -229,30 +271,49 @@ internal object PeParser {
             }
         }
         if (!descriptorTerminated && !descriptorTableTruncated) {
-            notes.add("import descriptor table reached the $MAX_IMPORT_DESCRIPTORS entry limit")
+            when {
+                readableDescriptorCount == MAX_IMPORT_DESCRIPTORS -> {
+                    notes.add("import descriptor table reached the $MAX_IMPORT_DESCRIPTORS entry limit")
+                }
+                readableDirectoryBytes < directorySize -> {
+                    notes.add("import descriptor table is truncated by section/read window")
+                }
+                directorySize % 20L != 0L -> {
+                    notes.add("import descriptor table has an incomplete trailing record")
+                }
+                else -> notes.add("import descriptor table has no terminator within declared directory size")
+            }
         }
         return ImportParseResult(dllNames.toList(), symbols, notes.distinct().take(16).joinToString("; ").ifBlank { null })
     }
 
-    private fun rvaToOffset(rva: Long, sections: List<Section>): Int? {
+    /**
+     * Maps an RVA to bytes that are both in a section's raw data and inside the
+     * supplied read window. Consumers must not continue linearly past this span.
+     */
+    private fun rvaMapping(rva: Long, sections: List<Section>, bytes: ByteArray): RvaMapping? {
         for (section in sections) {
             val span = maxOf(section.virtualSize, section.rawSize)
-            if (rva >= section.virtualAddress && rva < section.virtualAddress + span) {
-                val delta = rva - section.virtualAddress
-                if (delta >= section.rawSize) return null
-                val offset = section.rawPointer + delta
-                if (offset > Int.MAX_VALUE) return null
-                return offset.toInt()
-            }
+            if (rva < section.virtualAddress || rva - section.virtualAddress >= span) continue
+            val delta = rva - section.virtualAddress
+            if (delta >= section.rawSize) return null
+            val rawOffset = section.rawPointer + delta
+            if (rawOffset < 0L || rawOffset >= bytes.size.toLong() || rawOffset > Int.MAX_VALUE) return null
+            val remainingInSection = section.rawSize - delta
+            val remainingInFile = bytes.size.toLong() - rawOffset
+            val available = minOf(remainingInSection, remainingInFile)
+            if (available <= 0L) return null
+            return RvaMapping(rawOffset.toInt(), available.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
         }
         return null
     }
 
     private fun readCString(bytes: ByteArray, offset: Int, maximum: Int): String {
-        if (offset < 0 || offset >= bytes.size) return ""
-        val limit = minOf(bytes.size, offset + maximum)
+        if (offset < 0 || offset >= bytes.size || maximum <= 0) return ""
+        val limit = minOf(bytes.size.toLong(), offset.toLong() + maximum.toLong()).toInt()
         var end = offset
         while (end < limit && bytes[end].toInt() != 0) end++
+        if (end == limit) return ""
         return String(bytes, offset, end - offset, Charsets.ISO_8859_1)
     }
 

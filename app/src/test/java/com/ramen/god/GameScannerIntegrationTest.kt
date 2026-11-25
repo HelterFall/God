@@ -3273,8 +3273,9 @@ private fun minimalNativePe(): ByteArray {
     put16(bytes, optional, 0x20b)
     put32(bytes, optional + 108, 16) // NumberOfRvaAndSizes // PE32+
 
-    // IMAGE_DIRECTORY_ENTRY_IMPORT points to RVA 0x1000 in .rdata.
+    // IMAGE_DIRECTORY_ENTRY_IMPORT points to two records and a zero terminator.
     put32(bytes, optional + 120, 0x1000)
+    put32(bytes, optional + 124, 60)
 
     // Map RVA 0x1000..0x11ff to file offsets 0x200..0x3ff.
     put32(bytes, section + 8, 0x200)
@@ -3324,6 +3325,7 @@ private fun managedPeWithMetadata(): ByteArray {
     put32(bytes, optional + 108, 16) // NumberOfRvaAndSizes
 
     // IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR (index 14).
+    put32(bytes, optional + 108, 16) // NumberOfRvaAndSizes
     put32(bytes, optional + 224, 0x1000)
     put32(bytes, optional + 228, 72)
 
