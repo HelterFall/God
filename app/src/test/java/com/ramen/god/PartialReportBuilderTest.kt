@@ -461,6 +461,43 @@ class PartialReportBuilderTest {
     }
 
     @Test
+    fun keepsCompletedInventoryStatusWhenAnalysisWasCancelledAfterTraversal() {
+        val file = record("UnityPlayer.dll", false, 100)
+        val coverage = ScanCoverage(
+            inventoryStatus = "completed",
+            entriesDiscovered = 1,
+            filesDiscovered = 1,
+            directoriesDiscovered = 0,
+            totalFileBytes = 100,
+            inaccessibleDirectoryCount = 0,
+            depthLimitHitCount = 0,
+            entryLimitReached = false,
+            analyzers = listOf(
+                AnalyzerCoverage(
+                    id = "pe",
+                    candidateCount = 1,
+                    attemptedCount = 0,
+                    parsedCount = 0
+                )
+            )
+        )
+
+        val result = PartialReportBuilder.build(
+            rootName = "Game",
+            files = listOf(file),
+            totalBytes = 100,
+            scanCoverage = coverage
+        )
+
+        val report = JSONObject(result.json)
+        assertEquals("partial", report.getJSONObject("scanCoverage").getString("status"))
+        assertEquals(
+            "completed",
+            report.getJSONObject("scanCoverage").getJSONObject("inventory").getString("status")
+        )
+    }
+
+    @Test
     fun markdownCapsLargeInventoryButJsonRetainsEveryEntry() {
         val files = (1..20_001).map { record("file-$it", false, 1) }
         val result = PartialReportBuilder.build("Game", files, files.size.toLong())

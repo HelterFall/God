@@ -38,6 +38,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private val unityHeaders = linkedMapOf<String, UnityFileHeader>()
     private val unityMetadata = linkedMapOf<String, UnityMetadataSummary>()
     private var totalBytes = 0L
+    private var inventoryCompleted = false
     private var inaccessibleDirectoryCount = 0
     private var depthLimitHitCount = 0
     private var entryLimitReached = false
@@ -95,6 +96,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         unityHeaders.clear()
         unityMetadata.clear()
         totalBytes = 0L
+        inventoryCompleted = false
         inaccessibleDirectoryCount = 0
         depthLimitHitCount = 0
         entryLimitReached = false
@@ -119,6 +121,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         unityMetadataFailedPaths.clear()
         try {
             walk(root, "", 0, null, shouldCancel, onProgress)
+            inventoryCompleted = true
         } catch (_: ScanCancelledException) {
             return buildPartialResult(root.name ?: "(unnamed)")
         }
@@ -441,13 +444,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             it.name.endsWith(".exe", true) || it.name.endsWith(".dll", true)
         }
         val unityCandidateCount = files.count { isUnityHeaderCandidate(it.name) }
-        val coverage = buildScanCoverage(
+        val computedCoverage = buildScanCoverage(
             fileCount = files.size,
             directoryCount = entries.size - files.size,
             peCandidateCount = peCandidateCount,
             unityCandidateCount = unityCandidateCount,
             hasIl2CppEvidence = hasGameAssembly || hasMetadata || hasIl2CppDir
-        ).copy(inventoryStatus = "partial")
+        )
+        val coverage = computedCoverage.copy(
+            inventoryStatus = if (inventoryCompleted) computedCoverage.inventoryStatus else "partial"
+        )
 
         return PartialReportBuilder.build(
             rootName = rootName,

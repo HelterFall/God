@@ -2311,6 +2311,10 @@ class GameScannerIntegrationTest {
             .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
         assertTrue(runs.all { it.getString("status") == "queued" })
         assertTrue(report.getString("scanId").isNotBlank())
+        assertEquals(
+            "completed",
+            report.getJSONObject("scanCoverage").getJSONObject("inventory").getString("status")
+        )
         assertTrue(result.markdown.contains("queued-записи не завершены"))
     }
 
@@ -2398,6 +2402,11 @@ class GameScannerIntegrationTest {
         assertFalse(result.json.contains("later-inside.txt"))
         assertFalse(result.json.contains("\"path\":\"later.txt\""))
         assertTrue(result.json.contains("\"entryCount\":3"))
+        assertEquals(
+            "partial",
+            JSONObject(result.json).getJSONObject("scanCoverage")
+                .getJSONObject("inventory").getString("status")
+        )
 
         val files = JSONObject(result.json).getJSONArray("files")
         val records = (0 until files.length()).map { files.getJSONObject(it) }

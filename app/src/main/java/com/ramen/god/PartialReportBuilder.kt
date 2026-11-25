@@ -32,7 +32,7 @@ internal object PartialReportBuilder {
             depthLimitHitCount = 0,
             entryLimitReached = false,
             analyzers = emptyList()
-        )).copy(inventoryStatus = "partial")
+        ))
         val warning = if (
             analyzerRuns.isEmpty() &&
             coverage.analyzers.none { it.candidateCount > 0 || it.attemptedCount > 0 } &&
@@ -146,7 +146,7 @@ internal object PartialReportBuilder {
                     .put("limitedCount", analyzer.limitedCount)
                     .put("skippedCount", analyzer.skippedCount)
                     .put("notes", JSONArray(analyzer.notes))
-            })).append("}},")
+            })).append("},")
             append("\"analyzerRuns\":").append(JSONArray(analyzerRuns.map { it.toJsonObject() })).append(",")
             append("\"findings\":").append(JSONArray(findings.map { it.toJsonObject() })).append(",")
             append("\"evidence\":").append(JSONArray(evidence.map { it.toJsonObject() })).append(",")
