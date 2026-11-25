@@ -70,6 +70,29 @@ class UnityExternalPathResolverTest {
     }
 
     @Test
+    fun exactPathLookupRejectsNormalizedPathCollisions() {
+        val unique = UnityExternalPathResolver.Index.create(
+            candidates = listOf(Candidate("Data/sharedassets0.assets", "sharedassets0.assets")),
+            pathOf = { it.path },
+            nameOf = { it.name }
+        )
+        assertEquals(
+            Candidate("Data/sharedassets0.assets", "sharedassets0.assets"),
+            unique.exactPath("DATA\\sharedassets0.assets")
+        )
+
+        val ambiguous = UnityExternalPathResolver.Index.create(
+            candidates = listOf(
+                Candidate("Data/sharedassets0.assets", "sharedassets0.assets"),
+                Candidate("data/SHAREDASSETS0.ASSETS", "sharedassets0.assets")
+            ),
+            pathOf = { it.path },
+            nameOf = { it.name }
+        )
+        assertNull(ambiguous.exactPath("Data/sharedassets0.assets"))
+    }
+
+    @Test
     fun reusesPrecomputedPathAndNameLookupsAcrossReferences() {
         val candidates = listOf(
             Candidate("Data/sharedassets0.assets", "sharedassets0.assets"),
