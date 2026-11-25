@@ -551,6 +551,7 @@ internal object UnityMetadataParser {
         val fields = ArrayList<String>()
         val nodeSamples = ArrayList<UnityTypeTreeNodeSummary>(minOf(nodeCount, MAX_TYPE_TREE_NODE_SAMPLES.toLong()).toInt())
         val retainDecoderNodes = classId == 1 || classId == 4 || classId == 114
+        var allNodeStringsResolved = true
         val decoderNodes = if (retainDecoderNodes && nodeCount <= MAX_DECODER_TYPE_TREE_NODES) {
             ArrayList<UnityTypeTreeNodeSummary>(nodeCount.toInt())
         } else null
@@ -566,6 +567,7 @@ internal object UnityMetadataParser {
             if (nodes.readU64() == null) return null // reference type hash
             val typeName = readTreeString(stringBuffer, typeOffset)
             val fieldName = readTreeString(stringBuffer, nameOffset)
+            if (typeName == null || fieldName == null) allNodeStringsResolved = false
             val node = UnityTypeTreeNodeSummary(level, typeName, fieldName, byteSize, typeFlags, metaFlags)
             if (nodeSamples.size < MAX_TYPE_TREE_NODE_SAMPLES) nodeSamples.add(node)
             decoderNodes?.add(node)
@@ -581,7 +583,8 @@ internal object UnityMetadataParser {
         return UnityTypeTreeSummary(
             classId, nodeCount, rootType, rootName, fields, nodeSamples,
             decoderNodes = completeNodes,
-            completeForDecoding = retainDecoderNodes && completeNodes.size.toLong() == nodeCount
+            completeForDecoding = retainDecoderNodes &&
+                completeNodes.size.toLong() == nodeCount && allNodeStringsResolved
         )
     }
 

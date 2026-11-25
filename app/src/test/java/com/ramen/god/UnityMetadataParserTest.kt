@@ -158,6 +158,7 @@ class UnityMetadataParserTest {
         // Root node: GameObject Base
         put16(bytes, p, 1, true); p += 2
         bytes[p++] = 0; bytes[p++] = 0 // level and flags
+        val rootTypeOffsetPosition = p
         put32(bytes, p, 0x800000ACL, true); p += 4 // common string: GameObject (172)
         put32(bytes, p, 0x80000037L, true); p += 4 // common string: Base (55)
         put32(bytes, p, 0xffffffffL, true); p += 4
@@ -191,6 +192,15 @@ class UnityMetadataParserTest {
         assertEquals("m_Name", result.typeTrees[0].nodes[1].fieldName)
         assertEquals(1, result.typeTrees[0].nodes[1].level)
         assertEquals(4, result.typeTrees[0].nodes[1].byteSize)
+        assertTrue(result.typeTrees[0].completeForDecoding)
+
+        // An unknown built-in string offset must prevent the decoder from
+        // treating otherwise structurally complete nodes as trustworthy.
+        val unknownCommonString = bytes.copyOf()
+        put32(unknownCommonString, rootTypeOffsetPosition, 0x8000270fL, true)
+        val unresolved = requireNotNull(UnityMetadataParser.parse(unknownCommonString, header))
+        assertNull(unresolved.typeTrees.single().rootType)
+        assertFalse(unresolved.typeTrees.single().completeForDecoding)
     }
 
     @Test
