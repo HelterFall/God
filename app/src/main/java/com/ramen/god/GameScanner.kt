@@ -857,7 +857,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     changedOwners.add(ownerPath)
                     return@forEachIndexed
                 }
-                val match = resolveExternalFile(binding.externalPath, files)
+                val match = resolveExternalFile(binding.externalPath, files, shouldCancel)
                 if (match.entry == null) {
                     val resolution = if (match.ambiguous) "external-file-name-ambiguous" else "external-file-not-matched"
                     updatedBindings[ownerPath]?.set(index, current.copy(resolution = resolution))
@@ -1209,10 +1209,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
         if (shouldCancel()) throw ScanCancelledException()
         val resolutions = try {
-            UnityExternalPointerResolver.resolve(snapshot) { externalPath ->
-                val match = resolveExternalFile(externalPath, files)
-                if (match.ambiguous) null else match.entry?.path
-            }
+            UnityExternalPointerResolver.resolve(
+                metadataByPath = snapshot,
+                resolvePath = { externalPath ->
+                    val match = resolveExternalFile(externalPath, files, shouldCancel)
+                    if (match.ambiguous) null else match.entry?.path
+                },
+                shouldCancel = shouldCancel
+            )
+        } catch (e: ScanCancelledException) {
+            throw e
         } catch (e: Exception) {
             runs.forEach { (path, runId) ->
                 val metadata = snapshot[path] ?: return@forEach
@@ -1271,10 +1277,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
         if (shouldCancel()) throw ScanCancelledException()
         val bindings = try {
-            UnityMonoBehaviourScriptResolver.resolve(snapshot) { externalPath ->
-                val match = resolveExternalFile(externalPath, files)
-                if (match.ambiguous) null else match.entry?.path
-            }
+            UnityMonoBehaviourScriptResolver.resolve(
+                metadataByPath = snapshot,
+                resolveExternalPath = { externalPath ->
+                    val match = resolveExternalFile(externalPath, files, shouldCancel)
+                    if (match.ambiguous) null else match.entry?.path
+                },
+                shouldCancel = shouldCancel
+            )
+        } catch (e: ScanCancelledException) {
+            throw e
         } catch (e: Exception) {
             runs.forEach { (path, runId) ->
                 val metadata = snapshot[path] ?: return@forEach
@@ -1953,12 +1965,17 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
 
     private data class ExternalFileMatch(val entry: ScanEntry?, val ambiguous: Boolean)
 
-    private fun resolveExternalFile(externalPath: String, files: List<ScanEntry>): ExternalFileMatch {
+    private fun resolveExternalFile(
+        externalPath: String,
+        files: List<ScanEntry>,
+        shouldCancel: () -> Boolean = { false }
+    ): ExternalFileMatch {
         val match = UnityExternalPathResolver.resolve(
             externalPath,
             files,
             { entry -> entry.path },
-            { entry -> entry.name }
+            { entry -> entry.name },
+            shouldCancel
         )
         return ExternalFileMatch(match.item, match.ambiguous)
     }
