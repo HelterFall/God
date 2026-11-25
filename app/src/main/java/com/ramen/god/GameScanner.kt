@@ -1273,7 +1273,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     metadata = old,
                     link = link,
                     analyzerRunId = runId,
-                    files = files
+                    files = files,
+                    externalPathIndex = externalPathIndex
                 )
             }
         }
@@ -1342,7 +1343,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     metadata = old,
                     binding = binding,
                     analyzerRunId = runId,
-                    files = files
+                    files = files,
+                    externalPathIndex = externalPathIndex
                 )
             }
         }
@@ -1549,7 +1551,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         metadata: UnityMetadataSummary,
         link: UnityExternalPointerResolution,
         analyzerRunId: String,
-        files: List<ScanEntry>
+        files: List<ScanEntry>,
+        externalPathIndex: UnityExternalPathResolver.Index<ScanEntry>?
     ) {
         // MonoBehaviour.m_Script is already published by EVIDENCE-02.
         if (link.field == "m_Script") return
@@ -1565,7 +1568,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             it.pathId == link.sourcePathId
         } ?: return
         val targetPath = link.targetFilePath
-        val targetEntry = targetPath?.let { path -> files.firstOrNull { it.path == path } }
+        val targetEntry = targetPath?.let { path ->
+            externalPathIndex?.exactPath(path) ?: files.firstOrNull { it.path == path }
+        }
         val targetMetadata = targetPath?.let { unityMetadata[it] }
         val targetDecodedObject = targetMetadata?.decodedObjects?.firstOrNull {
             it.pathId == link.pathId
@@ -1769,13 +1774,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         metadata: UnityMetadataSummary,
         binding: UnityMonoBehaviourScriptBinding,
         analyzerRunId: String,
-        files: List<ScanEntry>
+        files: List<ScanEntry>,
+        externalPathIndex: UnityExternalPathResolver.Index<ScanEntry>?
     ) {
         val sourceObject = metadata.decodedObjects.firstOrNull {
             it.pathId == binding.sourcePathId && it.classId == 114
         }
         val targetPath = binding.targetFilePath
-        val targetEntry = targetPath?.let { path -> files.firstOrNull { it.path == path } }
+        val targetEntry = targetPath?.let { path ->
+            externalPathIndex?.exactPath(path) ?: files.firstOrNull { it.path == path }
+        }
         val targetMetadata = targetPath?.let { unityMetadata[it] }
         val targetScript = targetMetadata?.monoScripts?.firstOrNull {
             it.pathId == binding.scriptPathId
