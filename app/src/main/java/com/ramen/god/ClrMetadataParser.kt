@@ -621,7 +621,7 @@ internal object ClrMetadataParser {
         val offset = start.toLong() + index
         if (offset < start || offset >= end || end > bytes.size || offset > Int.MAX_VALUE) return null
         val from = offset.toInt()
-        val limit = minOf(end, from + MAX_HEAP_STRING_BYTES)
+        val limit = minOf(end.toLong(), from.toLong() + MAX_HEAP_STRING_BYTES.toLong()).toInt()
         var to = from
         while (to < limit && bytes[to].toInt() != 0) to++
         if (to == limit) return null
@@ -678,8 +678,9 @@ internal object ClrMetadataParser {
             return true
         }
         fun cString(maximum: Int): String? {
+            if (maximum < 0 || position < 0 || position > end) return null
             val start = position
-            val limit = minOf(end, position + maximum)
+            val limit = minOf(end.toLong(), position.toLong() + maximum.toLong()).toInt()
             while (position < limit && bytes[position].toInt() != 0) position++
             if (position >= limit) return null
             val result = String(bytes, start, position - start, Charsets.US_ASCII)
@@ -687,8 +688,9 @@ internal object ClrMetadataParser {
             return result
         }
         fun align4() {
-            val aligned = (position + 3) and -4
-            position = minOf(aligned, end)
+            if (position < 0) return
+            val aligned = (position.toLong() + 3L) and -4L
+            position = minOf(aligned, end.toLong()).toInt()
         }
     }
 }
