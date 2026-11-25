@@ -53,6 +53,13 @@ class UnityFileHeaderParserTest {
     }
 
     @Test
+    fun rejectsUnityFsFormatVersionsBelowSix() {
+        val bytes = unityFsBundle()
+        put32be(bytes, 8, 5)
+        assertNull(UnityFileHeaderParser.parse(bytes, 4096))
+    }
+
+    @Test
     fun rejectsUnityFsPrefixWithoutRequiredSizeAndFlagsFields() {
         val bytes = "UnityFS".toByteArray() + byteArrayOf(0, 0, 0, 0, 6) +
             "5.x.x".toByteArray() + byteArrayOf(0) + "2022.3.1f1".toByteArray() + byteArrayOf(0)

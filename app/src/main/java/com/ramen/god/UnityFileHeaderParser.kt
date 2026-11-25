@@ -80,7 +80,7 @@ internal object UnityFileHeaderParser {
     private fun parseUnityFs(bytes: ByteArray, actualFileSize: Long): UnityFileHeader? {
         if (bytes.size < 16 || bytes[7].toInt() != 0) return null
         val version = u32be(bytes, 8)
-        if (version !in 1L..20L) return null
+        if (version !in 6L..20L) return null
         val player = readCString(bytes, 12, 128) ?: return null
         val revisionStart = 12 + player.second
         val revision = readCString(bytes, revisionStart, 128) ?: return null
