@@ -48,6 +48,17 @@ class ClrMetadataParserTest {
     }
 
     @Test
+    fun reportsMissingBlobHeapAsPartialWhenSignaturesCannotBeDecoded() {
+        val metadata = syntheticMetadataRoot(includeBlobHeap = false)
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+
+        assertEquals("partial-metadata-tables", result.status)
+        assertEquals("blob-heap-unavailable", result.fields.single().signatureStatus)
+        assertEquals("blob-heap-unavailable", result.methods.single().signatureStatus)
+        assertTrue(result.note.orEmpty().contains("signatures"))
+    }
+
+    @Test
     fun reportsTypeSampleLimitAsPartialMetadata() {
         val metadata = syntheticMetadataRoot(typeRowsCount = 1001)
         val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
@@ -72,7 +83,7 @@ class ClrMetadataParserTest {
         assertEquals("invalid-metadata-signature", result?.status)
     }
 
-    private fun syntheticMetadataRoot(typeRowsCount: Int = 1): ByteArray {
+    private fun syntheticMetadataRoot(typeRowsCount: Int = 1, includeBlobHeap: Boolean = true): ByteArray {
         val strings = ByteArrayOutputStream().apply {
             write(0)
         }
@@ -129,20 +140,20 @@ class ClrMetadataParserTest {
             u16(1); u16(1); u32(0)
             u32(8)
             write(byteArrayOf('v'.code.toByte(), '4'.code.toByte(), '.'.code.toByte(), '0'.code.toByte(), 0, 0, 0, 0))
-            u16(0); u16(3)
+            u16(0); u16(if (includeBlobHeap) 3 else 2)
         }.toByteArray()
 
         val blobHeap = byteArrayOf(0, 2, 0x06, 0x08, 4, 0x20, 1, 1, 0x08)
         fun paddedStreamHeaderLength(name: String): Int = 8 + (((name.length + 1 + 3) / 4) * 4)
         val headerLength = paddedStreamHeaderLength("#~") + paddedStreamHeaderLength("#Strings") +
-            paddedStreamHeaderLength("#Blob")
+            if (includeBlobHeap) paddedStreamHeaderLength("#Blob") else 0
         val tablesOffset = prefix.size + headerLength
         val stringsOffset = tablesOffset + tables.size
         val blobsOffset = stringsOffset + stringHeap.size
         val headers = ByteArrayOutputStream().apply {
             streamHeader(tablesOffset, tables.size, "#~")
             streamHeader(stringsOffset, stringHeap.size, "#Strings")
-            streamHeader(blobsOffset, blobHeap.size, "#Blob")
+            if (includeBlobHeap) streamHeader(blobsOffset, blobHeap.size, "#Blob")
         }.toByteArray()
         return prefix + headers + tables + stringHeap + blobHeap
     }

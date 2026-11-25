@@ -157,11 +157,42 @@ internal object ClrMetadataParser {
             fieldResult.first, methodResult.first
         )
 
-        val notes = listOfNotNull(typeResult.second, referenceResult.second, fieldResult.second, methodResult.second).distinct()
-        // Any diagnostic from a bounded table reader means the returned
-        // inventory is incomplete, including deliberate sample caps and
-        // incomplete member ownership. Keep the summary, but never label it
-        // as a complete parse.
+        val notes = mutableListOf<String>()
+        listOfNotNull(typeResult.second, referenceResult.second, fieldResult.second, methodResult.second)
+            .forEach { notes.add(it) }
+        if (tableRows[0] > 0L && moduleName == null) {
+            notes.add("Module row name could not be resolved from #Strings.")
+        }
+        if (tableRows[32] > 0L && (assembly == null || assembly.name == null)) {
+            notes.add("Assembly identity row could not be fully resolved.")
+        }
+        val expectedFieldRows = minOf(tableRows[4], MAX_FIELDS.toLong()).toInt()
+        if (fieldResult.first.size < expectedFieldRows) {
+            notes.add("Field table contains unreadable rows.")
+        }
+        val expectedMethodRows = minOf(tableRows[6], MAX_METHODS.toLong()).toInt()
+        if (methodResult.first.size < expectedMethodRows) {
+            notes.add("Method table contains unreadable rows.")
+        }
+        val expectedReferenceRows = minOf(tableRows[35], MAX_ASSEMBLY_REFS.toLong()).toInt()
+        if (referenceResult.first.size < expectedReferenceRows) {
+            notes.add("AssemblyRef table contains unreadable rows.")
+        }
+        if (fieldResult.first.any { it.signatureStatus != "parsed" }) {
+            notes.add("One or more field signatures are unavailable or unsupported.")
+        }
+        if (methodResult.first.any { it.signatureStatus != "parsed" }) {
+            notes.add("One or more method signatures are unavailable or unsupported.")
+        }
+        val expectedTypeRows = minOf(tableRows[2], MAX_TYPES.toLong()).toInt()
+        val possibleModuleRows = if (tableRows[0] > 0L) 1 else 0
+        if (expectedTypeRows > possibleModuleRows &&
+            typeResult.first.size < expectedTypeRows - possibleModuleRows) {
+            notes.add("TypeDef table contains rows with unreadable names.")
+        }
+        // Any diagnostic from a bounded table reader or unresolved heap index
+        // means the returned inventory is incomplete. Keep useful rows, but
+        // never label a partial signature/member sample as a complete parse.
         val status = if (notes.isEmpty()) "parsed" else "partial-metadata-tables"
         return ClrAssemblySummary(
             name = assembly?.name,

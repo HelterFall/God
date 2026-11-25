@@ -102,8 +102,8 @@ internal object UnityFileHeaderParser {
             kind = "UnityFS bundle",
             formatVersion = version,
             fileSize = bundleSize,
-            metadataSize = uncompressedInfoSize,
-            dataOffset = headerEnd.toLong(),
+            metadataSize = null,
+            dataOffset = null,
             endianness = null,
             headerSize = headerEnd,
             note = "Полный фиксированный заголовок UnityFS проверен; таблица блоков и payload не разбираются. " +
