@@ -3270,7 +3270,8 @@ private fun minimalNativePe(): ByteArray {
     put16(bytes, pe + 4, 0x8664) // IMAGE_FILE_MACHINE_AMD64
     put16(bytes, pe + 6, 1) // one section
     put16(bytes, pe + 20, optionalSize)
-    put16(bytes, optional, 0x20b) // PE32+
+    put16(bytes, optional, 0x20b)
+    put32(bytes, optional + 108, 16) // NumberOfRvaAndSizes // PE32+
 
     // IMAGE_DIRECTORY_ENTRY_IMPORT points to RVA 0x1000 in .rdata.
     put32(bytes, optional + 120, 0x1000)
@@ -3320,6 +3321,7 @@ private fun managedPeWithMetadata(): ByteArray {
     put16(bytes, pe + 6, 1)
     put16(bytes, pe + 20, optionalSize)
     put16(bytes, optional, 0x20b)
+    put32(bytes, optional + 108, 16) // NumberOfRvaAndSizes
 
     // IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR (index 14).
     put32(bytes, optional + 224, 0x1000)

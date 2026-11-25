@@ -130,7 +130,7 @@ class PeParserTest {
 
     @Test
     fun ignoresDirectoryBytesOutsideDeclaredOptionalHeader() {
-        val bytes = ByteArray(512)
+        val bytes = ByteArray(0x400)
         val pe = 0x80
         val optional = pe + 24
         val optionalSize = 112 // PE32+: only fields through NumberOfRvaAndSizes
