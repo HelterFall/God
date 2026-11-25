@@ -386,12 +386,24 @@ internal object ClrMetadataParser {
             val namespace = readHeapString(bytes, heapStart, heapEnd, namespaceIndex) ?: ""
             if (name == "<Module>") continue
 
+            val fieldStartValid = fieldStart in 1L..(rows[4] + 1L)
+            val methodStartValid = methodStart in 1L..(rows[6] + 1L)
+            if (!fieldStartValid || !methodStartValid) ownershipIncomplete = true
+
             val nextStarts = if (i + 1 < rows[2]) {
                 readTypeMemberStarts(
                     bytes, start, rowSize, i + 1, stringWidth, tdorWidth,
                     fieldWidth, methodWidth
                 )
             } else null
+            if (i + 1 < rows[2]) {
+                if (nextStarts == null ||
+                    nextStarts.first !in 1L..(rows[4] + 1L) ||
+                    nextStarts.second !in 1L..(rows[6] + 1L) ||
+                    nextStarts.first < fieldStart || nextStarts.second < methodStart) {
+                    ownershipIncomplete = true
+                }
+            }
             val fieldEnd = nextStarts?.first ?: (rows[4] + 1L)
             val methodEnd = nextStarts?.second ?: (rows[6] + 1L)
             val ownedFields = if (fieldStart in 1L..(rows[4] + 1L) && fieldEnd >= fieldStart) {

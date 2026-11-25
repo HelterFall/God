@@ -59,6 +59,15 @@ class ClrMetadataParserTest {
     }
 
     @Test
+    fun reportsNonMonotonicTypeMemberStartsAsPartialMetadata() {
+        val metadata = syntheticMetadataRoot(typeRowsCount = 2, invalidSecondTypeMemberStart = true)
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+
+        assertEquals("partial-metadata-tables", result.status)
+        assertTrue(result.note.orEmpty().contains("Привязка полей/методов"))
+    }
+
+    @Test
     fun reportsTypeSampleLimitAsPartialMetadata() {
         val metadata = syntheticMetadataRoot(typeRowsCount = 1001)
         val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
@@ -83,7 +92,11 @@ class ClrMetadataParserTest {
         assertEquals("invalid-metadata-signature", result?.status)
     }
 
-    private fun syntheticMetadataRoot(typeRowsCount: Int = 1, includeBlobHeap: Boolean = true): ByteArray {
+    private fun syntheticMetadataRoot(
+        typeRowsCount: Int = 1,
+        includeBlobHeap: Boolean = true,
+        invalidSecondTypeMemberStart: Boolean = false
+    ): ByteArray {
         val strings = ByteArrayOutputStream().apply {
             write(0)
         }
@@ -116,7 +129,7 @@ class ClrMetadataParserTest {
             // rows start after those tables' only records.
             repeat(typeRowsCount) { index ->
                 u32(1); u16(typeName); u16(namespace); u16(0)
-                u16(if (index == 0) 1 else 2)
+                u16(if (index == 0) 1 else if (invalidSecondTypeMemberStart && index == 1) 0 else 2)
                 u16(if (index == 0) 1 else 2)
             }
 
