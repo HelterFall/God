@@ -80,13 +80,7 @@ class ClrMetadataParserTest {
 
     @Test
     fun rejectsDuplicateMetadataStreamNames() {
-        val metadata = syntheticMetadataRoot()
-        val blobName = metadata.indexOfSubsequence("#Blob".toByteArray(Charsets.US_ASCII))
-        require(blobName >= 0)
-        metadata[blobName] = '#'.code.toByte()
-        metadata[blobName + 1] = '~'.code.toByte()
-        metadata[blobName + 2] = 0
-
+        val metadata = syntheticMetadataRoot(duplicateStreamName = true)
         val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
         assertEquals("duplicate-stream-name", result.status)
     }
@@ -139,7 +133,8 @@ class ClrMetadataParserTest {
     private fun syntheticMetadataRoot(
         typeRowsCount: Int = 1,
         includeBlobHeap: Boolean = true,
-        invalidSecondTypeMemberStart: Boolean = false
+        invalidSecondTypeMemberStart: Boolean = false,
+        duplicateStreamName: Boolean = false
     ): ByteArray {
         val strings = ByteArrayOutputStream().apply {
             write(0)
@@ -202,15 +197,16 @@ class ClrMetadataParserTest {
 
         val blobHeap = byteArrayOf(0, 2, 0x06, 0x08, 4, 0x20, 1, 1, 0x08)
         fun paddedStreamHeaderLength(name: String): Int = 8 + (((name.length + 1 + 3) / 4) * 4)
+        val blobStreamName = if (duplicateStreamName) "#~" else "#Blob"
         val headerLength = paddedStreamHeaderLength("#~") + paddedStreamHeaderLength("#Strings") +
-            if (includeBlobHeap) paddedStreamHeaderLength("#Blob") else 0
+            if (includeBlobHeap) paddedStreamHeaderLength(blobStreamName) else 0
         val tablesOffset = prefix.size + headerLength
         val stringsOffset = tablesOffset + tables.size
         val blobsOffset = stringsOffset + stringHeap.size
         val headers = ByteArrayOutputStream().apply {
             streamHeader(tablesOffset, tables.size, "#~")
             streamHeader(stringsOffset, stringHeap.size, "#Strings")
-            if (includeBlobHeap) streamHeader(blobsOffset, blobHeap.size, "#Blob")
+            if (includeBlobHeap) streamHeader(blobsOffset, blobHeap.size, blobStreamName)
         }.toByteArray()
         return prefix + headers + tables + stringHeap + blobHeap
     }
