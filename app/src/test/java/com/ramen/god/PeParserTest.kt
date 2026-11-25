@@ -182,7 +182,7 @@ class PeParserTest {
         put16(bytes, optional, 0x20b)
         put32(bytes, optional + 108, 16)
         put32(bytes, optional + 224, 0x1000)
-        put32(bytes, optional + 228, 20)
+        put32(bytes, optional + 228, 72)
         put32(bytes, section + 8, 0x200)
         put32(bytes, section + 12, 0x1000)
         put32(bytes, section + 16, 0x100)
