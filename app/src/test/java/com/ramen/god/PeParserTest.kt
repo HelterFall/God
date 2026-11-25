@@ -45,6 +45,32 @@ class PeParserTest {
     }
 
     @Test
+    fun doesNotAcceptDllNameWithoutNullTerminatorWithinReadWindow() {
+        val bytes = peWithImports()
+        put32(bytes, 0x20c, 0x11f0)
+        bytes.fill('A'.code.toByte(), 0x3f0, 0x400)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.note.orEmpty().contains("unreadable DLL name"))
+        assertEquals(listOf("USER32.dll"), info.imports)
+    }
+
+    @Test
+    fun refusesAmbiguousRvaWhenSectionsOverlap() {
+        val bytes = peWithImports().copyOf(0x600)
+        put16(bytes, 0x86, 2)
+        val secondSection = 0x80 + 24 + 240 + 40
+        put32(bytes, secondSection + 8, 0x200)
+        put32(bytes, secondSection + 12, 0x1080)
+        put32(bytes, secondSection + 16, 0x200)
+        put32(bytes, secondSection + 20, 0x400)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.note.orEmpty().contains("import directory RVA is outside readable sections"))
+        assertTrue(info.imports.isEmpty())
+    }
+
+    @Test
     fun detectsArm64MachineArchitectureInPe32PlusImage() {
         val bytes = peWithImports()
         put16(bytes, 0x84, 0xaa64)

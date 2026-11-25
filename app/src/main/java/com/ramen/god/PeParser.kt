@@ -302,20 +302,23 @@ internal object PeParser {
      * supplied read window. Consumers must not continue linearly past this span.
      */
     private fun rvaMapping(rva: Long, sections: List<Section>, bytes: ByteArray): RvaMapping? {
-        for (section in sections) {
+        // Overlapping virtual ranges make RVA ownership ambiguous. Do not let
+        // section order silently decide which raw bytes are interpreted.
+        val matches = sections.filter { section ->
             val span = maxOf(section.virtualSize, section.rawSize)
-            if (rva < section.virtualAddress || rva - section.virtualAddress >= span) continue
-            val delta = rva - section.virtualAddress
-            if (delta >= section.rawSize) return null
-            val rawOffset = section.rawPointer + delta
-            if (rawOffset < 0L || rawOffset >= bytes.size.toLong() || rawOffset > Int.MAX_VALUE) return null
-            val remainingInSection = section.rawSize - delta
-            val remainingInFile = bytes.size.toLong() - rawOffset
-            val available = minOf(remainingInSection, remainingInFile)
-            if (available <= 0L) return null
-            return RvaMapping(rawOffset.toInt(), available.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+            rva >= section.virtualAddress && rva - section.virtualAddress < span
         }
-        return null
+        if (matches.size != 1) return null
+        val section = matches.single()
+        val delta = rva - section.virtualAddress
+        if (delta >= section.rawSize) return null
+        val rawOffset = section.rawPointer + delta
+        if (rawOffset < 0L || rawOffset >= bytes.size.toLong() || rawOffset > Int.MAX_VALUE) return null
+        val remainingInSection = section.rawSize - delta
+        val remainingInFile = bytes.size.toLong() - rawOffset
+        val available = minOf(remainingInSection, remainingInFile)
+        if (available <= 0L) return null
+        return RvaMapping(rawOffset.toInt(), available.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
     }
 
     private fun readCString(bytes: ByteArray, offset: Int, maximum: Int): String {
