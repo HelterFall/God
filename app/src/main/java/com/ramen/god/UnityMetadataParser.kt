@@ -223,6 +223,7 @@ internal object UnityMetadataParser {
                 val keepCompleteTree = tree.completeForDecoding && when (tree.classId) {
                     1 -> typeTrees.none { it.classId == 1 && it.completeForDecoding }
                     4 -> typeTrees.none { it.classId == 4 && it.completeForDecoding }
+                    224 -> typeTrees.none { it.classId == 224 && it.completeForDecoding }
                     114 -> retainedMonoBehaviourTrees < MAX_MONOBEHAVIOUR_DECODER_TREES
                     else -> false
                 }
@@ -587,7 +588,7 @@ internal object UnityMetadataParser {
         var rootName: String? = null
         val fields = ArrayList<String>()
         val nodeSamples = ArrayList<UnityTypeTreeNodeSummary>(minOf(nodeCount, MAX_TYPE_TREE_NODE_SAMPLES.toLong()).toInt())
-        val retainDecoderNodes = classId == 1 || classId == 4 || classId == 114
+        val retainDecoderNodes = classId == 1 || classId == 4 || classId == 224 || classId == 114
         var allNodeStringsResolved = true
         val decoderNodes = if (retainDecoderNodes && nodeCount <= MAX_DECODER_TYPE_TREE_NODES) {
             ArrayList<UnityTypeTreeNodeSummary>(nodeCount.toInt())
