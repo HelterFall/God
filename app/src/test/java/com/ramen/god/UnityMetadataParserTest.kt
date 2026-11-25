@@ -84,6 +84,39 @@ class UnityMetadataParserTest {
     }
 
     @Test
+    fun reportsSerializedTypeSampleLimitAsPartialMetadata() {
+        val typeCount = 501
+        val version = "2022.3.10f1".toByteArray()
+        val bytes = ByteArray(48 + version.size + 1 + 4 + 1 + 4 + typeCount * 27 + 16)
+        var p = 48
+        version.copyInto(bytes, p); p += version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0
+        put32(bytes, p, typeCount.toLong(), true); p += 4
+        repeat(typeCount) {
+            put32(bytes, p, 1, true); p += 4
+            bytes[p++] = 0 // stripped
+            put16(bytes, p, 0xffff, true); p += 2 // no script type index
+            p += 16 // old type hash
+            put32(bytes, p, 0, true); p += 4 // v21+ type dependencies
+        }
+        put32(bytes, p, 0, true); p += 4 // objects
+        put32(bytes, p, 0, true); p += 4 // script references
+        put32(bytes, p, 0, true); p += 4 // external references
+        put32(bytes, p, 0, true) // SerializeReference types
+
+        val header = UnityFileHeader(
+            "SerializedFile", 22, bytes.size.toLong(), (bytes.size - 48).toLong(),
+            bytes.size.toLong(), "Little Endian", 48
+        )
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        assertEquals(501L, result.typeCount)
+        assertEquals(500, result.serializedTypes.size)
+        assertTrue(result.note.orEmpty().contains("выборка ограничена первыми 500"))
+    }
+
+    @Test
     fun rejectsTruncatedAndImplausibleCounts() {
         val header = UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
         assertNull(UnityMetadataParser.parse(ByteArray(60), header))

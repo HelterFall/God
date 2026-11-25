@@ -205,6 +205,7 @@ internal object UnityMetadataParser {
 
         val typeClassIds = ArrayList<Int>(typeCount.toInt())
         val typeTrees = ArrayList<UnityTypeTreeSummary>()
+        var parsedTypeTreeCount = 0L
         val serializedTypes = ArrayList<UnitySerializedTypeSummary>(minOf(typeCount, MAX_SERIALIZED_TYPE_SAMPLES.toLong()).toInt())
         repeat(typeCount.toInt()) { typeIndex ->
             val typeEntry = readTypeEntry(cursor, version, typeTreeEnabled)
@@ -214,6 +215,7 @@ internal object UnityMetadataParser {
                 serializedTypes.add(UnitySerializedTypeSummary(typeEntry.classId, typeEntry.scriptTypeIndex, typeEntry.scriptId))
             }
             typeEntry.typeTree?.let { parsedTree ->
+                parsedTypeTreeCount++
                 val tree = parsedTree.copy(typeIndex = typeIndex)
                 val retainedMonoBehaviourTrees = typeTrees.count {
                     it.classId == 114 && it.completeForDecoding
@@ -380,6 +382,34 @@ internal object UnityMetadataParser {
             serializedTypes, scriptTypeReferences, externalReferences, monoScriptObjects
         )
 
+        val sampleNotes = mutableListOf<String>()
+        if (typeCount > MAX_SERIALIZED_TYPE_SAMPLES) {
+            sampleNotes.add("SerializedType выборка ограничена первыми $MAX_SERIALIZED_TYPE_SAMPLES записями.")
+        }
+        if (parsedTypeTreeCount > MAX_TYPE_TREE_SAMPLES) {
+            sampleNotes.add("TypeTree выборка ограничена первыми $MAX_TYPE_TREE_SAMPLES деревьями.")
+        }
+        if (objectCount > MAX_OBJECT_SAMPLES) {
+            sampleNotes.add("Выборка объектов ограничена первыми $MAX_OBJECT_SAMPLES записями.")
+        }
+        if (scriptCount > MAX_SCRIPT_TYPE_SAMPLES) {
+            sampleNotes.add("Выборка MonoScript-ссылок ограничена первыми $MAX_SCRIPT_TYPE_SAMPLES записями.")
+        }
+        if (externalCount > MAX_EXTERNAL_REFERENCE_SAMPLES) {
+            sampleNotes.add("Выборка внешних ссылок ограничена первыми $MAX_EXTERNAL_REFERENCE_SAMPLES записями.")
+        }
+        if ((objectTypeCounts[115] ?: 0L) > MAX_MONOSCRIPT_OBJECT_SAMPLES) {
+            sampleNotes.add("Выборка MonoScript objects ограничена первыми $MAX_MONOSCRIPT_OBJECT_SAMPLES объектами.")
+        }
+        if ((referenceTypeCount ?: 0L) > MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES) {
+            sampleNotes.add("Выборка SerializeReference types ограничена первыми $MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES записями.")
+        }
+
+        val completionNote = if (version >= 26L)
+            "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types; shared TypeTree subtree payloads пока не разбираются."
+        else "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
+        val summaryNote = (listOf(completionNote) + sampleNotes).joinToString(" ")
+
         return partial.copy(
             objectCount = objectCount,
             scriptTypeCount = scriptCount,
@@ -395,9 +425,7 @@ internal object UnityMetadataParser {
             scriptTypeReferences = scriptTypeReferences,
             externalReferences = externalReferences,
             scriptTypeBindings = scriptTypeBindings,
-            note = if (version >= 26L)
-                "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types; shared TypeTree subtree payloads пока не разбираются."
-            else "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
+            note = summaryNote
         )
     }
 

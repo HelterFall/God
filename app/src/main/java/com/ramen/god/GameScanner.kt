@@ -354,9 +354,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     unityMetadataFailedPaths.remove(entry.path)
                     unityMetadataFailedCount = unityMetadataFailedPaths.size
                     val summaryNote = summary.note
-                    val isCompletedSummaryNote = summaryNote?.startsWith(
+                    val expectedCompletedSummaryNote = if ((parsedHeader.formatVersion ?: -1L) >= 26L) {
+                        "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types; shared TypeTree subtree payloads пока не разбираются."
+                    } else {
                         "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
-                    ) == true && !summaryNote.contains("shared TypeTree subtree payloads пока не разбираются.")
+                    }
+                    val isCompletedSummaryNote = summaryNote == expectedCompletedSummaryNote
                     val metadataStatus = when {
                         (parsedHeader.formatVersion ?: -1L) !in 19L..26L -> AnalyzerRunStatus.UNSUPPORTED
                         summaryNote != null && !isCompletedSummaryNote -> AnalyzerRunStatus.PARTIAL
