@@ -1569,7 +1569,11 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         } ?: return
         val targetPath = link.targetFilePath
         val targetEntry = targetPath?.let { path ->
-            externalPathIndex?.exactPath(path) ?: files.firstOrNull { it.path == path }
+            if (externalPathIndex != null) {
+                externalPathIndex.exactPath(path)
+            } else {
+                files.firstOrNull { it.path == path }
+            }
         }
         val targetMetadata = targetPath?.let { unityMetadata[it] }
         val targetDecodedObject = targetMetadata?.decodedObjects?.firstOrNull {
@@ -1782,7 +1786,11 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
         val targetPath = binding.targetFilePath
         val targetEntry = targetPath?.let { path ->
-            externalPathIndex?.exactPath(path) ?: files.firstOrNull { it.path == path }
+            if (externalPathIndex != null) {
+                externalPathIndex.exactPath(path)
+            } else {
+                files.firstOrNull { it.path == path }
+            }
         }
         val targetMetadata = targetPath?.let { unityMetadata[it] }
         val targetScript = targetMetadata?.monoScripts?.firstOrNull {
