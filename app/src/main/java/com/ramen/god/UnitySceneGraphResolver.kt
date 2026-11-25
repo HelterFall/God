@@ -65,16 +65,18 @@ internal object UnitySceneGraphResolver {
                 val transform = componentObjects.firstOrNull { isTransformClass(it.classId) }
                     ?: transformByGameObject[gameObject.pathId]
                 val parentTransform = resolveLocal(transform?.father)
-                val parentGameObject = if (isTransformClass(parentTransform?.classId)) {
-                    resolveLocal(parentTransform.gameObject)?.takeIf { it.classId == 1 }
-                } else null
+                val parentGameObject = parentTransform
+                    ?.takeIf { isTransformClass(it.classId) }
+                    ?.let { resolveLocal(it.gameObject) }
+                    ?.takeIf { it.classId == 1 }
                 val childGameObjects = transform?.children.orEmpty()
                     .take(MAX_LINKS_PER_OBJECT)
                     .mapNotNull { childPointer ->
-                        val childTransform = resolveLocal(childPointer)
-                        if (isTransformClass(childTransform?.classId)) {
-                            resolveLocal(childTransform.gameObject)?.takeIf { it.classId == 1 }?.pathId
-                        } else null
+                        resolveLocal(childPointer)
+                            ?.takeIf { isTransformClass(it.classId) }
+                            ?.let { resolveLocal(it.gameObject) }
+                            ?.takeIf { it.classId == 1 }
+                            ?.pathId
                     }.distinct()
                 if (transform?.children.orEmpty().size > MAX_LINKS_PER_OBJECT) {
                     unresolved += transform?.children.orEmpty().size - MAX_LINKS_PER_OBJECT
