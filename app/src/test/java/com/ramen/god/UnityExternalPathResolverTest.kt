@@ -53,6 +53,26 @@ class UnityExternalPathResolverTest {
     }
 
     @Test
+    fun checksCancellationWhileScanningCandidatePaths() {
+        val candidates = (1..5).map { index ->
+            Candidate("Data/file$index.assets", "file$index.assets")
+        }
+        var checks = 0
+        val error = runCatching {
+            UnityExternalPathResolver.resolve(
+                "archive:/CAB-123/missing.assets",
+                candidates,
+                { it.path },
+                { it.name },
+                shouldCancel = { ++checks >= 3 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(3, checks)
+    }
+
+    @Test
     fun normalizesWindowsSeparatorsAndCase() {
         val expected = Candidate("Game_Data/resources.assets", "resources.assets")
         val result = UnityExternalPathResolver.resolve(
