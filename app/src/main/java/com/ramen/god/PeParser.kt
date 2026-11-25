@@ -114,29 +114,36 @@ internal object PeParser {
         var runtimeVersion: String? = null
         var clrFlags: Long? = null
         var clrNote: String? = null
+        var clrHeaderParsed = false
         if (clrRva != 0L) {
             val clrMapping = rvaMapping(clrRva, sections, bytes)
-            if (clrDirectorySize < 16L || clrMapping == null || clrMapping.availableBytes < 16) {
+            if (clrDirectorySize < 72L || clrMapping == null || clrMapping.availableBytes < 72) {
                 clrNote = "CLR header is outside readable section data or truncated"
             } else {
                 val clrOffset = clrMapping.offset
-                val runtimeMajor = u16(bytes, clrOffset + 4)
-                val runtimeMinor = u16(bytes, clrOffset + 6)
-                runtimeVersion = "$runtimeMajor.$runtimeMinor"
-                val metadataRva = u32(bytes, clrOffset + 8)
-                val declaredMetadataSize = u32(bytes, clrOffset + 12)
-                if (clrDirectorySize >= 20L && clrMapping.availableBytes >= 20) {
-                    clrFlags = u32(bytes, clrOffset + 16)
-                }
-                metadataSize = declaredMetadataSize
-                val metadataMapping = if (declaredMetadataSize > 0L) {
-                    rvaMapping(metadataRva, sections, bytes)
-                } else null
-                if (metadataMapping != null &&
-                    declaredMetadataSize <= metadataMapping.availableBytes.toLong()) {
-                    metadataOffset = metadataMapping.offset
+                val declaredClrHeaderSize = u32(bytes, clrOffset)
+                if (declaredClrHeaderSize < 72L ||
+                    declaredClrHeaderSize > clrDirectorySize ||
+                    declaredClrHeaderSize > clrMapping.availableBytes.toLong()) {
+                    clrNote = "CLR header size is invalid or truncated"
                 } else {
-                    clrNote = "CLR metadata directory extends beyond readable section data"
+                    clrHeaderParsed = true
+                    val runtimeMajor = u16(bytes, clrOffset + 4)
+                    val runtimeMinor = u16(bytes, clrOffset + 6)
+                    runtimeVersion = "$runtimeMajor.$runtimeMinor"
+                    val metadataRva = u32(bytes, clrOffset + 8)
+                    val declaredMetadataSize = u32(bytes, clrOffset + 12)
+                    clrFlags = u32(bytes, clrOffset + 16)
+                    metadataSize = declaredMetadataSize
+                    val metadataMapping = if (declaredMetadataSize > 0L) {
+                        rvaMapping(metadataRva, sections, bytes)
+                    } else null
+                    if (metadataMapping != null &&
+                        declaredMetadataSize <= metadataMapping.availableBytes.toLong()) {
+                        metadataOffset = metadataMapping.offset
+                    } else {
+                        clrNote = "CLR metadata directory extends beyond readable section data"
+                    }
                 }
             }
         }
@@ -144,7 +151,7 @@ internal object PeParser {
             .distinct().joinToString("; ").ifBlank { null }
         return PeInfo(
             machine = machine,
-            managed = clrRva != 0L,
+            managed = clrHeaderParsed,
             imports = importData.dllNames,
             note = note,
             clrMetadataOffset = metadataOffset,

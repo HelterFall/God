@@ -205,11 +205,14 @@ class PeParserTest {
     }
 
     @Test
-    fun detectsClrDirectory() {
-        val info = PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x2000))
-        requireNotNull(info)
+    fun detectsClrDirectoryOnlyWhenAValidClrHeaderIsMapped() {
+        val info = requireNotNull(PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x2000)))
         assertEquals("x86-64", info.machine)
         assertTrue(info.managed)
+
+        val invalid = requireNotNull(PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x7000)))
+        assertFalse(invalid.managed)
+        assertTrue(invalid.note.orEmpty().contains("CLR header is outside readable section data"))
     }
 
     @Test
@@ -347,18 +350,32 @@ class PeParserTest {
     }
 
     private fun minimalPe(machine: Int, clrRva: Int = 0): ByteArray {
-        val bytes = ByteArray(512)
+        val bytes = ByteArray(if (clrRva == 0) 512 else 1024)
         bytes[0] = 0x4d
         bytes[1] = 0x5a
         put32(bytes, 0x3c, 0x80)
         bytes[0x80] = 0x50
         bytes[0x81] = 0x45
         put16(bytes, 0x84, machine)
-        put16(bytes, 0x86, 0)
+        put16(bytes, 0x86, if (clrRva == 0) 0 else 1)
         put16(bytes, 0x94, 224)
         put16(bytes, 0x98, 0x10b)
         put32(bytes, 0x98 + 92, 16)
         put32(bytes, 0x98 + 208, clrRva)
+        if (clrRva != 0) {
+            put32(bytes, 0x98 + 212, 72)
+            val section = 0x98 + 224
+            put32(bytes, section + 8, 0x200)
+            put32(bytes, section + 12, 0x2000)
+            put32(bytes, section + 16, 0x200)
+            put32(bytes, section + 20, 0x200)
+            put32(bytes, 0x200, 72)
+            put16(bytes, 0x204, 2)
+            put16(bytes, 0x206, 5)
+            put32(bytes, 0x208, 0x2080)
+            put32(bytes, 0x20c, 16)
+            put32(bytes, 0x210, 1)
+        }
         return bytes
     }
 
