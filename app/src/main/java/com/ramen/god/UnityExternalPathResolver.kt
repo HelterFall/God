@@ -20,6 +20,11 @@ internal object UnityExternalPathResolver {
         private val byPath: Map<String, Int>,
         private val byName: Map<String, Int>
     ) {
+        fun exactPath(path: String): T? {
+            val index = byPath[normalize(path)] ?: return null
+            return if (index < 0) null else candidates[index]
+        }
+
         fun resolve(
             externalPath: String,
             shouldCancel: () -> Boolean = { false }
