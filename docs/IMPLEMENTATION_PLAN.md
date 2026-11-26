@@ -51,7 +51,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] При отмене на этапах inventory/PE/Unity/resolver возвращается partial report с собранным inventory; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile и local MonoScript payload, если этапы уже начались.
 - [x] Агрегированная ScanCoverage: inventory counters, PE/CLR/Unity analyzer candidate/attempt/parsed/partial/failed/limited/skipped counts и derived status.
 
-**Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report остаётся пустым, но `analyzerRuns[]` сохраняет per-file результаты этапов, уже достигнутых к моменту отмены. PE/CLR, Unity header/SerializedFile и local MonoScript payload подключены; external MonoScript/PPtr и scene-object resolver stages ещё не имеют отдельных запусков. Отмена проверяется на границах parser/resolver этапов, а не внутри каждого блокирующего provider read. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
+**Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report остаётся пустым, но `analyzerRuns[]` сохраняет per-file результаты этапов, уже достигнутых к моменту отмены. PE/CLR, Unity header/SerializedFile, local/external MonoScript payload, external PPtr, MonoBehaviour script binding и scene-object decoding подключены к per-file AnalyzerRun. Path matching и reference resolver loops проверяют cancellation внутри проходов; чтение MonoScript payload/provider streams пока не cancellation-aware. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
 
 ### Уже существующие форматы и экспорт
 
@@ -74,10 +74,10 @@ God уже умеет выполнять ограниченную инвента
 - [x] Unity SerializedFile headers и metadata v19–v26 в ограниченных окнах.
 - [x] Sampled object records, ClassID counts, TypeTree summaries и выбранные полные TypeTrees.
 - [x] Ограниченное чтение MonoScript payload, часть local/external PPtr resolution и MonoBehaviour script bindings.
-- [x] Ограниченный decoder GameObject/Transform/MonoBehaviour и локальный GameObject–Transform–Component scene graph.
+- [x] Ограниченный decoder GameObject/Transform/RectTransform/MonoBehaviour и локальная GameObject–Transform/RectTransform–Component scene graph.
 - [x] Распознавание UnityFS header.
 
-**Не подразумевается как завершённое:** распаковка UnityFS/AssetBundle/ZIP, полная PE import/export analysis (delay/forwarded exports и широкий compatibility matrix), CLR P/Invoke map и IL bodies, IL2CPP metadata parsing, полный scene graph и asset payload decoding, общий cross-domain dependency graph и Porting Dossier generator.
+**Не подразумевается как завершённое:** распаковка UnityFS/AssetBundle/ZIP, полная PE import/export analysis (delay/forwarded exports и широкий compatibility matrix), CLR P/Invoke map и IL bodies, IL2CPP metadata parsing, полный scene graph и asset payload decoding, общий cross-domain dependency graph и Porting Dossier generator. Для SerializedFile object tables до 250 000 строк проверяются все PathID; при большем размере object samples и scene graph отключаются ради однозначности ссылок.
 ## 2.2. Проблемы, выявленные аудитом тестирования и качества
 
 Полная матрица тестов, проверенные CI steps и технические детали: [TEST_AUDIT_2026-11-19.md](TEST_AUDIT_2026-11-19.md).
