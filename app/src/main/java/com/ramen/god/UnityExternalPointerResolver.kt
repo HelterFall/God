@@ -31,12 +31,18 @@ internal object UnityExternalPointerResolver {
                     val external = refs[pointer.fileId]
                     val targetPath = external?.let { resolvePath(it.path) }
                     val targetMetadata = targetPath?.let { metadataByPath[it] }
-                    val target = targetMetadata?.decodedObjects?.firstOrNull { it.pathId == pointer.pathId }
-                    val sample = targetMetadata?.objectSamples?.firstOrNull { it.pathId == pointer.pathId }
+                    val targetMatches = targetMetadata?.decodedObjects.orEmpty()
+                        .filter { it.pathId == pointer.pathId }
+                    val sampleMatches = targetMetadata?.objectSamples.orEmpty()
+                        .filter { it.pathId == pointer.pathId }
+                    val targetAmbiguous = targetMatches.size > 1 || sampleMatches.size > 1
+                    val target = targetMatches.singleOrNull()
+                    val sample = sampleMatches.singleOrNull()
                     val status = when {
                         external == null -> "external-fileID-not-in-reference-table"
                         targetPath == null -> "external-file-path-unmatched-or-ambiguous"
                         targetMetadata == null -> "external-file-not-parsed"
+                        targetAmbiguous -> "target-path-id-ambiguous"
                         target != null -> "resolved-decoded-object"
                         sample != null -> "resolved-object-record-not-decoded"
                         else -> "pathID-not-in-object-sample"
