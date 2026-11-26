@@ -98,13 +98,15 @@ internal object UnityObjectDecoder {
         dataOffset: Long,
         fileSize: Long,
         targets: List<UnityObjectDecodeTarget>,
-        littleEndian: Boolean
+        littleEndian: Boolean,
+        shouldCancel: () -> Boolean = { false }
     ): UnityObjectDecodeResult {
         if (dataOffset < 0L || fileSize < dataOffset) {
             return UnityObjectDecodeResult(emptyList(), targets.size, "Некорректные границы data section.")
         }
         val seenPathIds = HashSet<Long>(targets.size)
         for (target in targets) {
+            if (shouldCancel()) throw ScanCancelledException()
             if (!seenPathIds.add(target.objectSummary.pathId)) {
                 return UnityObjectDecodeResult(
                     emptyList(),
@@ -121,6 +123,7 @@ internal object UnityObjectDecoder {
         val buffer = ByteArray(8192)
 
         for ((index, target) in limited.withIndex()) {
+            if (shouldCancel()) throw ScanCancelledException()
             val objectInfo = target.objectSummary
             if (!target.typeTree.completeForDecoding ||
                 objectInfo.byteStart < 0L ||
@@ -145,13 +148,13 @@ internal object UnityObjectDecoder {
                 skipped++
                 continue
             }
-            if (!skipFully(input, absoluteStart - position, buffer)) {
+            if (!skipFully(input, absoluteStart - position, buffer, shouldCancel)) {
                 skipped += limited.size - index
                 return UnityObjectDecodeResult(decoded, skipped, "Поток закончился до scene object.")
             }
             position = absoluteStart
 
-            val payload = readExactly(input, objectInfo.byteSize.toInt()) ?: run {
+            val payload = readExactly(input, objectInfo.byteSize.toInt(), shouldCancel) ?: run {
                 skipped += limited.size - index
                 return UnityObjectDecodeResult(decoded, skipped, "Scene object обрезан.")
             }
@@ -299,27 +302,33 @@ internal object UnityObjectDecoder {
         return result
     }
 
-    private fun skipFully(input: InputStream, count: Long, buffer: ByteArray): Boolean {
+    private fun skipFully(
+        input: InputStream,
+        count: Long,
+        buffer: ByteArray,
+        shouldCancel: () -> Boolean
+    ): Boolean {
         var remaining = count
         while (remaining > 0L) {
-            val skipped = input.skip(remaining)
-            if (skipped > 0L) {
-                remaining -= skipped
-            } else {
-                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                if (read <= 0) return false
-                remaining -= read.toLong()
-            }
+            if (shouldCancel()) throw ScanCancelledException()
+            val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+            if (read <= 0) return false
+            remaining -= read.toLong()
         }
         return true
     }
 
-    private fun readExactly(input: InputStream, count: Int): ByteArray? {
+    private fun readExactly(
+        input: InputStream,
+        count: Int,
+        shouldCancel: () -> Boolean
+    ): ByteArray? {
         if (count < 0 || count > MAX_OBJECT_BYTES) return null
         val result = ByteArray(count)
         var offset = 0
         while (offset < count) {
-            val read = input.read(result, offset, count - offset)
+            if (shouldCancel()) throw ScanCancelledException()
+            val read = input.read(result, offset, minOf(8192, count - offset))
             if (read <= 0) return null
             offset += read
         }
