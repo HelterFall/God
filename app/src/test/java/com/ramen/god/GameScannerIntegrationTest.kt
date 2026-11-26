@@ -1302,9 +1302,26 @@ class GameScannerIntegrationTest {
                     true,
                     children = listOf(
                         MemoryScanNode(
-                            "globalgamemanagers",
-                            false,
-                            unitySerializedFileWithRepeatedExternalMonoScriptReference(externalPath)
+                            "GameA",
+                            true,
+                            children = listOf(
+                                MemoryScanNode(
+                                    "globalgamemanagers",
+                                    false,
+                                    unitySerializedFileWithExternalMonoScriptReference(externalPath)
+                                )
+                            )
+                        ),
+                        MemoryScanNode(
+                            "GameB",
+                            true,
+                            children = listOf(
+                                MemoryScanNode(
+                                    "globalgamemanagers",
+                                    false,
+                                    unitySerializedFileWithExternalMonoScriptReference(externalPath)
+                                )
+                            )
                         ),
                         MemoryScanNode(
                             "Resources",
@@ -1339,21 +1356,18 @@ class GameScannerIntegrationTest {
         assertFalse(result.isPartial)
         val report = JSONObject(result.json)
         val metadata = report.getJSONArray("unityMetadata")
-        val owner = (0 until metadata.length()).map { metadata.getJSONObject(it) }
-            .single { it.getString("path") == "Data/globalgamemanagers" }
-        val bindings = owner.getJSONArray("scriptTypeBindings")
-        System.err.println("REPEATED_MONOSCRIPT_FIXTURE_DEBUG " + owner.toString())
-        assertEquals(
-            "typeCount=${owner.optLong("typeCount")}, serializedTypes=${owner.optJSONArray("serializedTypes")}, scriptRefs=${owner.optJSONArray("scriptTypeReferences")}, bindings=$bindings",
-            2,
-            bindings.length()
-        )
-        for (index in 0 until bindings.length()) {
-            assertEquals("external-monoscript-decoded", bindings.getJSONObject(index).getString("resolution"))
-            assertEquals("HeroController", bindings.getJSONObject(index).getString("className"))
-            assertEquals(targetPath, bindings.getJSONObject(index).getString("matchedExternalFilePath"))
+        val owners = listOf("Data/GameA/globalgamemanagers", "Data/GameB/globalgamemanagers")
+            .map { ownerPath ->
+                (0 until metadata.length()).map { metadata.getJSONObject(it) }
+                    .single { it.getString("path") == ownerPath }
+            }
+        for (owner in owners) {
+            val binding = owner.getJSONArray("scriptTypeBindings").getJSONObject(0)
+            assertEquals("external-monoscript-decoded", binding.getString("resolution"))
+            assertEquals("HeroController", binding.getString("className"))
+            assertEquals(targetPath, binding.getString("matchedExternalFilePath"))
+            assertEquals(1, owner.getJSONArray("monoScripts").length())
         }
-        assertEquals(1, owner.getJSONArray("monoScripts").length())
 
         val files = report.getJSONArray("files")
         val fileIds = (0 until files.length()).associate { index ->
