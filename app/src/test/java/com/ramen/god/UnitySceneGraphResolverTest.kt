@@ -130,6 +130,11 @@ class UnitySceneGraphResolverTest {
                 pathId = 1L,
                 classId = 1,
                 components = listOf(ptr(2, 77), ptr(0, 999))
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 88L,
+                classId = 4,
+                gameObject = ptr(0, 1)
             )
         )
 
