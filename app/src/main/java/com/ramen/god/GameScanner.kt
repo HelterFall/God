@@ -174,7 +174,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             peCandidates.take(MAX_PE_FILES).forEach { entry ->
                 if (shouldCancel()) throw ScanCancelledException()
                 peAttemptedCount++
-                val info = readPeInfo(entry)
+                val info = readPeInfo(entry, shouldCancel)
                 if (info == null) {
                     peFailedCount++
                     updateAnalyzerRun(
@@ -249,7 +249,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 var headerDiagnostic: String? = null
                 try {
                     val readLimit = if (deepMetadataRead) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
-                    val readPrefix = readPrefix(entry.node, readLimit)
+                    val readPrefix = readPrefix(entry.node, readLimit, shouldCancel)
                     prefix = readPrefix
                     if (readPrefix == null) {
                         headerDiagnostic = "не удалось открыть файл для чтения"
@@ -262,6 +262,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                             unityHeaders[entry.path] = parsed
                         }
                     }
+                } catch (e: ScanCancelledException) {
+                    throw e
                 } catch (e: Exception) {
                     headerDiagnostic = e.message ?: e.javaClass.simpleName
                 }
@@ -420,7 +422,11 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         managedTypeResolutions.addAll(UnityManagedTypeResolver.resolve(unityMetadata, clrResults))
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
-        val unityVersion = collectUnityVersion(files)
+        val unityVersion = try {
+            collectUnityVersion(files, shouldCancel)
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
 
         val managedBinaries = peResults.filterValues { it.managed }.keys
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
@@ -770,10 +776,15 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             lower == "globalgamemanagers" || lower.startsWith("level")
     }
 
-    private fun collectUnityVersion(files: List<ScanEntry>): UnityVersionResult {
+    private fun collectUnityVersion(
+        files: List<ScanEntry>,
+        shouldCancel: () -> Boolean
+    ): UnityVersionResult {
+        if (shouldCancel()) throw ScanCancelledException()
         val evidence = mutableListOf<UnityVersionEvidence>()
 
         unityMetadata.forEach { (path, metadata) ->
+            if (shouldCancel()) throw ScanCancelledException()
             val value = metadata.unityVersion ?: return@forEach
             val fileName = path.substringAfterLast('/')
             val isRootFile = fileName.equals("globalgamemanagers", true) ||
@@ -789,6 +800,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
 
         unityHeaders.forEach { (path, header) ->
+            if (shouldCancel()) throw ScanCancelledException()
             if (header.kind == "UnityFS bundle") {
                 header.engineVersion?.let { engineVersion ->
                     UnityVersionResolver.extractVersions(engineVersion).forEach { version ->
@@ -807,14 +819,17 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 it.name.equals("globalgamemanagers", true) ||
                     it.name.equals("globalgamemanagers.assets", true)
             }.take(2).forEach { entry ->
+                if (shouldCancel()) throw ScanCancelledException()
                 try {
-                    val bytes = readPrefix(entry.node, MAX_GGM_READ) ?: return@forEach
+                    val bytes = readPrefix(entry.node, MAX_GGM_READ, shouldCancel) ?: return@forEach
                     val text = String(bytes, Charsets.ISO_8859_1)
                     UnityVersionResolver.extractVersions(text).take(8).forEach { version ->
                         evidence.add(UnityVersionEvidence(
                             version, "globalgamemanagers-raw", entry.path, "medium"
                         ))
                     }
+                } catch (e: ScanCancelledException) {
+                    throw e
                 } catch (e: Exception) {
                     addIssue(
                         code = "unity.version_read_failed",
@@ -917,7 +932,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         unityHeaderAttemptedCount = unityHeaderAttemptedPaths.size
                     }
                     try {
-                        val prefix = readPrefix(targetEntry.node, MAX_UNITY_METADATA_READ)
+                        val prefix = readPrefix(targetEntry.node, MAX_UNITY_METADATA_READ, shouldCancel)
                         if (prefix == null) {
                             val reason = "External MonoScript target provider returned no input stream."
                             if (targetHeader == null) {
@@ -2209,13 +2224,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
     }
 
-    private fun readPeInfo(entry: ScanEntry): PeInfo? {
+    private fun readPeInfo(
+        entry: ScanEntry,
+        shouldCancel: () -> Boolean
+    ): PeInfo? {
         return try {
-            var data = readPrefix(entry.node, MAX_PE_READ) ?: return null
+            var data = readPrefix(entry.node, MAX_PE_READ, shouldCancel) ?: return null
             var info = PeParser.parse(data) ?: return null
             val metadataEnd = info.clrMetadataOffset?.toLong()?.plus(info.clrMetadataSize ?: 0L)
             if (info.managed && metadataEnd != null && metadataEnd > data.size.toLong()) {
-                val expanded = readPrefix(entry.node, MAX_CLR_PE_READ)
+                val expanded = readPrefix(entry.node, MAX_CLR_PE_READ, shouldCancel)
                 if (expanded != null) {
                     data = expanded
                     info = PeParser.parse(data) ?: info
@@ -2267,6 +2285,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 }
             }
             info
+        } catch (e: ScanCancelledException) {
+            throw e
         } catch (e: Exception) {
             addIssue(
                 code = "pe.analysis_failed",
@@ -2279,13 +2299,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
     }
 
-    private fun readPrefix(node: ScanNode, maximum: Int): ByteArray? {
+    private fun readPrefix(
+        node: ScanNode,
+        maximum: Int,
+        shouldCancel: () -> Boolean = { false }
+    ): ByteArray? {
+        if (shouldCancel()) throw ScanCancelledException()
         val input = fileAccess.openInputStream(node) ?: return null
         input.use { stream ->
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(16 * 1024)
             var total = 0
             while (total < maximum) {
+                if (shouldCancel()) throw ScanCancelledException()
                 val count = stream.read(buffer, 0, minOf(buffer.size, maximum - total))
                 if (count <= 0) break
                 output.write(buffer, 0, count)
