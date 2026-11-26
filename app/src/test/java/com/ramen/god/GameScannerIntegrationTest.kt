@@ -213,7 +213,7 @@ class GameScannerIntegrationTest {
             "partial",
             report.getJSONObject("scanCoverage").getString("status")
         )
-        assertTrue(result.markdown.contains("inventory.duplicate_relative_path"))
+        assertTrue(result.markdown.contains("одинаковый relative path"))
     }
 
     @Test
