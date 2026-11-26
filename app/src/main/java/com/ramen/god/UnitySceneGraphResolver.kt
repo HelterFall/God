@@ -30,12 +30,12 @@ internal object UnitySceneGraphResolver {
     fun resolve(objects: List<UnityDecodedObjectSummary>): UnitySceneGraphResult {
         val byPathId = objects.associateBy { it.pathId }
         val transforms = objects.filter { isTransformClass(it.classId) }
-        val transformByGameObject = transforms.mapNotNull { transform ->
+        val transformsByGameObject = transforms.mapNotNull { transform ->
             val gameObject = transform.gameObject
             if (gameObject?.fileId == 0 && byPathId[gameObject.pathId]?.classId == 1) {
                 gameObject.pathId to transform
             } else null
-        }.toMap()
+        }.groupBy({ it.first }, { it.second })
 
         var unresolvedTotal = 0
         var externalTotal = 0
@@ -62,8 +62,16 @@ internal object UnitySceneGraphResolver {
                 if (gameObject.components.size > MAX_LINKS_PER_OBJECT) {
                     unresolved += gameObject.components.size - MAX_LINKS_PER_OBJECT
                 }
-                val transform = componentObjects.firstOrNull { isTransformClass(it.classId) }
-                    ?: transformByGameObject[gameObject.pathId]
+                val componentTransforms = componentObjects.filter { isTransformClass(it.classId) }
+                val associatedTransforms = transformsByGameObject[gameObject.pathId].orEmpty()
+                val transformCandidates = componentTransforms + associatedTransforms
+                val uniqueTransformCandidates = transformCandidates.distinctBy { it.pathId }
+                val hasAmbiguousTransform = componentTransforms.size > 1 ||
+                    associatedTransforms.map { it.pathId }.distinct().size > 1 ||
+                    (componentTransforms.isNotEmpty() && associatedTransforms.isNotEmpty() &&
+                        componentTransforms.singleOrNull()?.pathId != associatedTransforms.singleOrNull()?.pathId)
+                if (hasAmbiguousTransform) unresolved++
+                val transform = if (hasAmbiguousTransform) null else uniqueTransformCandidates.singleOrNull()
                 val parentTransform = resolveLocal(transform?.father)
                 val parentGameObject = parentTransform
                     ?.takeIf { isTransformClass(it.classId) }
