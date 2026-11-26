@@ -20,6 +20,21 @@ class UnityMetadataTypeIndexTest {
         }
     }
 
+    @Test
+    fun propagatesCancellationInsideSerializedFileObjectTableParsing() {
+        var checks = 0
+        val error = runCatching {
+            UnityMetadataParser.parse(
+                serializedFileWithObjectTypeIndex(0),
+                UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48),
+                shouldCancel = { ++checks >= 4 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(4, checks)
+    }
+
     private fun serializedFileWithObjectTypeIndex(typeIndex: Int): ByteArray {
         val bytes = ByteArray(160)
         val version = "2022.3.10f1".toByteArray()
