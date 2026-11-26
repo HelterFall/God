@@ -2336,6 +2336,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 sceneDecodeNote = sceneNote
             )
             result.objects.forEach { sourceObject ->
+                if (shouldCancel()) throw ScanCancelledException()
                 val localPointers = buildList {
                     sourceObject.gameObject?.let { add("gameObject" to it) }
                     sourceObject.father?.let { add("father" to it) }
@@ -2343,6 +2344,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     sourceObject.components.forEach { add("components" to it) }
                 }
                 localPointers.forEach { (field, pointer) ->
+                    if (shouldCancel()) throw ScanCancelledException()
                     if (pointer.fileId == 0 && pointer.pathId != 0L) {
                         recordLocalUnityScenePointer(
                             ownerPath = entry.path,
