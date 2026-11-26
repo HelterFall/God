@@ -104,6 +104,7 @@ internal object UnityMetadataParser {
     private const val MAX_VERSION_STRING = 64
     private const val MAX_TYPE_COUNT = 200_000L
     private const val MAX_OBJECT_COUNT = 2_000_000L
+    private const val MAX_PATH_ID_UNIQUENESS_CHECK = 250_000L
     private const val MAX_AUX_COUNT = 500_000L
     private const val MAX_OBJECT_SAMPLES = 500
     private const val MAX_MONOSCRIPT_OBJECT_SAMPLES = 1000
@@ -243,8 +244,11 @@ internal object UnityMetadataParser {
 
         val objectSamples = ArrayList<UnityObjectSummary>(minOf(objectCount, MAX_OBJECT_SAMPLES.toLong()).toInt())
         val monoScriptObjects = ArrayList<UnityObjectSummary>()
-        // PathIDs are unique within a SerializedFile; avoid retaining ambiguous sampled targets.
-        val retainedPathIds = HashSet<Long>(MAX_OBJECT_SAMPLES + MAX_MONOSCRIPT_OBJECT_SAMPLES)
+        // Check every PathID when feasible; for larger tables disable object targets rather than resolve ambiguously.
+        val pathIdsForUniqueness = if (objectCount <= MAX_PATH_ID_UNIQUENESS_CHECK) {
+            LongArray(objectCount.toInt())
+        } else null
+        var pathIdIndex = 0
         val objectTypeCounts = linkedMapOf<Int, Long>()
         val objectTypePathSamples = linkedMapOf<Int, MutableList<Long>>()
         var rawTypeIndexFallbackCount = 0L
@@ -266,6 +270,8 @@ internal object UnityMetadataParser {
                 return partial.copy(objectCount = objectCount, objectSamples = objectSamples,
                     note = "Запись объекта указывает за пределы data section; дальнейший разбор остановлен.")
             }
+            pathIdsForUniqueness?.set(pathIdIndex, pathId)
+            pathIdIndex++
             val classId = typeClassIds.getOrNull(typeIndex) ?: run {
                 // Stripped SerializedFiles may store persistentTypeID directly
                 // in typeIndex when no matching m_Types entry exists.
@@ -275,19 +281,27 @@ internal object UnityMetadataParser {
             objectTypeCounts[classId] = (objectTypeCounts[classId] ?: 0L) + 1L
             val samples = objectTypePathSamples.getOrPut(classId) { mutableListOf() }
             if (samples.size < 10) samples.add(pathId)
-            val summary = UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, classId)
-            val retainObjectSample = objectSamples.size < MAX_OBJECT_SAMPLES
-            val retainMonoScriptSample = classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES
-            if ((retainObjectSample || retainMonoScriptSample) && !retainedPathIds.add(pathId)) {
-                return partial.copy(
-                    objectCount = objectCount,
-                    objectSamples = objectSamples.filterNot { it.pathId == pathId },
-                    monoScriptObjects = monoScriptObjects.filterNot { it.pathId == pathId },
-                    note = "Обнаружен повторяющийся PathID в выборке объектов; неоднозначные записи исключены из ссылок и граф сцены помечен как частичный."
-                )
+            if (pathIdsForUniqueness != null) {
+                val summary = UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, classId)
+                if (objectSamples.size < MAX_OBJECT_SAMPLES) objectSamples.add(summary)
+                if (classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES) {
+                    monoScriptObjects.add(summary)
+                }
             }
-            if (retainObjectSample) objectSamples.add(summary)
-            if (retainMonoScriptSample) monoScriptObjects.add(summary)
+        }
+
+        if (pathIdsForUniqueness != null) {
+            pathIdsForUniqueness.sort()
+            for (index in 1 until pathIdsForUniqueness.size) {
+                if (pathIdsForUniqueness[index] == pathIdsForUniqueness[index - 1]) {
+                    return partial.copy(
+                        objectCount = objectCount,
+                        objectSamples = emptyList(),
+                        monoScriptObjects = emptyList(),
+                        note = "Обнаружен повторяющийся PathID в таблице объектов; неоднозначные записи исключены из ссылок и граф сцены."
+                    )
+                }
+            }
         }
 
         val objectTypeSummaries = objectTypeCounts.entries
@@ -398,6 +412,11 @@ internal object UnityMetadataParser {
         )
 
         val sampleNotes = mutableListOf<String>()
+        if (pathIdsForUniqueness == null) {
+            sampleNotes.add(
+                "Object samples and scene graph were disabled because the object table exceeds $MAX_PATH_ID_UNIQUENESS_CHECK rows and full PathID uniqueness could not be checked; analysis is partial."
+            )
+        }
         if (rawTypeIndexFallbackCount > 0L) {
             sampleNotes.add(
                 "$rawTypeIndexFallbackCount object row(s) used the raw typeIndex as a persistentTypeID fallback because no matching SerializedType entry was present; analysis is partial."
