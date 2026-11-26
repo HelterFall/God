@@ -207,6 +207,63 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun cancellationInsideSerializedFileObjectTableMarksMetadataRunPartial() {
+        val objects = (0 until 501).map { index ->
+            (1000L + index) to minimalGameObjectPayload("Object-$index", active = true)
+        }
+        val bytes = unitySerializedFileWithGameObjectScene(objects)
+        var streamReadCompleted = false
+        var checksAfterRead = 0
+        val root = MemoryScanNode(
+            name = "UnityMetadataCancellationFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    name = "globalgamemanagers",
+                    isDirectory = false,
+                    contents = bytes,
+                    inputStreamFactory = {
+                        streamReadCompleted = false
+                        object : InputStream() {
+                            private val delegate = ByteArrayInputStream(bytes)
+                            override fun read(): Int {
+                                val value = delegate.read()
+                                if (value < 0) streamReadCompleted = true
+                                return value
+                            }
+                            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                                val value = delegate.read(buffer, offset, length)
+                                if (value < 0) streamReadCompleted = true
+                                return value
+                            }
+                        }
+                    }
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { streamReadCompleted && ++checksAfterRead >= 3 },
+            onProgress = { _, _ -> }
+        )
+
+        assertTrue(streamReadCompleted)
+        assertEquals(3, checksAfterRead)
+        assertTrue(result.isPartial)
+        val report = JSONObject(result.json)
+        assertEquals("cancelled", report.getString("scanStatus"))
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val headerRun = runs.single { it.getString("analyzerId") == "unity_file_headers" }
+        val metadataRun = runs.single { it.getString("analyzerId") == "serialized_file_metadata" }
+
+        assertEquals("analyzed", headerRun.getString("status"))
+        assertEquals("partial", metadataRun.getString("status"))
+        assertTrue(metadataRun.getString("reason").contains("Cancelled"))
+    }
+
+    @Test
     fun reportsSuccessfulClrMetadataThroughScannerCoverageAndBothReports() {
         val root = MemoryScanNode(
             name = "MonoFixture",
