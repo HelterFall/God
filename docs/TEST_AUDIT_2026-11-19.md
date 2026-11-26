@@ -225,3 +225,19 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 - Coverage измеряется и публикуется; процент не объявляется целью до получения честной исходной метрики.
 
 Наличие зелёного CI — обязательное условие, но не замена этим критериям.
+
+## 7. Follow-up — 2026-11-26 (PR #37, draft; not merged)
+
+В PR #37 после первоначального аудита добавлены дополнительные проверки и защитные механизмы. На момент этого дополнения PR остаётся draft и не слит в `main`.
+
+**Подтверждено кодом и зелёными JVM/Debug APK CI runs:**
+- External Unity path resolution использует единый индекс путей/имён на scan; неоднозначные нормализованные пути не разрешаются через fallback на «первый» файл.
+- Cancellation проверяется внутри path-index creation, поиска внешнего пути, external PPtr resolver и MonoBehaviour script binding resolver.
+- SerializedFile parser сохраняет raw `typeIndex` как documented stripped-file `persistentTypeID` fallback и помечает такой результат partial.
+- PathID проверяется по всей таблице объектов до 250 000 строк. Повторный PathID делает object sample пустой и прекращает разрешение неоднозначных ссылок; выше этого предела object/MonoScript samples и scene graph отключаются, а metadata помечается partial.
+- Сам Unity object decoder отказывает при duplicate PathID в переданном наборе целей, вместо выбора первого target.
+- ClassID 224 RectTransform включён в TypeTree retention, decoding, parent/child graph resolution, target-class validation и отчётные labels.
+
+Новые синтетические regression tests покрывают duplicate PathID за пределами первых 500 object samples, превышение лимита 250 000, повторные decoder targets, индексированные пути и RectTransform TypeTree/parent/child PPtrs. Запуски #517–#521 прошли успешно; в частности, #520 проверил лимит PathID, а #521 — фактическое декодирование RectTransform. Это подтверждает именно эти синтетические сценарии, а не совместимость со всеми реальными Unity builds.
+
+**Оставшиеся пробелы:** нет легально распространяемого corpus реальных SerializedFiles/AssetBundles и compiler-produced PE/CLR fixtures; нет fuzz/property testing и Android SAF instrumentation/lifecycle tests; `MonoScriptParser` stream skip/read ещё не принимает cancellation callback; UnityFS block table/decompression/entries, полноценные shared TypeTree subtree v26, форматы SerializedFile вне v19–v26 и полный IL2CPP metadata parser остаются вне поддержки.
