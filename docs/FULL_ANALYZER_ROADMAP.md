@@ -171,7 +171,7 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | Приоритет | Работа | Результат |
 |---|---|---|
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
-| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Path matching, SerializedFile parser loops, TypeTree nodes, MonoScript/scene payload и prefix reads проверяют cancellation между ограниченными операциями чтения; positional/range reads и прерывание уже блокирующего provider `InputStream.read()` остаются открытыми |
+| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Path matching, SerializedFile/CLR parser loops, TypeTree nodes, MonoScript/scene payload, managed-type linking и prefix reads проверяют cancellation между ограниченными операциями чтения; positional/range reads и прерывание уже блокирующего provider `InputStream.read()` остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
 | P1 | Per-file statuses для оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile, MonoScript, external PPtr, MonoBehaviour binding и scene graph уже имеют FileRecord-linked runs; остаются containers/assets и другие analyzer families |
 | P2 | PE/native dependency graph | Понимание нативных границ |
