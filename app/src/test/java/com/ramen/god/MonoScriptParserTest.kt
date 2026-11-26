@@ -8,6 +8,12 @@ import java.io.ByteArrayOutputStream
 import java.io.ByteArrayInputStream
 
 class MonoScriptParserTest {
+    private val cancelChecksHolder = intArrayOf(0)
+
+    private fun throwIfCancelled(checks: Int) {
+        if (checks >= 2) throw ScanCancelledException()
+    }
+
     @Test
     fun parsesLittleEndianMonoScriptPayload() {
         val payload = buildPayload(true)
@@ -48,6 +54,48 @@ class MonoScriptParserTest {
         assertEquals(123L, result.scripts.single().pathId)
         assertEquals("SpriteSkin", result.scripts.single().className)
         assertEquals(0, result.skippedCount)
+    }
+
+    @Test
+    fun observesCancellationWhileSkippingToMonoScriptObject() {
+        val payload = buildPayload(true)
+        val byteStart = 64L * 1024L
+        val bytes = ByteArray(byteStart.toInt()) + payload
+        val error = runCatching {
+            MonoScriptParser.readObjects(
+                ByteArrayInputStream(bytes),
+                dataOffset = 0L,
+                fileSize = bytes.size.toLong(),
+                targets = listOf(MonoScriptObjectTarget(7L, byteStart, payload.size.toLong())),
+                littleEndian = true,
+                shouldCancel = { throwIfCancelled(++cancelChecksHolder[0]) }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+    }
+
+    @Test
+    fun observesCancellationDuringBoundedMonoScriptPayloadReads() {
+        val payload = buildPayload(true)
+        var checks = 0
+        val input = object : java.io.InputStream() {
+            private val delegate = ByteArrayInputStream(payload)
+            override fun read(): Int = delegate.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+                delegate.read(buffer, offset, minOf(length, 4))
+        }
+        val error = runCatching {
+            MonoScriptParser.readObjects(
+                input, 0L, payload.size.toLong(),
+                listOf(MonoScriptObjectTarget(8L, 0L, payload.size.toLong())),
+                true,
+                shouldCancel = { ++checks >= 3 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(3, checks)
     }
 
     @Test
