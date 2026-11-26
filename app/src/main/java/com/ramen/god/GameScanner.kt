@@ -54,14 +54,14 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private var unityMetadataFailedCount = 0
     private var unityMetadataPrerequisiteSkippedCount = 0
     private var unityMetadataWindowLimitedCount = 0
-    private val unityHeaderCandidatePaths = mutableSetOf<String>()
-    private val unityHeaderAttemptedPaths = mutableSetOf<String>()
-    private val unityHeaderFailedPaths = mutableSetOf<String>()
-    private val unityMetadataCandidatePaths = mutableSetOf<String>()
-    private val unityMetadataAttemptedPaths = mutableSetOf<String>()
-    private val unityMetadataWindowLimitedPaths = mutableSetOf<String>()
-    private val unityMetadataPrerequisiteSkippedPaths = mutableSetOf<String>()
-    private val unityMetadataFailedPaths = mutableSetOf<String>()
+    private val unityHeaderCandidateFileIds = mutableSetOf<String>()
+    private val unityHeaderAttemptedFileIds = mutableSetOf<String>()
+    private val unityHeaderFailedFileIds = mutableSetOf<String>()
+    private val unityMetadataCandidateFileIds = mutableSetOf<String>()
+    private val unityMetadataAttemptedFileIds = mutableSetOf<String>()
+    private val unityMetadataWindowLimitedFileIds = mutableSetOf<String>()
+    private val unityMetadataPrerequisiteSkippedFileIds = mutableSetOf<String>()
+    private val unityMetadataFailedFileIds = mutableSetOf<String>()
 
     companion object {
         private const val MAX_ENTRIES = 100_000
@@ -113,14 +113,14 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         unityMetadataFailedCount = 0
         unityMetadataPrerequisiteSkippedCount = 0
         unityMetadataWindowLimitedCount = 0
-        unityHeaderCandidatePaths.clear()
-        unityHeaderAttemptedPaths.clear()
-        unityHeaderFailedPaths.clear()
-        unityMetadataCandidatePaths.clear()
-        unityMetadataAttemptedPaths.clear()
-        unityMetadataWindowLimitedPaths.clear()
-        unityMetadataPrerequisiteSkippedPaths.clear()
-        unityMetadataFailedPaths.clear()
+        unityHeaderCandidateFileIds.clear()
+        unityHeaderAttemptedFileIds.clear()
+        unityHeaderFailedFileIds.clear()
+        unityMetadataCandidateFileIds.clear()
+        unityMetadataAttemptedFileIds.clear()
+        unityMetadataWindowLimitedFileIds.clear()
+        unityMetadataPrerequisiteSkippedFileIds.clear()
+        unityMetadataFailedFileIds.clear()
         try {
             walk(root, "", 0, null, shouldCancel, onProgress)
             inventoryCompleted = true
@@ -233,7 +233,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 else -> 3
             }
         }
-        unityHeaderCandidatePaths.addAll(unityCandidates.map { it.path })
+        unityHeaderCandidateFileIds.addAll(unityCandidates.map { it.record.id })
         if (unityCandidates.size > MAX_UNITY_HEADER_FILES) addIssue(
             code = "unity.header_candidate_limit_reached",
             stage = ScanIssueStage.UNITY_FILE_HEADERS,
@@ -271,8 +271,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 if (shouldCancel()) throw ScanCancelledException()
                 if (entry.path in ambiguousInventoryPaths) return@forEachIndexed
                 val deepMetadataRead = index < MAX_UNITY_METADATA_FILES
-                if (unityHeaderAttemptedPaths.add(entry.path)) {
-                    unityHeaderAttemptedCount = unityHeaderAttemptedPaths.size
+                if (unityHeaderAttemptedFileIds.add(entry.record.id)) {
+                    unityHeaderAttemptedCount = unityHeaderAttemptedFileIds.size
                 }
                 val headerRunId = unityHeaderRunIds.getValue(entry.record.id)
 
@@ -305,14 +305,14 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
 
                 val parsedHeader = header
                 if (parsedHeader == null) {
-                    if (unityHeaderFailedPaths.add(entry.path)) {
-                        unityHeaderFailedCount = unityHeaderFailedPaths.size
+                    if (unityHeaderFailedFileIds.add(entry.record.id)) {
+                        unityHeaderFailedCount = unityHeaderFailedFileIds.size
                     }
-                    if (unityMetadataCandidatePaths.add(entry.path)) {
-                        unityMetadataCandidateCount = unityMetadataCandidatePaths.size
+                    if (unityMetadataCandidateFileIds.add(entry.record.id)) {
+                        unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
                     }
-                    if (unityMetadataPrerequisiteSkippedPaths.add(entry.path)) {
-                        unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedPaths.size
+                    if (unityMetadataPrerequisiteSkippedFileIds.add(entry.record.id)) {
+                        unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedFileIds.size
                     }
                     val reason = headerDiagnostic ?: "Unity header prerequisite did not produce a recognized format."
                     updateAnalyzerRun(headerRunId, AnalyzerRunStatus.FAILED, reason)
@@ -332,17 +332,17 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     return@forEachIndexed
                 }
 
-                unityHeaderFailedPaths.remove(entry.path)
-                unityHeaderFailedCount = unityHeaderFailedPaths.size
+                unityHeaderFailedFileIds.remove(entry.record.id)
+                unityHeaderFailedCount = unityHeaderFailedFileIds.size
                 updateAnalyzerRun(headerRunId, AnalyzerRunStatus.ANALYZED, parsedHeader.note)
                 if (parsedHeader.kind != "SerializedFile") return@forEachIndexed
 
-                if (unityMetadataCandidatePaths.add(entry.path)) {
-                    unityMetadataCandidateCount = unityMetadataCandidatePaths.size
+                if (unityMetadataCandidateFileIds.add(entry.record.id)) {
+                    unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
                 }
                 if (!deepMetadataRead) {
-                    if (unityMetadataWindowLimitedPaths.add(entry.path)) {
-                        unityMetadataWindowLimitedCount = unityMetadataWindowLimitedPaths.size
+                    if (unityMetadataWindowLimitedFileIds.add(entry.record.id)) {
+                        unityMetadataWindowLimitedCount = unityMetadataWindowLimitedFileIds.size
                     }
                     addAnalyzerRun(
                         analyzerId = "serialized_file_metadata",
@@ -353,8 +353,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     return@forEachIndexed
                 }
 
-                if (unityMetadataAttemptedPaths.add(entry.path)) {
-                    unityMetadataAttemptedCount = unityMetadataAttemptedPaths.size
+                if (unityMetadataAttemptedFileIds.add(entry.record.id)) {
+                    unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
                 }
                 val metadataRunId = addAnalyzerRun("serialized_file_metadata", entry)
                 var metadataSummary: UnityMetadataSummary? = null
@@ -380,8 +380,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
 
                 val summary = metadataSummary
                 if (summary == null) {
-                    if (unityMetadataFailedPaths.add(entry.path)) {
-                        unityMetadataFailedCount = unityMetadataFailedPaths.size
+                    if (unityMetadataFailedFileIds.add(entry.record.id)) {
+                        unityMetadataFailedCount = unityMetadataFailedFileIds.size
                     }
                     val reason = metadataDiagnostic ?: "SerializedFile metadata parser returned no result."
                     updateAnalyzerRun(metadataRunId, AnalyzerRunStatus.FAILED, reason)
@@ -393,8 +393,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         path = entry.path
                     )
                 } else {
-                    unityMetadataFailedPaths.remove(entry.path)
-                    unityMetadataFailedCount = unityMetadataFailedPaths.size
+                    unityMetadataFailedFileIds.remove(entry.record.id)
+                    unityMetadataFailedCount = unityMetadataFailedFileIds.size
                     val summaryNote = summary.note
                     val expectedCompletedSummaryNote = if ((parsedHeader.formatVersion ?: -1L) >= 26L) {
                         "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types; shared TypeTree subtree payloads пока не разбираются."
@@ -480,7 +480,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             files.size,
             entries.size - files.size,
             peCandidates.size,
-            unityHeaderCandidatePaths.size,
+            unityHeaderCandidateFileIds.size,
             hasGameAssembly || hasMetadata || hasIl2CppDir
         )
 
@@ -998,28 +998,28 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     }
                     attemptedMetadata.add(targetEntry.path)
                     extraMetadataReads++
-                    unityHeaderCandidatePaths.add(targetEntry.path)
-                    if (unityHeaderAttemptedPaths.add(targetEntry.path)) {
-                        unityHeaderAttemptedCount = unityHeaderAttemptedPaths.size
+                    unityHeaderCandidateFileIds.add(targetEntry.record.id)
+                    if (unityHeaderAttemptedFileIds.add(targetEntry.record.id)) {
+                        unityHeaderAttemptedCount = unityHeaderAttemptedFileIds.size
                     }
                     try {
                         val prefix = readPrefix(targetEntry.node, MAX_UNITY_METADATA_READ, shouldCancel)
                         if (prefix == null) {
                             val reason = "External MonoScript target provider returned no input stream."
                             if (targetHeader == null) {
-                                if (unityHeaderFailedPaths.add(targetEntry.path)) {
-                                    unityHeaderFailedCount = unityHeaderFailedPaths.size
+                                if (unityHeaderFailedFileIds.add(targetEntry.record.id)) {
+                                    unityHeaderFailedCount = unityHeaderFailedFileIds.size
                                 }
                                 setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
                             }
-                            if (unityMetadataCandidatePaths.add(targetEntry.path)) {
-                                unityMetadataCandidateCount = unityMetadataCandidatePaths.size
+                            if (unityMetadataCandidateFileIds.add(targetEntry.record.id)) {
+                                unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
                             }
-                            if (unityMetadataAttemptedPaths.add(targetEntry.path)) {
-                                unityMetadataAttemptedCount = unityMetadataAttemptedPaths.size
+                            if (unityMetadataAttemptedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
                             }
-                            if (unityMetadataFailedPaths.add(targetEntry.path)) {
-                                unityMetadataFailedCount = unityMetadataFailedPaths.size
+                            if (unityMetadataFailedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataFailedCount = unityMetadataFailedFileIds.size
                             }
                             setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.FAILED, reason)
                             updatedBindings[ownerPath]?.set(index, current.copy(
@@ -1036,18 +1036,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         }
                         if (targetHeader == null) {
                             val reason = "External MonoScript target did not contain a recognized Unity file header."
-                            if (unityHeaderFailedPaths.add(targetEntry.path)) {
-                                unityHeaderFailedCount = unityHeaderFailedPaths.size
+                            if (unityHeaderFailedFileIds.add(targetEntry.record.id)) {
+                                unityHeaderFailedCount = unityHeaderFailedFileIds.size
                             }
                             setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
-                            if (unityMetadataCandidatePaths.add(targetEntry.path)) {
-                                unityMetadataCandidateCount = unityMetadataCandidatePaths.size
+                            if (unityMetadataCandidateFileIds.add(targetEntry.record.id)) {
+                                unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
                             }
-                            if (unityMetadataAttemptedPaths.add(targetEntry.path)) {
-                                unityMetadataAttemptedCount = unityMetadataAttemptedPaths.size
+                            if (unityMetadataAttemptedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
                             }
-                            if (unityMetadataFailedPaths.add(targetEntry.path)) {
-                                unityMetadataFailedCount = unityMetadataFailedPaths.size
+                            if (unityMetadataFailedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataFailedCount = unityMetadataFailedFileIds.size
                             }
                             setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.FAILED, reason)
                             updatedBindings[ownerPath]?.set(index, current.copy(
@@ -1058,18 +1058,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                             return@forEachIndexed
                         }
 
-                        unityHeaderFailedPaths.remove(targetEntry.path)
-                        unityHeaderFailedCount = unityHeaderFailedPaths.size
+                        unityHeaderFailedFileIds.remove(targetEntry.record.id)
+                        unityHeaderFailedCount = unityHeaderFailedFileIds.size
                         setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.ANALYZED, targetHeader.note)
                         if (targetHeader.kind != "SerializedFile") {
-                            if (unityMetadataCandidatePaths.remove(targetEntry.path)) {
-                                unityMetadataCandidateCount = unityMetadataCandidatePaths.size
+                            if (unityMetadataCandidateFileIds.remove(targetEntry.record.id)) {
+                                unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
                             }
-                            if (unityMetadataPrerequisiteSkippedPaths.remove(targetEntry.path)) {
-                                unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedPaths.size
+                            if (unityMetadataPrerequisiteSkippedFileIds.remove(targetEntry.record.id)) {
+                                unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedFileIds.size
                             }
-                            if (unityMetadataWindowLimitedPaths.remove(targetEntry.path)) {
-                                unityMetadataWindowLimitedCount = unityMetadataWindowLimitedPaths.size
+                            if (unityMetadataWindowLimitedFileIds.remove(targetEntry.record.id)) {
+                                unityMetadataWindowLimitedCount = unityMetadataWindowLimitedFileIds.size
                             }
                             val reason = "External MonoScript target is not a SerializedFile; kind=" + targetHeader.kind + "."
                             setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.SKIPPED, reason)
@@ -1081,23 +1081,23 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                             return@forEachIndexed
                         }
 
-                        if (unityMetadataCandidatePaths.add(targetEntry.path)) {
-                            unityMetadataCandidateCount = unityMetadataCandidatePaths.size
+                        if (unityMetadataCandidateFileIds.add(targetEntry.record.id)) {
+                            unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
                         }
-                        if (unityMetadataPrerequisiteSkippedPaths.remove(targetEntry.path)) {
-                            unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedPaths.size
+                        if (unityMetadataPrerequisiteSkippedFileIds.remove(targetEntry.record.id)) {
+                            unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedFileIds.size
                         }
-                        if (unityMetadataWindowLimitedPaths.remove(targetEntry.path)) {
-                            unityMetadataWindowLimitedCount = unityMetadataWindowLimitedPaths.size
+                        if (unityMetadataWindowLimitedFileIds.remove(targetEntry.record.id)) {
+                            unityMetadataWindowLimitedCount = unityMetadataWindowLimitedFileIds.size
                         }
-                        if (unityMetadataAttemptedPaths.add(targetEntry.path)) {
-                            unityMetadataAttemptedCount = unityMetadataAttemptedPaths.size
+                        if (unityMetadataAttemptedFileIds.add(targetEntry.record.id)) {
+                            unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
                         }
                         val parsedMetadata = UnityMetadataParser.parse(prefix, targetHeader, shouldCancel)
                         if (parsedMetadata == null) {
                             val reason = "External MonoScript target SerializedFile metadata could not be parsed in the bounded window."
-                            if (unityMetadataFailedPaths.add(targetEntry.path)) {
-                                unityMetadataFailedCount = unityMetadataFailedPaths.size
+                            if (unityMetadataFailedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataFailedCount = unityMetadataFailedFileIds.size
                             }
                             setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.FAILED, reason)
                             updatedBindings[ownerPath]?.set(index, current.copy(
@@ -1107,8 +1107,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                             changedOwners.add(ownerPath)
                             return@forEachIndexed
                         }
-                        unityMetadataFailedPaths.remove(targetEntry.path)
-                        unityMetadataFailedCount = unityMetadataFailedPaths.size
+                        unityMetadataFailedFileIds.remove(targetEntry.record.id)
+                        unityMetadataFailedCount = unityMetadataFailedFileIds.size
                         val enriched = readMonoScriptRecords(targetEntry, targetHeader, parsedMetadata, shouldCancel)
                         targetMetadata = enriched
                         discoveredMetadata[targetEntry.path] = enriched
@@ -1136,11 +1136,11 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         if (targetHeader == null) {
                             setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
                         }
-                        if (unityMetadataAttemptedPaths.add(targetEntry.path)) {
-                            unityMetadataAttemptedCount = unityMetadataAttemptedPaths.size
+                        if (unityMetadataAttemptedFileIds.add(targetEntry.record.id)) {
+                            unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
                         }
-                        if (unityMetadataFailedPaths.add(targetEntry.path)) {
-                            unityMetadataFailedCount = unityMetadataFailedPaths.size
+                        if (unityMetadataFailedFileIds.add(targetEntry.record.id)) {
+                            unityMetadataFailedCount = unityMetadataFailedFileIds.size
                         }
                         setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.FAILED, reason)
                         updatedBindings[ownerPath]?.set(index, current.copy(
