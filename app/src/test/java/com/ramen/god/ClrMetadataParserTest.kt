@@ -48,6 +48,23 @@ class ClrMetadataParserTest {
     }
 
     @Test
+    fun observesCancellationInsideClrMetadataTableReaders() {
+        val metadata = syntheticMetadataRoot(typeRowsCount = 2)
+        var checks = 0
+        val error = runCatching {
+            ClrMetadataParser.parse(
+                metadata,
+                0,
+                metadata.size.toLong(),
+                shouldCancel = { ++checks >= 145 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(145, checks)
+    }
+
+    @Test
     fun reportsMissingBlobHeapAsPartialWhenSignaturesCannotBeDecoded() {
         val metadata = syntheticMetadataRoot(includeBlobHeap = false)
         val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
