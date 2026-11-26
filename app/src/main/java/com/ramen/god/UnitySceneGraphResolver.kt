@@ -80,19 +80,22 @@ internal object UnitySceneGraphResolver {
                         componentTransforms.singleOrNull()?.pathId != associatedTransforms.singleOrNull()?.pathId)
                 if (hasAmbiguousTransform || uniqueTransformCandidates.isEmpty()) unresolved++
                 val transform = if (hasAmbiguousTransform) null else uniqueTransformCandidates.singleOrNull()
-                val parentTransform = resolveLocal(transform?.father)
-                val parentGameObject = parentTransform
-                    ?.takeIf { isTransformClass(it.classId) }
-                    ?.let { resolveLocal(it.gameObject) }
-                    ?.takeIf { it.classId == 1 }
+                val parentTransformTarget = resolveLocal(transform?.father)
+                val parentTransform = parentTransformTarget?.takeIf { isTransformClass(it.classId) }
+                if (parentTransformTarget != null && parentTransform == null) unresolved++
+                val parentGameObjectTarget = parentTransform?.let { resolveLocal(it.gameObject) }
+                val parentGameObject = parentGameObjectTarget?.takeIf { it.classId == 1 }
+                if (parentGameObjectTarget != null && parentGameObject == null) unresolved++
                 val childGameObjects = transform?.children.orEmpty()
                     .take(MAX_LINKS_PER_OBJECT)
                     .mapNotNull { childPointer ->
-                        resolveLocal(childPointer)
-                            ?.takeIf { isTransformClass(it.classId) }
-                            ?.let { resolveLocal(it.gameObject) }
-                            ?.takeIf { it.classId == 1 }
-                            ?.pathId
+                        val childTransformTarget = resolveLocal(childPointer)
+                        val childTransform = childTransformTarget?.takeIf { isTransformClass(it.classId) }
+                        if (childTransformTarget != null && childTransform == null) unresolved++
+                        val childGameObjectTarget = childTransform?.let { resolveLocal(it.gameObject) }
+                        val childGameObject = childGameObjectTarget?.takeIf { it.classId == 1 }
+                        if (childGameObjectTarget != null && childGameObject == null) unresolved++
+                        childGameObject?.pathId
                     }.distinct()
                 if (transform?.children.orEmpty().size > MAX_LINKS_PER_OBJECT) {
                     unresolved += transform?.children.orEmpty().size - MAX_LINKS_PER_OBJECT
