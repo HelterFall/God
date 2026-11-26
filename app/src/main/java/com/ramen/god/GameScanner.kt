@@ -2162,14 +2162,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             "Big Endian" -> false
             else -> return skipped("Неизвестен порядок байтов; payload объектов не прочитан.")
         }
+        val sceneClassIds = setOf(1, 4, 224, 114)
+        val sceneObjectCount = metadata.objectTypeCounts
+            .filter { it.classId in sceneClassIds }
+            .sumOf { it.count }
         val targets = metadata.objectSamples.mapNotNull { objectInfo ->
             val classId = objectInfo.classId ?: return@mapNotNull null
-            if (classId != 1 && classId != 4 && classId != 224 && classId != 114) return@mapNotNull null
+            if (classId !in sceneClassIds) return@mapNotNull null
             val tree = metadata.typeTrees.firstOrNull {
                 it.typeIndex == objectInfo.typeIndex && it.classId == classId && it.completeForDecoding
             } ?: return@mapNotNull null
             UnityObjectDecodeTarget(objectInfo, tree)
         }
+        val omittedSceneObjectCount = (sceneObjectCount - targets.size.toLong()).coerceAtLeast(0L)
         if (targets.isEmpty()) {
             val pathIdSafetyReason = metadata.note?.takeIf {
                 it.contains("повторяющийся PathID", ignoreCase = true) ||
@@ -2180,9 +2185,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, pathIdSafetyReason)
                 return metadata.copy(sceneDecodeNote = pathIdSafetyReason)
             }
+            if (sceneObjectCount > 0L) {
+                val reason = if (metadata.typeTreeEnabled != true) {
+                    "Найдено " + sceneObjectCount + " объектов GameObject/Transform/RectTransform/MonoBehaviour, но TypeTree отключён или отсутствует; scene graph не построен."
+                } else {
+                    "Найдено " + sceneObjectCount + " объектов GameObject/Transform/RectTransform/MonoBehaviour, но ни для одного образца нет полного поддерживаемого TypeTree."
+                }
+                updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, reason)
+                return metadata.copy(sceneDecodeNote = reason)
+            }
             val reason = when {
-                metadata.typeTreeEnabled != true -> "TypeTree отключён или отсутствует."
-                else -> "В ограниченной выборке нет полного TypeTree для GameObject, Transform, RectTransform или MonoBehaviour."
+                metadata.typeTreeEnabled != true -> "TypeTree отключён или отсутствует; подходящих scene objects в SerializedFile не обнаружено."
+                else -> "Подходящих GameObject/Transform/RectTransform/MonoBehaviour records не обнаружено."
             }
             return skipped(reason)
         }
@@ -2197,16 +2211,30 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian, shouldCancel)
             }
             val graph = UnitySceneGraphResolver.resolve(result.objects)
-            val status = if (result.skippedCount > 0) {
-                AnalyzerRunStatus.PARTIAL
-            } else {
-                AnalyzerRunStatus.ANALYZED
+            val partialReasons = mutableListOf<String>()
+            if (omittedSceneObjectCount > 0L) {
+                partialReasons.add(
+                    omittedSceneObjectCount.toString() + " of " + sceneObjectCount + " scene-object records were not decoded because they were outside the bounded sample or lacked a complete supported TypeTree."
+                )
             }
-            updateAnalyzerRun(runId, status, result.note)
+            if (result.skippedCount > 0) {
+                partialReasons.add(result.note ?: "Some scene-object payloads were skipped by decoder limits.")
+            }
+            if (graph.unresolvedReferenceCount > 0) {
+                partialReasons.add(
+                    graph.unresolvedReferenceCount.toString() + " local/external scene pointers could not be represented as resolved local links; external pointers are handled by a separate resolver."
+                )
+            }
+            if (result.objects.isNotEmpty() && graph.nodes.isEmpty()) {
+                partialReasons.add("Scene payloads decoded, but no GameObject nodes were available to construct the local scene graph.")
+            }
+            val sceneNote = partialReasons.distinct().joinToString(" ").takeIf { it.isNotBlank() }
+            val status = if (sceneNote != null) AnalyzerRunStatus.PARTIAL else AnalyzerRunStatus.ANALYZED
+            updateAnalyzerRun(runId, status, sceneNote)
             val updated = metadata.copy(
                 decodedObjects = result.objects,
                 sceneGraph = graph,
-                sceneDecodeNote = result.note
+                sceneDecodeNote = sceneNote
             )
             result.objects.forEach { sourceObject ->
                 val localPointers = buildList {
