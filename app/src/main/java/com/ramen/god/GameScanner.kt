@@ -2236,13 +2236,13 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     ): PeInfo? {
         return try {
             var data = readPrefix(entry.node, MAX_PE_READ, shouldCancel) ?: return null
-            var info = PeParser.parse(data) ?: return null
+            var info = PeParser.parse(data, shouldCancel) ?: return null
             val metadataEnd = info.clrMetadataOffset?.toLong()?.plus(info.clrMetadataSize ?: 0L)
             if (info.managed && metadataEnd != null && metadataEnd > data.size.toLong()) {
                 val expanded = readPrefix(entry.node, MAX_CLR_PE_READ, shouldCancel)
                 if (expanded != null) {
                     data = expanded
-                    info = PeParser.parse(data) ?: info
+                    info = PeParser.parse(data, shouldCancel) ?: info
                 }
             }
             if (info.managed) {
