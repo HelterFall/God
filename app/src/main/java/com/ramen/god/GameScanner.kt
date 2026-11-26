@@ -1023,7 +1023,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         }
                         unityMetadataFailedPaths.remove(targetEntry.path)
                         unityMetadataFailedCount = unityMetadataFailedPaths.size
-                        val enriched = readMonoScriptRecords(targetEntry, targetHeader, parsedMetadata)
+                        val enriched = readMonoScriptRecords(targetEntry, targetHeader, parsedMetadata, shouldCancel)
                         targetMetadata = enriched
                         discoveredMetadata[targetEntry.path] = enriched
                         val outcome = serializedMetadataOutcome(targetHeader, enriched)
