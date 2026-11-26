@@ -1134,7 +1134,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     changedOwners.add(ownerPath)
                     return@forEachIndexed
                 }
-                val targetObject = targetMetadata.monoScriptObjects.firstOrNull { it.pathId == binding.pathId }
+                val targetObjectMatches = targetMetadata.monoScriptObjects.filter {
+                    it.pathId == binding.pathId
+                }
+                if (targetObjectMatches.size > 1) {
+                    updatedBindings[ownerPath]?.set(index, current.copy(
+                        matchedExternalFilePath = targetEntry.path,
+                        resolution = "external-monoscript-path-id-ambiguous"
+                    ))
+                    changedOwners.add(ownerPath)
+                    return@forEachIndexed
+                }
+                val targetObject = targetObjectMatches.singleOrNull()
                 if (targetObject == null) {
                     updatedBindings[ownerPath]?.set(index, current.copy(
                         matchedExternalFilePath = targetEntry.path,
@@ -1705,7 +1716,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             if (externalPathIndex != null) {
                 externalPathIndex.exactPath(path)
             } else {
-                files.firstOrNull { it.path == path }
+                files.singleOrNull { it.path == path }
             }
         }
         val targetMetadata = targetPath?.let { unityMetadata[it] }
