@@ -112,6 +112,22 @@ class MonoScriptParserTest {
     }
 
     @Test
+    fun rejectsDuplicatePathIdsInsteadOfSilentlyChoosingFirstMonoScriptTarget() {
+        val target = MonoScriptObjectTarget(55L, 0L, 1L)
+        val result = MonoScriptParser.readObjects(
+            ByteArrayInputStream(byteArrayOf()),
+            dataOffset = 0L,
+            fileSize = 1L,
+            targets = listOf(target, target.copy(byteStart = 1L)),
+            littleEndian = true
+        )
+
+        assertEquals(emptyList<UnityMonoScriptSummary>(), result.scripts)
+        assertEquals(2, result.skippedCount)
+        assertTrue(result.note.orEmpty().contains("Duplicate MonoScript PathID"))
+    }
+
+    @Test
     fun skipsObjectTargetsBeyondTraversalLimit() {
         val result = MonoScriptParser.readObjects(
             ByteArrayInputStream(ByteArray(0)),
