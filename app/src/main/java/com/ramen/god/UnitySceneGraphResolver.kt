@@ -70,7 +70,7 @@ internal object UnitySceneGraphResolver {
                     associatedTransforms.map { it.pathId }.distinct().size > 1 ||
                     (componentTransforms.isNotEmpty() && associatedTransforms.isNotEmpty() &&
                         componentTransforms.singleOrNull()?.pathId != associatedTransforms.singleOrNull()?.pathId)
-                if (hasAmbiguousTransform) unresolved++
+                if (hasAmbiguousTransform || uniqueTransformCandidates.isEmpty()) unresolved++
                 val transform = if (hasAmbiguousTransform) null else uniqueTransformCandidates.singleOrNull()
                 val parentTransform = resolveLocal(transform?.father)
                 val parentGameObject = parentTransform
