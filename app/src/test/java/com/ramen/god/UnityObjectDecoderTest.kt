@@ -31,6 +31,64 @@ class UnityObjectDecoderTest {
     }
 
     @Test
+    fun observesCancellationWhileSkippingToSceneObjectPayload() {
+        val payload = byteArrayOf(1)
+        val byteStart = 64L * 1024L
+        val bytes = ByteArray(byteStart.toInt()) + payload
+        val typeTree = tree(1, listOf(
+            node(0, "GameObject", "Base"),
+            node(1, "bool", "m_IsActive")
+        ))
+        var checks = 0
+        val error = runCatching {
+            UnityObjectDecoder.readObjects(
+                input = java.io.ByteArrayInputStream(bytes),
+                dataOffset = 0L,
+                fileSize = bytes.size.toLong(),
+                targets = listOf(UnityObjectDecodeTarget(
+                    UnityObjectSummary(9L, byteStart, payload.size.toLong(), 0, 1), typeTree
+                )),
+                littleEndian = true,
+                shouldCancel = { ++checks >= 2 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(2, checks)
+    }
+
+    @Test
+    fun observesCancellationDuringChunkedSceneObjectPayloadReads() {
+        val payload = ByteArray(16 * 1024)
+        val typeTree = tree(1, listOf(
+            node(0, "GameObject", "Base"),
+            node(1, "bool", "m_IsActive")
+        ))
+        val input = object : java.io.InputStream() {
+            private val delegate = java.io.ByteArrayInputStream(payload)
+            override fun read(): Int = delegate.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+                delegate.read(buffer, offset, minOf(length, 1024))
+        }
+        var checks = 0
+        val error = runCatching {
+            UnityObjectDecoder.readObjects(
+                input = input,
+                dataOffset = 0L,
+                fileSize = payload.size.toLong(),
+                targets = listOf(UnityObjectDecodeTarget(
+                    UnityObjectSummary(10L, 0L, payload.size.toLong(), 0, 1), typeTree
+                )),
+                littleEndian = true,
+                shouldCancel = { ++checks >= 4 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(4, checks)
+    }
+
+    @Test
     fun decodesGameObjectNameActiveStateAndComponentPointer() {
         val tree = tree(1, listOf(
             node(0, "GameObject", "Base"),
