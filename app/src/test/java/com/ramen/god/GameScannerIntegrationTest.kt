@@ -886,6 +886,51 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun cancelsInsideChunkedUnityPrefixReadAndPreservesQueuedHeaderRun() {
+        var prefixStreamOpened = false
+        var checksAfterOpen = 0
+        val bytes = ByteArray(64 * 1024)
+        val root = MemoryScanNode(
+            name = "PrefixReadCancellationFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    name = "globalgamemanagers",
+                    isDirectory = false,
+                    contents = bytes,
+                    inputStreamFactory = {
+                        prefixStreamOpened = true
+                        object : InputStream() {
+                            private val delegate = ByteArrayInputStream(bytes)
+                            override fun read(): Int = delegate.read()
+                            override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+                                delegate.read(buffer, offset, minOf(length, 1024))
+                        }
+                    }
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = {
+                prefixStreamOpened && ++checksAfterOpen >= 2
+            },
+            onProgress = { _, _ -> }
+        )
+
+        assertTrue(prefixStreamOpened)
+        assertEquals(2, checksAfterOpen)
+        assertTrue(result.isPartial)
+        val report = JSONObject(result.json)
+        assertEquals("cancelled", report.getString("scanStatus"))
+        val runs = report.getJSONArray("analyzerRuns")
+        assertEquals(1, runs.length())
+        assertEquals("unity_file_headers", runs.getJSONObject(0).getString("analyzerId"))
+        assertEquals("queued", runs.getJSONObject(0).getString("status"))
+    }
+
+    @Test
     fun doesNotGuessAmbiguousExternalMonoScriptFileFromDuplicateBasenames() {
         val externalPath = "archive:/CAB-123/sharedassets0.assets"
         val root = MemoryScanNode(
@@ -3440,7 +3485,8 @@ private class MemoryScanNode(
     val contents: ByteArray = byteArrayOf(),
     private val children: List<MemoryScanNode> = emptyList(),
     val failOnOpen: Boolean = false,
-    val failOnList: Boolean = false
+    val failOnList: Boolean = false,
+    val inputStreamFactory: (() -> InputStream)? = null
 ) : ScanNode {
     override val size: Long
         get() = if (isDirectory) 0L else contents.size.toLong()
@@ -3456,6 +3502,6 @@ private class MemoryScanFileAccess : ScanFileAccess {
         val file = node as? MemoryScanNode
             ?: throw IllegalArgumentException("Unknown in-memory scan node.")
         if (file.failOnOpen) throw IllegalStateException("synthetic provider read failure")
-        return if (file.isDirectory) null else ByteArrayInputStream(file.contents)
+        return if (file.isDirectory) null else file.inputStreamFactory?.invoke() ?: ByteArrayInputStream(file.contents)
     }
 }
