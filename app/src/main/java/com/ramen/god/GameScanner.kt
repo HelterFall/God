@@ -324,7 +324,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 var metadataDiagnostic: String? = null
                 try {
                     val metadataPrefix = requireNotNull(prefix)
-                    val parsedMetadata = UnityMetadataParser.parse(metadataPrefix, parsedHeader)
+                    val parsedMetadata = UnityMetadataParser.parse(metadataPrefix, parsedHeader, shouldCancel)
                     if (parsedMetadata == null) {
                         metadataDiagnostic = "metadata не разобрана в доступном диапазоне"
                     } else {
@@ -1007,7 +1007,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         if (unityMetadataAttemptedPaths.add(targetEntry.path)) {
                             unityMetadataAttemptedCount = unityMetadataAttemptedPaths.size
                         }
-                        val parsedMetadata = UnityMetadataParser.parse(prefix, targetHeader)
+                        val parsedMetadata = UnityMetadataParser.parse(prefix, targetHeader, shouldCancel)
                         if (parsedMetadata == null) {
                             val reason = "External MonoScript target SerializedFile metadata could not be parsed in the bounded window."
                             if (unityMetadataFailedPaths.add(targetEntry.path)) {
