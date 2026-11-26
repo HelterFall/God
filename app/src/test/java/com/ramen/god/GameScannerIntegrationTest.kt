@@ -395,8 +395,11 @@ class GameScannerIntegrationTest {
                 MemoryScanNode(
                     "globalgamemanagers",
                     false,
-                    unitySerializedFileWithGameObjectScene(
-                        listOf(42L to minimalGameObjectPayload("Hero", active = true))
+                    unitySerializedFileWithLocalSceneObjects(
+                        listOf(
+                            localGameObject(42L, "Hero", true, listOf(0 to 43L)),
+                            localTransform(43L, gameObjectPathId = 42L)
+                        )
                     )
                 )
             )
@@ -470,7 +473,10 @@ class GameScannerIntegrationTest {
                     "globalgamemanagers",
                     false,
                     unitySerializedFileWithLocalSceneObjects(
-                        listOf(localGameObject(100L, "Broken", true, listOf(0 to 999L)))
+                        listOf(
+                            localGameObject(100L, "Broken", true, listOf(0 to 999L)),
+                            localTransform(200L, gameObjectPathId = 100L)
+                        )
                     )
                 )
             )
