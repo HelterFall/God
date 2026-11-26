@@ -135,6 +135,36 @@ class UnitySceneGraphResolverTest {
     }
 
     @Test
+    fun countsLocalParentAndChildPointersThatResolveToWrongClasses() {
+        val graph = UnitySceneGraphResolver.resolve(
+            listOf(
+                UnityDecodedObjectSummary(
+                    pathId = 100L,
+                    classId = 1,
+                    name = "Root",
+                    components = listOf(ptr(0, 200L))
+                ),
+                UnityDecodedObjectSummary(
+                    pathId = 200L,
+                    classId = 4,
+                    gameObject = ptr(0, 100L),
+                    father = ptr(0, 300L),
+                    children = listOf(ptr(0, 400L))
+                ),
+                UnityDecodedObjectSummary(pathId = 300L, classId = 114),
+                UnityDecodedObjectSummary(pathId = 400L, classId = 114)
+            )
+        )
+
+        val root = graph.nodes.single()
+        assertEquals(200L, root.transformPathId)
+        assertNull(root.parentGameObjectPathId)
+        assertTrue(root.childGameObjectPathIds.isEmpty())
+        assertEquals(2, root.unresolvedReferenceCount)
+        assertEquals(2, graph.unresolvedReferenceCount)
+    }
+
+    @Test
     fun preservesExternalAndMissingLinksAsUnresolved() {
         val objects = listOf(
             UnityDecodedObjectSummary(
