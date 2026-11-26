@@ -1590,7 +1590,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             "components" -> "has-component"
             else -> return
         }
-        val sourceObject = metadata.decodedObjects.firstOrNull {
+        val sourceObject = metadata.decodedObjects.singleOrNull {
             it.pathId == link.sourcePathId
         } ?: return
         val targetPath = link.targetFilePath
@@ -1602,10 +1602,10 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
         }
         val targetMetadata = targetPath?.let { unityMetadata[it] }
-        val targetDecodedObject = targetMetadata?.decodedObjects?.firstOrNull {
+        val targetDecodedObject = targetMetadata?.decodedObjects?.singleOrNull {
             it.pathId == link.pathId
         }
-        val targetObjectRecord = targetMetadata?.objectSamples?.firstOrNull {
+        val targetObjectRecord = targetMetadata?.objectSamples?.singleOrNull {
             it.pathId == link.pathId
         }
         val targetClassId = targetDecodedObject?.classId ?: targetObjectRecord?.classId ?: link.targetClassId
@@ -1644,6 +1644,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 "The external target file was identified but its SerializedFile metadata was not parsed."
             link.status == "pathID-not-in-object-sample" ->
                 "The target SerializedFile was parsed, but this PathID is outside its bounded object sample."
+            link.status == "target-path-id-ambiguous" ->
+                "Multiple decoded/object records share this target PathID; no target was selected."
             targetFileRecordId == null && targetPath != null ->
                 "The resolved target path has no matching FileRecord in this scan inventory."
             else -> "The external PPtr was not fully resolved: " + link.status + "."
@@ -1809,7 +1811,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         files: List<ScanEntry>,
         externalPathIndex: UnityExternalPathResolver.Index<ScanEntry>?
     ) {
-        val sourceObject = metadata.decodedObjects.firstOrNull {
+        val sourceObject = metadata.decodedObjects.singleOrNull {
             it.pathId == binding.sourcePathId && it.classId == 114
         }
         val targetPath = binding.targetFilePath
@@ -1821,10 +1823,10 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
         }
         val targetMetadata = targetPath?.let { unityMetadata[it] }
-        val targetScript = targetMetadata?.monoScripts?.firstOrNull {
+        val targetScript = targetMetadata?.monoScripts?.singleOrNull {
             it.pathId == binding.scriptPathId
         }
-        val targetObject = targetMetadata?.monoScriptObjects?.firstOrNull {
+        val targetObject = targetMetadata?.monoScriptObjects?.singleOrNull {
             it.pathId == binding.scriptPathId
         }
         val targetObjectKnown = targetScript != null || targetObject != null
@@ -1862,6 +1864,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 "The target file was identified but its metadata was not available in the parsed sample."
             binding.status == "monoscript-not-in-object-sample" ->
                 "The target SerializedFile was parsed, but the referenced MonoScript is outside its bounded object sample."
+            binding.status == "monoscript-path-id-ambiguous" ->
+                "Multiple MonoScript records share this PathID; no class identity was selected."
             targetEntry == null && binding.targetFilePath != null ->
                 "The resolved target path has no matching FileRecord in this scan inventory."
             else -> "MonoBehaviour m_Script binding was not fully resolved: ${binding.status}."
