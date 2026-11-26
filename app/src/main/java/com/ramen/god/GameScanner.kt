@@ -606,6 +606,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
     }
 
+    private fun markFileAnalyzerRunPartialOnCancellation(
+        analyzerId: String,
+        inputFileId: String,
+        reason: String
+    ) {
+        val run = analyzerRuns.lastOrNull {
+            it.analyzerId == analyzerId && it.inputFileId == inputFileId
+        } ?: return
+        if (run.status == AnalyzerRunStatus.QUEUED) {
+            updateAnalyzerRun(run.id, AnalyzerRunStatus.PARTIAL, reason)
+        }
+    }
+
     private fun walk(
         dir: ScanNode,
         parent: String,
@@ -1075,6 +1088,21 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         val outcome = serializedMetadataOutcome(targetHeader, enriched)
                         setAnalyzerRun("serialized_file_metadata", targetEntry, outcome.first, outcome.second)
                     } catch (e: ScanCancelledException) {
+                        ownerRuns[ownerPath]?.let {
+                            markAnalyzerRunPartialOnCancellation(
+                                it, "Cancelled while resolving external MonoScript file/metadata references."
+                            )
+                        }
+                        if (targetHeader == null) {
+                            markFileAnalyzerRunPartialOnCancellation(
+                                "unity_file_headers", targetEntry.record.id,
+                                "Cancelled while reading an external Unity file header."
+                            )
+                        }
+                        markFileAnalyzerRunPartialOnCancellation(
+                            "serialized_file_metadata", targetEntry.record.id,
+                            "Cancelled while parsing external SerializedFile metadata."
+                        )
                         throw e
                     } catch (e: Exception) {
                         val reason = e.message ?: e.javaClass.simpleName
@@ -1217,6 +1245,16 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     changedOwners.add(request.ownerPath)
                 }
             } catch (e: ScanCancelledException) {
+                markAnalyzerRunPartialOnCancellation(
+                    runId, "Cancelled while reading external MonoScript payload."
+                )
+                group.map { it.ownerPath }.distinct().forEach { ownerPath ->
+                    ownerRuns[ownerPath]?.let {
+                        markAnalyzerRunPartialOnCancellation(
+                            it, "Cancelled while reading external MonoScript payload."
+                        )
+                    }
+                }
                 throw e
             } catch (e: Exception) {
                 val reason = e.message ?: e.javaClass.simpleName
@@ -1288,6 +1326,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 shouldCancel = shouldCancel
             )
         } catch (e: ScanCancelledException) {
+            markQueuedAnalyzerRunsPartialOnCancellation(
+                runs.values, "Cancelled during external Unity PPtr resolution."
+            )
             throw e
         } catch (e: Exception) {
             runs.forEach { (path, runId) ->
@@ -1358,6 +1399,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 shouldCancel = shouldCancel
             )
         } catch (e: ScanCancelledException) {
+            markQueuedAnalyzerRunsPartialOnCancellation(
+                runs.values, "Cancelled during MonoBehaviour script binding resolution."
+            )
             throw e
         } catch (e: Exception) {
             runs.forEach { (path, runId) ->
@@ -2160,6 +2204,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 )
             }
         } catch (e: ScanCancelledException) {
+            markAnalyzerRunPartialOnCancellation(
+                runId, "Cancelled while reading local MonoScript payload."
+            )
             throw e
         } catch (e: Exception) {
             val reason = e.message ?: e.javaClass.simpleName
