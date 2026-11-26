@@ -298,10 +298,9 @@ internal object UnityMetadataParser {
         }
 
         if (pathIdsForUniqueness != null) {
-            pathIdsForUniqueness.sortWith { left, right ->
-                if (shouldCancel()) throw ScanCancelledException()
-                left.compareTo(right)
-            }
+            if (shouldCancel()) throw ScanCancelledException()
+            pathIdsForUniqueness.sort()
+            if (shouldCancel()) throw ScanCancelledException()
             for (index in 1 until pathIdsForUniqueness.size) {
                 if (shouldCancel()) throw ScanCancelledException()
                 if (pathIdsForUniqueness[index] == pathIdsForUniqueness[index - 1]) {
