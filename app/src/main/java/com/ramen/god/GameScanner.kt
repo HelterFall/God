@@ -328,10 +328,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     if (parsedMetadata == null) {
                         metadataDiagnostic = "metadata не разобрана в доступном диапазоне"
                     } else {
-                        val enrichedMetadata = readMonoScriptRecords(entry, parsedHeader, parsedMetadata)
+                        val enrichedMetadata = readMonoScriptRecords(entry, parsedHeader, parsedMetadata, shouldCancel)
                         metadataSummary = enrichedMetadata
                         unityMetadata[entry.path] = enrichedMetadata
                     }
+                } catch (e: ScanCancelledException) {
+                    throw e
                 } catch (e: Exception) {
                     metadataDiagnostic = e.message ?: e.javaClass.simpleName
                 }
@@ -851,6 +853,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         var extraMetadataReads = 0
 
         metadataSnapshot.forEach { (ownerPath, metadata) ->
+            if (shouldCancel()) throw ScanCancelledException()
             val owner = files.firstOrNull { it.path == ownerPath } ?: return@forEach
             val count = externalMonoScriptCandidateCount(metadata)
             ownerRuns[ownerPath] = addAnalyzerRun(
@@ -1132,7 +1135,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 val readResult = input.use { stream ->
                     MonoScriptParser.readObjects(
                         stream, first.targetHeader.dataOffset!!, first.targetHeader.fileSize!!,
-                        group.map { it.target }, littleEndian
+                        group.map { it.target }, littleEndian, shouldCancel
                     )
                 }
                 val parsedByPath = readResult.scripts.associateBy { it.pathId }
@@ -1167,6 +1170,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     }
                     changedOwners.add(request.ownerPath)
                 }
+            } catch (e: ScanCancelledException) {
+                throw e
             } catch (e: Exception) {
                 val reason = e.message ?: e.javaClass.simpleName
                 updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
@@ -2016,7 +2021,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private fun readMonoScriptRecords(
         entry: ScanEntry,
         header: UnityFileHeader,
-        metadata: UnityMetadataSummary
+        metadata: UnityMetadataSummary,
+        shouldCancel: () -> Boolean
     ): UnityMetadataSummary {
         val dataOffset = header.dataOffset
         if (dataOffset == null) {
@@ -2074,7 +2080,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 metadata.copy(note = listOfNotNull(metadata.note, readNote).joinToString(" "))
             } else {
                 val result = input.use { stream ->
-                    MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
+                    MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian, shouldCancel)
                 }
                 val status = when {
                     result.note == null && result.skippedCount == 0 -> AnalyzerRunStatus.ANALYZED
@@ -2103,6 +2109,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     note = combinedNote.takeIf { it.isNotBlank() }
                 )
             }
+        } catch (e: ScanCancelledException) {
+            throw e
         } catch (e: Exception) {
             val reason = e.message ?: e.javaClass.simpleName
             updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
