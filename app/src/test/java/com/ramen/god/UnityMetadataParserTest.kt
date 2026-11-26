@@ -9,7 +9,7 @@ import org.junit.Test
 class UnityMetadataParserTest {
     @Test
     fun readsLeadingMetadataFieldsLittleEndian() {
-        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
         val bytes = ByteArray(128)
         val start = 48
         val version = "2022.3.10f1".toByteArray()
@@ -29,7 +29,7 @@ class UnityMetadataParserTest {
 
     @Test
     fun readsBigEndianMetadata() {
-        val header = UnityFileHeader("SerializedFile", 19, 4096, 128, 256, "Big Endian", 20)
+        val header = UnityFileHeader("SerializedFile", 19, 4096, 236, 256, "Big Endian", 20)
         val bytes = ByteArray(96)
         val start = 20
         val version = "2019.4.1f1".toByteArray()
@@ -48,15 +48,77 @@ class UnityMetadataParserTest {
 
     @Test
     fun refusesUnknownFutureMetadataVersions() {
-        val header = UnityFileHeader("SerializedFile", 27, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 27, 4096, 208, 256, "Little Endian", 48)
         val result = UnityMetadataParser.parse(ByteArray(128), header)
         requireNotNull(result)
         assertTrue(result.note?.contains("19–26") == true)
     }
 
     @Test
+    fun doesNotReadTypeEntriesPastSerializedMetadataBoundary() {
+        val header = UnityFileHeader("SerializedFile", 22, 256, 32, 128, "Little Endian", 48)
+        val bytes = ByteArray(160)
+        val version = "2022.3.10f1".toByteArray()
+        version.copyInto(bytes, 48)
+        var p = 48 + version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0
+        put32(bytes, p, 1, true); p += 4 // one type, metadata ends before its record
+
+        // Put a complete-looking type record and tail outside metadataSize.
+        put32(bytes, p, 1, true); p += 4 // class ID
+        bytes[p++] = 0
+        put16(bytes, p, 0xffff, true); p += 2
+        p += 16 // old type hash
+        put32(bytes, p, 0, true); p += 4 // dependencies
+        put32(bytes, p, 0, true); p += 4 // object count
+        put32(bytes, p, 0, true); p += 4 // script count
+        put32(bytes, p, 0, true); p += 4 // external count
+        put32(bytes, p, 0, true) // SerializeReference count
+
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        assertEquals(1L, result.typeCount)
+        assertTrue(result.note.orEmpty().contains("Таблица типов обрезана"))
+        assertNull(result.objectCount)
+    }
+
+    @Test
+    fun reportsSerializedTypeSampleLimitAsPartialMetadata() {
+        val typeCount = 501
+        val version = "2022.3.10f1".toByteArray()
+        val bytes = ByteArray(48 + version.size + 1 + 4 + 1 + 4 + typeCount * 27 + 16)
+        var p = 48
+        version.copyInto(bytes, p); p += version.size
+        bytes[p++] = 0
+        put32(bytes, p, 13, true); p += 4
+        bytes[p++] = 0
+        put32(bytes, p, typeCount.toLong(), true); p += 4
+        repeat(typeCount) {
+            put32(bytes, p, 1, true); p += 4
+            bytes[p++] = 0 // stripped
+            put16(bytes, p, 0xffff, true); p += 2 // no script type index
+            p += 16 // old type hash
+            put32(bytes, p, 0, true); p += 4 // v21+ type dependencies
+        }
+        put32(bytes, p, 0, true); p += 4 // objects
+        put32(bytes, p, 0, true); p += 4 // script references
+        put32(bytes, p, 0, true); p += 4 // external references
+        put32(bytes, p, 0, true) // SerializeReference types
+
+        val header = UnityFileHeader(
+            "SerializedFile", 22, bytes.size.toLong(), (bytes.size - 48).toLong(),
+            bytes.size.toLong(), "Little Endian", 48
+        )
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        assertEquals(501L, result.typeCount)
+        assertEquals(500, result.serializedTypes.size)
+        assertTrue(result.note.orEmpty().contains("выборка ограничена первыми 500"))
+    }
+
+    @Test
     fun rejectsTruncatedAndImplausibleCounts() {
-        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
         assertNull(UnityMetadataParser.parse(ByteArray(60), header))
         val bytes = ByteArray(128)
         val version = "2022.3.10f1".toByteArray()
@@ -72,7 +134,7 @@ class UnityMetadataParserTest {
 
     @Test
     fun readsObjectScriptAndExternalReferenceCountsWhenTypeTreeIsDisabled() {
-        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
         val bytes = ByteArray(160)
         val start = 48
         val version = "2022.3.10f1".toByteArray()
@@ -129,6 +191,7 @@ class UnityMetadataParserTest {
         // Root node: GameObject Base
         put16(bytes, p, 1, true); p += 2
         bytes[p++] = 0; bytes[p++] = 0 // level and flags
+        val rootTypeOffsetPosition = p
         put32(bytes, p, 0x800000ACL, true); p += 4 // common string: GameObject (172)
         put32(bytes, p, 0x80000037L, true); p += 4 // common string: Base (55)
         put32(bytes, p, 0xffffffffL, true); p += 4
@@ -162,6 +225,15 @@ class UnityMetadataParserTest {
         assertEquals("m_Name", result.typeTrees[0].nodes[1].fieldName)
         assertEquals(1, result.typeTrees[0].nodes[1].level)
         assertEquals(4, result.typeTrees[0].nodes[1].byteSize)
+        assertTrue(result.typeTrees[0].completeForDecoding)
+
+        // An unknown built-in string offset must prevent the decoder from
+        // treating otherwise structurally complete nodes as trustworthy.
+        val unknownCommonString = bytes.copyOf()
+        put32(unknownCommonString, rootTypeOffsetPosition, 0x8000270fL, true)
+        val unresolved = requireNotNull(UnityMetadataParser.parse(unknownCommonString, header))
+        assertNull(unresolved.typeTrees.single().rootType)
+        assertFalse(unresolved.typeTrees.single().completeForDecoding)
     }
 
     @Test
@@ -214,7 +286,7 @@ class UnityMetadataParserTest {
 
     @Test
     fun preservesMonoBehaviourScriptIdAndTypeIndexWithoutTypeTree() {
-        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
         val bytes = ByteArray(192)
         val version = "2022.3.10f1".toByteArray()
         version.copyInto(bytes, 48)
@@ -243,7 +315,7 @@ class UnityMetadataParserTest {
 
     @Test
     fun readsSerializeReferenceTypeIdentityFields() {
-        val header = UnityFileHeader("SerializedFile", 21, 4096, 128, 256, "Little Endian", 20)
+        val header = UnityFileHeader("SerializedFile", 21, 4096, 236, 256, "Little Endian", 20)
         val bytes = ByteArray(256)
         val version = "2021.3.20f1".toByteArray()
         version.copyInto(bytes, 20)
@@ -278,7 +350,7 @@ class UnityMetadataParserTest {
 
     @Test
     fun readsVersion26SharedSubtreeCount() {
-        val header = UnityFileHeader("SerializedFile", 26, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 26, 4096, 208, 256, "Little Endian", 48)
         val bytes = ByteArray(192)
         val version = "6000.0.0f1".toByteArray()
         version.copyInto(bytes, 48)
@@ -300,7 +372,7 @@ class UnityMetadataParserTest {
 
     @Test
     fun readsMonoScriptReferenceAndExternalFilePath() {
-        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
         val bytes = ByteArray(256)
         val version = "2022.3.10f1".toByteArray()
         version.copyInto(bytes, 48)
@@ -340,7 +412,7 @@ class UnityMetadataParserTest {
 
     @Test
     fun linksMonoBehaviourScriptTypeToLocalMonoScriptObjectSample() {
-        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
         val bytes = ByteArray(256)
         val version = "2022.3.10f1".toByteArray()
         version.copyInto(bytes, 48)
@@ -397,7 +469,7 @@ class UnityMetadataParserTest {
 
     @Test
     fun rejectsObjectDataOutsideSerializedFileDataSection() {
-        val header = UnityFileHeader("SerializedFile", 22, 4096, 128, 256, "Little Endian", 48)
+        val header = UnityFileHeader("SerializedFile", 22, 4096, 208, 256, "Little Endian", 48)
         val bytes = ByteArray(192)
         val version = "2022.3.10f1".toByteArray()
         version.copyInto(bytes, 48)

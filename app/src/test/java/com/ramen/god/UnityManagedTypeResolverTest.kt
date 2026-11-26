@@ -23,6 +23,30 @@ class UnityManagedTypeResolverTest {
     }
 
     @Test
+    fun observesCancellationWhileIndexingManagedAssemblyTypes() {
+        val unity = mapOf("level0" to metadata(binding("PlayerController", "Game", "Assembly-CSharp")))
+        val assemblies = mapOf(
+            "Managed/Assembly-CSharp.dll" to assembly(
+                "Assembly-CSharp", 3, listOf(
+                    ClrTypeSummary("A", "Game", 1),
+                    ClrTypeSummary("B", "Game", 1),
+                    ClrTypeSummary("C", "Game", 1)
+                )
+            )
+        )
+        var checks = 0
+        val error = runCatching {
+            UnityManagedTypeResolver.resolve(
+                unity, assemblies,
+                shouldCancel = { ++checks >= 3 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(3, checks)
+    }
+
+    @Test
     fun preservesMissingAndAmbiguousAssemblyStates() {
         val unity = mapOf("level0" to metadata(binding("PlayerController", "Game", "Assembly-CSharp")))
         val missing = UnityManagedTypeResolver.resolve(unity, emptyMap()).single()

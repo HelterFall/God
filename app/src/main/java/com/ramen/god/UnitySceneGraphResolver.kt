@@ -25,20 +25,30 @@ internal object UnitySceneGraphResolver {
     private const val MAX_GRAPH_NODES = 128
     private const val MAX_LINKS_PER_OBJECT = 1024
 
+    private fun isTransformClass(classId: Int?): Boolean = classId == 4 || classId == 224
+
     fun resolve(objects: List<UnityDecodedObjectSummary>): UnitySceneGraphResult {
-        val byPathId = objects.associateBy { it.pathId }
-        val transforms = objects.filter { it.classId == 4 }
-        val transformByGameObject = transforms.mapNotNull { transform ->
+        val objectsByPathId = objects.groupBy { it.pathId }
+        val ambiguousPathIds = objectsByPathId
+            .filterValues { it.size > 1 }
+            .keys
+        val byPathId = objectsByPathId
+            .filterValues { it.size == 1 }
+            .mapValues { it.value.single() }
+        val transforms = objects.filter {
+            isTransformClass(it.classId) && it.pathId !in ambiguousPathIds
+        }
+        val transformsByGameObject = transforms.mapNotNull { transform ->
             val gameObject = transform.gameObject
             if (gameObject?.fileId == 0 && byPathId[gameObject.pathId]?.classId == 1) {
                 gameObject.pathId to transform
             } else null
-        }.toMap()
+        }.groupBy({ it.first }, { it.second })
 
-        var unresolvedTotal = 0
+        var unresolvedTotal = ambiguousPathIds.size
         var externalTotal = 0
         val nodes = objects.asSequence()
-            .filter { it.classId == 1 }
+            .filter { it.classId == 1 && it.pathId !in ambiguousPathIds }
             .take(MAX_GRAPH_NODES)
             .map { gameObject ->
                 var unresolved = 0
@@ -60,20 +70,46 @@ internal object UnitySceneGraphResolver {
                 if (gameObject.components.size > MAX_LINKS_PER_OBJECT) {
                     unresolved += gameObject.components.size - MAX_LINKS_PER_OBJECT
                 }
-                val transform = componentObjects.firstOrNull { it.classId == 4 }
-                    ?: transformByGameObject[gameObject.pathId]
-                val parentTransform = resolveLocal(transform?.father)
-                val parentGameObject = if (parentTransform?.classId == 4) {
-                    resolveLocal(parentTransform.gameObject)?.takeIf { it.classId == 1 }
+                val componentTransforms = componentObjects.filter { isTransformClass(it.classId) }
+                val associatedTransforms = transformsByGameObject[gameObject.pathId].orEmpty()
+                val transformCandidates = componentTransforms + associatedTransforms
+                val uniqueTransformCandidates = transformCandidates.distinctBy { it.pathId }
+                val hasAmbiguousTransform = componentTransforms.size > 1 ||
+                    associatedTransforms.map { it.pathId }.distinct().size > 1 ||
+                    (componentTransforms.isNotEmpty() && associatedTransforms.isNotEmpty() &&
+                        componentTransforms.singleOrNull()?.pathId != associatedTransforms.singleOrNull()?.pathId)
+                if (hasAmbiguousTransform || uniqueTransformCandidates.isEmpty()) unresolved++
+                val transform = if (hasAmbiguousTransform) null else uniqueTransformCandidates.singleOrNull()
+                val parentTransformTarget = resolveLocal(transform?.father)
+                val parentTransform = parentTransformTarget?.takeIf { isTransformClass(it.classId) }
+                if (parentTransformTarget != null && parentTransform == null) unresolved++
+                val parentRelationIsReciprocal = parentTransform?.children.orEmpty().any {
+                    it.fileId == 0 && it.pathId == transform?.pathId
+                }
+                if (parentTransform != null && !parentRelationIsReciprocal) unresolved++
+                val parentGameObjectTarget = if (parentRelationIsReciprocal) {
+                    parentTransform?.let { resolveLocal(it.gameObject) }
                 } else null
-                val childGameObjects = transform?.children.orEmpty()
-                    .take(MAX_LINKS_PER_OBJECT)
-                    .mapNotNull { childPointer ->
-                        val childTransform = resolveLocal(childPointer)
-                        if (childTransform?.classId == 4) {
-                            resolveLocal(childTransform.gameObject)?.takeIf { it.classId == 1 }?.pathId
-                        } else null
-                    }.distinct()
+                val parentGameObject = parentGameObjectTarget?.takeIf { it.classId == 1 }
+                if (parentGameObjectTarget != null && parentGameObject == null) unresolved++
+                val childPointers = transform?.children.orEmpty().take(MAX_LINKS_PER_OBJECT)
+                val childPointerDuplicates = childPointers.size - childPointers.distinct().size
+                unresolved += childPointerDuplicates
+                val childGameObjects = childPointers.mapNotNull { childPointer ->
+                    val childTransformTarget = resolveLocal(childPointer)
+                    val childTransform = childTransformTarget?.takeIf { isTransformClass(it.classId) }
+                    if (childTransformTarget != null && childTransform == null) unresolved++
+                    val childFather = childTransform?.father
+                    val childRelationIsReciprocal = childFather != null &&
+                        childFather.fileId == 0 && childFather.pathId == transform?.pathId
+                    if (childTransform != null && !childRelationIsReciprocal) unresolved++
+                    val childGameObjectTarget = if (childRelationIsReciprocal) {
+                        childTransform?.let { resolveLocal(it.gameObject) }
+                    } else null
+                    val childGameObject = childGameObjectTarget?.takeIf { it.classId == 1 }
+                    if (childGameObjectTarget != null && childGameObject == null) unresolved++
+                    childGameObject?.pathId
+                }.distinct()
                 if (transform?.children.orEmpty().size > MAX_LINKS_PER_OBJECT) {
                     unresolved += transform?.children.orEmpty().size - MAX_LINKS_PER_OBJECT
                 }
@@ -90,6 +126,48 @@ internal object UnitySceneGraphResolver {
                     unresolvedReferenceCount = unresolved
                 )
             }.toList()
-        return UnitySceneGraphResult(nodes, unresolvedTotal, externalTotal)
+
+        val nodesByGameObjectPathId = nodes.associateBy { it.gameObjectPathId }
+        val visitState = mutableMapOf<Long, Int>()
+        val visitStack = mutableListOf<Long>()
+        val cyclicGameObjectPathIds = mutableSetOf<Long>()
+
+        fun visitParentChain(pathId: Long) {
+            when (visitState[pathId]) {
+                1 -> {
+                    val cycleStart = visitStack.indexOf(pathId)
+                    if (cycleStart >= 0) {
+                        cyclicGameObjectPathIds.addAll(visitStack.subList(cycleStart, visitStack.size))
+                    }
+                    return
+                }
+                2 -> return
+            }
+            visitState[pathId] = 1
+            visitStack.add(pathId)
+            val parentPathId = nodesByGameObjectPathId[pathId]?.parentGameObjectPathId
+            if (parentPathId != null && parentPathId in nodesByGameObjectPathId) {
+                visitParentChain(parentPathId)
+            }
+            visitStack.removeAt(visitStack.lastIndex)
+            visitState[pathId] = 2
+        }
+
+        nodes.forEach { node -> visitParentChain(node.gameObjectPathId) }
+        if (cyclicGameObjectPathIds.isNotEmpty()) {
+            unresolvedTotal += cyclicGameObjectPathIds.size
+        }
+        val consistentNodes = nodes.map { node ->
+            if (node.gameObjectPathId !in cyclicGameObjectPathIds) {
+                node
+            } else {
+                node.copy(
+                    parentGameObjectPathId = null,
+                    childGameObjectPathIds = emptyList(),
+                    unresolvedReferenceCount = node.unresolvedReferenceCount + 1
+                )
+            }
+        }
+        return UnitySceneGraphResult(consistentNodes, unresolvedTotal, externalTotal)
     }
 }

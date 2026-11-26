@@ -45,6 +45,46 @@ class PeParserTest {
     }
 
     @Test
+    fun observesCancellationInsidePeImportThunkParsing() {
+        var checks = 0
+        val error = runCatching {
+            PeParser.parse(
+                peWithImports(),
+                shouldCancel = { ++checks >= 5 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(5, checks)
+    }
+
+    @Test
+    fun doesNotAcceptDllNameWithoutNullTerminatorWithinReadWindow() {
+        val bytes = peWithImports()
+        put32(bytes, 0x20c, 0x11f0)
+        bytes.fill('A'.code.toByte(), 0x3f0, 0x400)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.note.orEmpty().contains("unreadable DLL name"))
+        assertEquals(listOf("USER32.dll"), info.imports)
+    }
+
+    @Test
+    fun refusesAmbiguousRvaWhenSectionsOverlap() {
+        val bytes = peWithImports().copyOf(0x600)
+        put16(bytes, 0x86, 2)
+        val secondSection = 0x80 + 24 + 240 + 40
+        put32(bytes, secondSection + 8, 0x200)
+        put32(bytes, secondSection + 12, 0x1000)
+        put32(bytes, secondSection + 16, 0x200)
+        put32(bytes, secondSection + 20, 0x400)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.note.orEmpty().contains("import directory RVA is outside readable sections"))
+        assertTrue(info.imports.isEmpty())
+    }
+
+    @Test
     fun detectsArm64MachineArchitectureInPe32PlusImage() {
         val bytes = peWithImports()
         put16(bytes, 0x84, 0xaa64)
@@ -121,11 +161,117 @@ class PeParserTest {
     }
 
     @Test
-    fun detectsClrDirectory() {
-        val info = PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x2000))
-        requireNotNull(info)
+    fun limitsImportDescriptorsToDeclaredDirectorySize() {
+        val bytes = peWithImports()
+        // Only the first descriptor is part of the declared import directory.
+        put32(bytes, 0x80 + 24 + 124, 20)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertEquals(listOf("KERNEL32.dll"), info.imports)
+        assertEquals(
+            listOf(
+                PeImportedSymbol("KERNEL32.dll", name = "CreateFileW", hint = 5),
+                PeImportedSymbol("KERNEL32.dll", ordinal = 7)
+            ),
+            info.importedSymbols
+        )
+        assertTrue(info.note.orEmpty().contains("no terminator within declared directory size"))
+    }
+
+    @Test
+    fun rejectsClrMetadataThatCrossesSectionRawDataBoundary() {
+        val bytes = ByteArray(0x500)
+        val pe = 0x80
+        val optional = pe + 24
+        val optionalSize = 240
+        val section = optional + optionalSize
+        bytes[0] = 0x4d
+        bytes[1] = 0x5a
+        put32(bytes, 0x3c, pe)
+        bytes[pe] = 0x50
+        bytes[pe + 1] = 0x45
+        put16(bytes, pe + 4, 0x8664)
+        put16(bytes, pe + 6, 1)
+        put16(bytes, pe + 20, optionalSize)
+        put16(bytes, optional, 0x20b)
+        put32(bytes, optional + 108, 16)
+        put32(bytes, optional + 224, 0x1000)
+        put32(bytes, optional + 228, 72)
+        put32(bytes, section + 8, 0x200)
+        put32(bytes, section + 12, 0x1000)
+        put32(bytes, section + 16, 0x100)
+        put32(bytes, section + 20, 0x200)
+
+        // CLR header occupies the beginning of the section, but its metadata
+        // RVA points at the last 16 bytes while claiming 64 bytes.
+        put32(bytes, 0x200, 72)
+        put16(bytes, 0x204, 2)
+        put16(bytes, 0x206, 5)
+        put32(bytes, 0x208, 0x10f0)
+        put32(bytes, 0x20c, 64)
+        put32(bytes, 0x210, 1)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.managed)
+        assertNull(info.clrMetadataOffset)
+        assertEquals(64L, info.clrMetadataSize)
+        assertTrue(info.note.orEmpty().contains("extends beyond readable section data"))
+    }
+
+    @Test
+    fun detectsClrDirectoryOnlyWhenAValidClrHeaderIsMapped() {
+        val info = requireNotNull(PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x2000)))
         assertEquals("x86-64", info.machine)
         assertTrue(info.managed)
+
+        val invalid = requireNotNull(PeParser.parse(minimalPe(machine = 0x8664, clrRva = 0x7000)))
+        assertFalse(invalid.managed)
+        assertTrue(invalid.note.orEmpty().contains("CLR header is outside readable section data"))
+    }
+
+    @Test
+    fun reportsTruncatedSectionHeaderTable() {
+        val bytes = minimalPe(machine = 0x8664).copyOf(0x1a0)
+        put16(bytes, 0x86, 2) // two section headers declared; only one fits
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.note.orEmpty().contains("section table is truncated"))
+    }
+
+    @Test
+    fun ignoresDirectoryBytesOutsideDeclaredOptionalHeader() {
+        val bytes = ByteArray(0x400)
+        val pe = 0x80
+        val optional = pe + 24
+        val optionalSize = 112 // PE32+: only fields through NumberOfRvaAndSizes
+        val section = optional + optionalSize
+
+        bytes[0] = 0x4d
+        bytes[1] = 0x5a
+        put32(bytes, 0x3c, pe)
+        bytes[pe] = 0x50
+        bytes[pe + 1] = 0x45
+        put16(bytes, pe + 4, 0x8664)
+        put16(bytes, pe + 6, 1)
+        put16(bytes, pe + 20, optionalSize)
+        put16(bytes, optional, 0x20b)
+        put32(bytes, optional + 108, 2) // claims an import directory, but none fits
+
+        // These section-header bytes overlap the location where an unchecked
+        // parser would look for IMAGE_DIRECTORY_ENTRY_IMPORT.
+        put32(bytes, section + 8, 0x1000) // VirtualSize, misread as Import RVA
+        put32(bytes, section + 12, 0x1000)
+        put32(bytes, section + 16, 0x200)
+        put32(bytes, section + 20, 0x200)
+
+        // A plausible fake import descriptor and DLL name at the mapped RVA.
+        put32(bytes, 0x20c, 0x1040)
+        put32(bytes, 0x210, 0x1050)
+        "FAKE.dll".toByteArray(Charsets.ISO_8859_1).copyInto(bytes, 0x240)
+
+        val info = requireNotNull(PeParser.parse(bytes))
+        assertTrue(info.imports.isEmpty())
+        assertTrue(info.note.orEmpty().contains("data directories truncated"))
     }
 
     private fun peWithImports(): ByteArray {
@@ -144,9 +290,11 @@ class PeParserTest {
         put16(bytes, pe + 6, 1) // one section
         put16(bytes, pe + 20, optionalSize)
         put16(bytes, optional, 0x20b) // PE32+ optional header
+        put32(bytes, optional + 108, 16)
 
-        // IMAGE_DIRECTORY_ENTRY_IMPORT: RVA 0x1000, mapped by .rdata.
+        // IMAGE_DIRECTORY_ENTRY_IMPORT: two entries plus zero terminator.
         put32(bytes, optional + 120, 0x1000)
+        put32(bytes, optional + 124, 60)
 
         // One section: RVA 0x1000..0x11ff maps to file offset 0x200..0x3ff.
         put32(bytes, section + 8, 0x200) // VirtualSize
@@ -193,7 +341,9 @@ class PeParserTest {
         put16(bytes, pe + 6, 1)
         put16(bytes, pe + 20, optionalSize)
         put16(bytes, optional, 0x10b) // PE32
+        put32(bytes, optional + 92, 16)
         put32(bytes, directory + 8, 0x1000)
+        put32(bytes, directory + 12, 40)
 
         put32(bytes, section + 8, 0x200)
         put32(bytes, section + 12, 0x1000)
@@ -214,17 +364,32 @@ class PeParserTest {
     }
 
     private fun minimalPe(machine: Int, clrRva: Int = 0): ByteArray {
-        val bytes = ByteArray(512)
+        val bytes = ByteArray(if (clrRva == 0) 512 else 1024)
         bytes[0] = 0x4d
         bytes[1] = 0x5a
         put32(bytes, 0x3c, 0x80)
         bytes[0x80] = 0x50
         bytes[0x81] = 0x45
         put16(bytes, 0x84, machine)
-        put16(bytes, 0x86, 0)
+        put16(bytes, 0x86, if (clrRva == 0) 0 else 1)
         put16(bytes, 0x94, 224)
         put16(bytes, 0x98, 0x10b)
+        put32(bytes, 0x98 + 92, 16)
         put32(bytes, 0x98 + 208, clrRva)
+        if (clrRva != 0) {
+            put32(bytes, 0x98 + 212, 72)
+            val section = 0x98 + 224
+            put32(bytes, section + 8, 0x200)
+            put32(bytes, section + 12, 0x2000)
+            put32(bytes, section + 16, 0x200)
+            put32(bytes, section + 20, 0x200)
+            put32(bytes, 0x200, 72)
+            put16(bytes, 0x204, 2)
+            put16(bytes, 0x206, 5)
+            put32(bytes, 0x208, 0x2080)
+            put32(bytes, 0x20c, 16)
+            put32(bytes, 0x210, 1)
+        }
         return bytes
     }
 

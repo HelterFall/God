@@ -51,6 +51,50 @@ class MonoScriptParserTest {
     }
 
     @Test
+    fun observesCancellationWhileSkippingToMonoScriptObject() {
+        val payload = buildPayload(true)
+        val byteStart = 64L * 1024L
+        val bytes = ByteArray(byteStart.toInt()) + payload
+        var checks = 0
+        val error = runCatching {
+            MonoScriptParser.readObjects(
+                ByteArrayInputStream(bytes),
+                dataOffset = 0L,
+                fileSize = bytes.size.toLong(),
+                targets = listOf(MonoScriptObjectTarget(7L, byteStart, payload.size.toLong())),
+                littleEndian = true,
+                shouldCancel = { ++checks >= 2 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(2, checks)
+    }
+
+    @Test
+    fun observesCancellationDuringBoundedMonoScriptPayloadReads() {
+        val payload = buildPayload(true)
+        var checks = 0
+        val input = object : java.io.InputStream() {
+            private val delegate = ByteArrayInputStream(payload)
+            override fun read(): Int = delegate.read()
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
+                delegate.read(buffer, offset, minOf(length, 4))
+        }
+        val error = runCatching {
+            MonoScriptParser.readObjects(
+                input, 0L, payload.size.toLong(),
+                listOf(MonoScriptObjectTarget(8L, 0L, payload.size.toLong())),
+                true,
+                shouldCancel = { ++checks >= 3 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(3, checks)
+    }
+
+    @Test
     fun rejectsMalformedPayloadsAndOutOfRangeObjects() {
         val malformed = ByteArray(8)
         put32(malformed, 0, 0x7fffffffL, true)
@@ -65,6 +109,22 @@ class MonoScriptParserTest {
         )
         assertTrue(result.scripts.isEmpty())
         assertEquals(1, result.skippedCount)
+    }
+
+    @Test
+    fun rejectsDuplicatePathIdsInsteadOfSilentlyChoosingFirstMonoScriptTarget() {
+        val target = MonoScriptObjectTarget(55L, 0L, 1L)
+        val result = MonoScriptParser.readObjects(
+            ByteArrayInputStream(byteArrayOf()),
+            dataOffset = 0L,
+            fileSize = 1L,
+            targets = listOf(target, target.copy(byteStart = 1L)),
+            littleEndian = true
+        )
+
+        assertEquals(emptyList<UnityMonoScriptSummary>(), result.scripts)
+        assertEquals(2, result.skippedCount)
+        assertTrue(result.note.orEmpty().contains("Duplicate MonoScript PathID"))
     }
 
     @Test

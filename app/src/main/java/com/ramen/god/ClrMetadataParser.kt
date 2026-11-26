@@ -82,8 +82,10 @@ internal object ClrMetadataParser {
         metadataOffset: Int?,
         metadataSize: Long?,
         runtimeVersion: String? = null,
-        clrFlags: Long? = null
+        clrFlags: Long? = null,
+        shouldCancel: () -> Boolean = { false }
     ): ClrAssemblySummary? {
+        if (shouldCancel()) throw ScanCancelledException()
         if (metadataOffset == null || metadataSize == null || metadataSize <= 0L) return null
         if (metadataSize > MAX_METADATA_BYTES) {
             return emptySummary(runtimeVersion, clrFlags, "metadata-size-limit", "CLR metadata превышает лимит 2 MiB.")
@@ -114,6 +116,7 @@ internal object ClrMetadataParser {
 
         val streams = linkedMapOf<String, StreamInfo>()
         repeat(streamCount) {
+            if (shouldCancel()) throw ScanCancelledException()
             val offset = cursor.u32()?.toInt() ?: return emptySummary(runtimeVersion, clrFlags, "truncated-stream-header")
             val size = cursor.u32()?.toInt() ?: return emptySummary(runtimeVersion, clrFlags, "truncated-stream-header")
             val name = cursor.cString(32) ?: return emptySummary(runtimeVersion, clrFlags, "invalid-stream-name")
@@ -121,14 +124,29 @@ internal object ClrMetadataParser {
             if (offset < 0 || size < 0 || offset.toLong() + size > metadataSize) {
                 return emptySummary(runtimeVersion, clrFlags, "stream-out-of-range", "Поток $name выходит за границы metadata.")
             }
+            if (streams.containsKey(name)) {
+                return emptySummary(runtimeVersion, clrFlags, "duplicate-stream-name", "Имя потока $name объявлено более одного раза.")
+            }
             streams[name] = StreamInfo(offset, size)
+        }
+
+        // Metadata stream payloads are distinct regions. Overlaps allow one
+        // table/heap to alias another and make indices ambiguous.
+        val orderedStreams = streams.values.filter { it.size > 0 }.sortedBy { it.offset }
+        for (index in 1 until orderedStreams.size) {
+            if (shouldCancel()) throw ScanCancelledException()
+            val previous = orderedStreams[index - 1]
+            val current = orderedStreams[index]
+            if (current.offset.toLong() < previous.offset.toLong() + previous.size.toLong()) {
+                return emptySummary(runtimeVersion, clrFlags, "overlapping-streams", "Диапазоны metadata-потоков пересекаются.")
+            }
         }
 
         val tables = streams["#~"] ?: streams["#-"]
             ?: return emptySummary(runtimeVersion, clrFlags, "tables-stream-missing")
         val strings = streams["#Strings"]
             ?: return emptySummary(runtimeVersion, clrFlags, "strings-heap-missing")
-        val tablesInfo = parseTablesHeader(bytes, base, tables, end)
+        val tablesInfo = parseTablesHeader(bytes, base, tables, end, shouldCancel)
             ?: return emptySummary(runtimeVersion, clrFlags, "invalid-tables-stream")
         val tableRows = tablesInfo.rows
         val stringHeapStart = base + strings.offset
@@ -138,33 +156,62 @@ internal object ClrMetadataParser {
         val blobHeapEnd = blobHeap?.let { base + it.offset + it.size }
 
         val moduleName = readFirstModuleName(
-            bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd
+            bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd, shouldCancel
         )
-        val assembly = readAssemblyIdentity(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd)
+        val assembly = readAssemblyIdentity(bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd, shouldCancel)
         val referenceResult = readAssemblyReferences(
-            bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd
+            bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd, shouldCancel
         )
         val fieldResult = readFields(
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd,
-            blobHeapStart, blobHeapEnd
+            blobHeapStart, blobHeapEnd, shouldCancel
         )
         val methodResult = readMethods(
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd,
-            blobHeapStart, blobHeapEnd
+            blobHeapStart, blobHeapEnd, shouldCancel
         )
         val typeResult = readTypes(
             bytes, base, tablesInfo, strings, tableRows, stringHeapStart, stringHeapEnd,
-            fieldResult.first, methodResult.first
+            fieldResult.first, methodResult.first, shouldCancel
         )
 
-        val notes = listOfNotNull(typeResult.second, referenceResult.second, fieldResult.second, methodResult.second).distinct()
-        val status = when {
-            typeResult.second == "type-table-unavailable" -> "partial-type-table-unavailable"
-            referenceResult.second == "assembly-reference-table-unavailable" -> "partial-assembly-refs-unavailable"
-            fieldResult.second == "field-table-unavailable" -> "partial-field-table-unavailable"
-            methodResult.second == "method-table-unavailable" -> "partial-method-table-unavailable"
-            else -> "parsed"
+        val notes = mutableListOf<String>()
+        listOfNotNull(typeResult.second, referenceResult.second, fieldResult.second, methodResult.second)
+            .forEach { notes.add(it) }
+        if (tableRows[0] > 0L && moduleName == null) {
+            notes.add("Module row name could not be resolved from #Strings.")
         }
+        if (tableRows[32] > 0L && (assembly == null || assembly.name == null)) {
+            notes.add("Assembly identity row could not be fully resolved.")
+        }
+        val expectedFieldRows = minOf(tableRows[4], MAX_FIELDS.toLong()).toInt()
+        if (fieldResult.first.size < expectedFieldRows) {
+            notes.add("Field table contains unreadable rows.")
+        }
+        val expectedMethodRows = minOf(tableRows[6], MAX_METHODS.toLong()).toInt()
+        if (methodResult.first.size < expectedMethodRows) {
+            notes.add("Method table contains unreadable rows.")
+        }
+        val expectedReferenceRows = minOf(tableRows[35], MAX_ASSEMBLY_REFS.toLong()).toInt()
+        if (referenceResult.first.size < expectedReferenceRows) {
+            notes.add("AssemblyRef table contains unreadable rows.")
+        }
+        if (fieldResult.first.any { it.signatureStatus != "parsed" }) {
+            notes.add("One or more field signatures are unavailable or unsupported.")
+        }
+        if (methodResult.first.any { it.signatureStatus != "parsed" }) {
+            notes.add("One or more method signatures are unavailable or unsupported.")
+        }
+        val expectedTypeRows = minOf(tableRows[2], MAX_TYPES.toLong()).toInt()
+        val possibleModuleRows = if (tableRows[0] > 0L) 1 else 0
+        if (expectedTypeRows > possibleModuleRows &&
+            typeResult.first.size < expectedTypeRows - possibleModuleRows) {
+            notes.add("TypeDef table contains rows with unreadable names.")
+        }
+        // Any diagnostic from a bounded table reader or unresolved heap index
+        // means the returned inventory is incomplete. Keep useful rows, but
+        // never label a partial signature/member sample as a complete parse.
+        val status = if (notes.isEmpty()) "parsed" else "partial-metadata-tables"
         return ClrAssemblySummary(
             name = assembly?.name,
             version = assembly?.version,
@@ -185,8 +232,10 @@ internal object ClrMetadataParser {
         bytes: ByteArray,
         base: Int,
         stream: StreamInfo,
-        metadataEnd: Int
+        metadataEnd: Int,
+        shouldCancel: () -> Boolean
     ): TablesInfo? {
+        if (shouldCancel()) throw ScanCancelledException()
         val start = base.toLong() + stream.offset
         val streamEndLong = start + stream.size
         if (start > Int.MAX_VALUE || streamEndLong > metadataEnd || stream.size < 24) return null
@@ -198,6 +247,7 @@ internal object ClrMetadataParser {
         c.u64() ?: return null
         val rows = LongArray(64)
         for (table in 0 until 64) {
+            if (shouldCancel()) throw ScanCancelledException()
             if ((valid and (1L shl table)) != 0L) {
                 rows[table] = c.u32() ?: return null
                 if (rows[table] > 2_000_000L) return null
@@ -208,6 +258,7 @@ internal object ClrMetadataParser {
         var position = c.position.toLong() - base.toLong()
         val streamLimit = streamEndLong - base.toLong()
         for (table in 0 until 64) {
+            if (shouldCancel()) throw ScanCancelledException()
             if (rows[table] == 0L) continue
             val rowSize = rowSize(table, rows, heapSizes) ?: return null
             tableOffsets[table] = position
@@ -293,8 +344,10 @@ internal object ClrMetadataParser {
 
     private fun readFirstModuleName(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
-        rows: LongArray, heapStart: Int, heapEnd: Int
+        rows: LongArray, heapStart: Int, heapEnd: Int,
+        shouldCancel: () -> Boolean
     ): String? {
+        if (shouldCancel()) throw ScanCancelledException()
         if (rows[0] == 0L) return null
         val offset = (base.toLong() + info.tableOffsets[0] + 2L).toInt()
         val width = if ((info.heapSizes and 1) != 0) 4 else 2
@@ -304,8 +357,10 @@ internal object ClrMetadataParser {
 
     private fun readAssemblyIdentity(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
-        rows: LongArray, heapStart: Int, heapEnd: Int
+        rows: LongArray, heapStart: Int, heapEnd: Int,
+        shouldCancel: () -> Boolean
     ): AssemblyIdentity? {
+        if (shouldCancel()) throw ScanCancelledException()
         if (rows[32] == 0L) return null
         val widthBlob = if ((info.heapSizes and 4) != 0) 4 else 2
         val widthString = if ((info.heapSizes and 1) != 0) 4 else 2
@@ -327,8 +382,10 @@ internal object ClrMetadataParser {
     private fun readTypes(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
         rows: LongArray, heapStart: Int, heapEnd: Int,
-        fields: List<ClrFieldSummary>, methods: List<ClrMethodSummary>
+        fields: List<ClrFieldSummary>, methods: List<ClrMethodSummary>,
+        shouldCancel: () -> Boolean
     ): Pair<List<ClrTypeSummary>, String?> {
+        if (shouldCancel()) throw ScanCancelledException()
         if (rows[2] == 0L) return emptyList<ClrTypeSummary>() to null
         val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
         val tdorWidth = if (maxOf(rows[2], rows[1], rows[27]) < 16384L) 2 else 4
@@ -343,6 +400,7 @@ internal object ClrMetadataParser {
         val count = minOf(rows[2], MAX_TYPES.toLong()).toInt()
         var ownershipIncomplete = false
         for (i in 0 until count) {
+            if (shouldCancel()) throw ScanCancelledException()
             val row = start + i * rowSize
             if (row + rowSize > bytes.size || row > Int.MAX_VALUE) break
             val p = row.toInt()
@@ -357,19 +415,37 @@ internal object ClrMetadataParser {
             val namespace = readHeapString(bytes, heapStart, heapEnd, namespaceIndex) ?: ""
             if (name == "<Module>") continue
 
+            val fieldStartValid = fieldStart in 1L..(rows[4] + 1L)
+            val methodStartValid = methodStart in 1L..(rows[6] + 1L)
+            if (!fieldStartValid || !methodStartValid) ownershipIncomplete = true
+
             val nextStarts = if (i + 1 < rows[2]) {
                 readTypeMemberStarts(
                     bytes, start, rowSize, i + 1, stringWidth, tdorWidth,
                     fieldWidth, methodWidth
                 )
             } else null
+            if (i + 1 < rows[2]) {
+                if (nextStarts == null ||
+                    nextStarts.first !in 1L..(rows[4] + 1L) ||
+                    nextStarts.second !in 1L..(rows[6] + 1L) ||
+                    nextStarts.first < fieldStart || nextStarts.second < methodStart) {
+                    ownershipIncomplete = true
+                }
+            }
             val fieldEnd = nextStarts?.first ?: (rows[4] + 1L)
             val methodEnd = nextStarts?.second ?: (rows[6] + 1L)
             val ownedFields = if (fieldStart in 1L..(rows[4] + 1L) && fieldEnd >= fieldStart) {
-                fields.filter { it.tableIndex.toLong() >= fieldStart && it.tableIndex.toLong() < fieldEnd }
+                fields.filterIndexed { fieldIndex, field ->
+                    if (fieldIndex % 32 == 0 && shouldCancel()) throw ScanCancelledException()
+                    field.tableIndex.toLong() >= fieldStart && field.tableIndex.toLong() < fieldEnd
+                }
             } else emptyList()
             val ownedMethods = if (methodStart in 1L..(rows[6] + 1L) && methodEnd >= methodStart) {
-                methods.filter { it.tableIndex.toLong() >= methodStart && it.tableIndex.toLong() < methodEnd }
+                methods.filterIndexed { methodIndex, method ->
+                    if (methodIndex % 32 == 0 && shouldCancel()) throw ScanCancelledException()
+                    method.tableIndex.toLong() >= methodStart && method.tableIndex.toLong() < methodEnd
+                }
             } else emptyList()
             if (fieldEnd > fields.lastOrNull()?.tableIndex?.plus(1)?.toLong().orZero() &&
                 fieldStart <= rows[4]) ownershipIncomplete = true
@@ -410,8 +486,10 @@ internal object ClrMetadataParser {
     private fun readFields(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
         rows: LongArray, heapStart: Int, heapEnd: Int,
-        blobHeapStart: Int?, blobHeapEnd: Int?
+        blobHeapStart: Int?, blobHeapEnd: Int?,
+        shouldCancel: () -> Boolean
     ): Pair<List<ClrFieldSummary>, String?> {
+        if (shouldCancel()) throw ScanCancelledException()
         if (rows[4] == 0L) return emptyList<ClrFieldSummary>() to null
         val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
         val blobWidth = if ((info.heapSizes and 4) != 0) 4 else 2
@@ -423,6 +501,7 @@ internal object ClrMetadataParser {
         val result = ArrayList<ClrFieldSummary>()
         val count = minOf(rows[4], MAX_FIELDS.toLong()).toInt()
         for (i in 0 until count) {
+            if (shouldCancel()) throw ScanCancelledException()
             val row = start + i * rowSize
             if (row + rowSize > bytes.size || row > Int.MAX_VALUE) break
             val p = row.toInt()
@@ -449,8 +528,10 @@ internal object ClrMetadataParser {
     private fun readMethods(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
         rows: LongArray, heapStart: Int, heapEnd: Int,
-        blobHeapStart: Int?, blobHeapEnd: Int?
+        blobHeapStart: Int?, blobHeapEnd: Int?,
+        shouldCancel: () -> Boolean
     ): Pair<List<ClrMethodSummary>, String?> {
+        if (shouldCancel()) throw ScanCancelledException()
         if (rows[6] == 0L) return emptyList<ClrMethodSummary>() to null
         val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
         val blobWidth = if ((info.heapSizes and 4) != 0) 4 else 2
@@ -463,6 +544,7 @@ internal object ClrMetadataParser {
         val result = ArrayList<ClrMethodSummary>()
         val count = minOf(rows[6], MAX_METHODS.toLong()).toInt()
         for (i in 0 until count) {
+            if (shouldCancel()) throw ScanCancelledException()
             val row = start + i * rowSize
             if (row + rowSize > bytes.size || row > Int.MAX_VALUE) break
             val p = row.toInt()
@@ -497,8 +579,10 @@ internal object ClrMetadataParser {
 
     private fun readAssemblyReferences(
         bytes: ByteArray, base: Int, info: TablesInfo, streams: StreamInfo,
-        rows: LongArray, heapStart: Int, heapEnd: Int
+        rows: LongArray, heapStart: Int, heapEnd: Int,
+        shouldCancel: () -> Boolean
     ): Pair<List<ClrAssemblyReferenceSummary>, String?> {
+        if (shouldCancel()) throw ScanCancelledException()
         if (rows[35] == 0L) return emptyList<ClrAssemblyReferenceSummary>() to null
         val stringWidth = if ((info.heapSizes and 1) != 0) 4 else 2
         val blobWidth = if ((info.heapSizes and 4) != 0) 4 else 2
@@ -510,6 +594,7 @@ internal object ClrMetadataParser {
         val count = minOf(rows[35], MAX_ASSEMBLY_REFS.toLong()).toInt()
         val result = ArrayList<ClrAssemblyReferenceSummary>()
         for (i in 0 until count) {
+            if (shouldCancel()) throw ScanCancelledException()
             val row = start + i * rowSize
             if (row + rowSize > bytes.size || row > Int.MAX_VALUE) break
             var p = row.toInt()
@@ -566,7 +651,7 @@ internal object ClrMetadataParser {
         val offset = start.toLong() + index
         if (offset < start || offset >= end || end > bytes.size || offset > Int.MAX_VALUE) return null
         val from = offset.toInt()
-        val limit = minOf(end, from + MAX_HEAP_STRING_BYTES)
+        val limit = minOf(end.toLong(), from.toLong() + MAX_HEAP_STRING_BYTES.toLong()).toInt()
         var to = from
         while (to < limit && bytes[to].toInt() != 0) to++
         if (to == limit) return null
@@ -623,8 +708,9 @@ internal object ClrMetadataParser {
             return true
         }
         fun cString(maximum: Int): String? {
+            if (maximum < 0 || position < 0 || position > end) return null
             val start = position
-            val limit = minOf(end, position + maximum)
+            val limit = minOf(end.toLong(), position.toLong() + maximum.toLong()).toInt()
             while (position < limit && bytes[position].toInt() != 0) position++
             if (position >= limit) return null
             val result = String(bytes, start, position - start, Charsets.US_ASCII)
@@ -632,8 +718,9 @@ internal object ClrMetadataParser {
             return result
         }
         fun align4() {
-            val aligned = (position + 3) and -4
-            position = minOf(aligned, end)
+            if (position < 0) return
+            val aligned = (position.toLong() + 3L) and -4L
+            position = minOf(aligned, end.toLong()).toInt()
         }
     }
 }

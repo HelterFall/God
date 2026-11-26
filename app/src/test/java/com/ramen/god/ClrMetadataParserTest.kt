@@ -48,6 +48,74 @@ class ClrMetadataParserTest {
     }
 
     @Test
+    fun observesCancellationInsideClrMetadataTableReaders() {
+        val metadata = syntheticMetadataRoot(typeRowsCount = 2)
+        var checks = 0
+        val error = runCatching {
+            ClrMetadataParser.parse(
+                metadata,
+                0,
+                metadata.size.toLong(),
+                shouldCancel = { ++checks >= 145 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(145, checks)
+    }
+
+    @Test
+    fun reportsMissingBlobHeapAsPartialWhenSignaturesCannotBeDecoded() {
+        val metadata = syntheticMetadataRoot(includeBlobHeap = false)
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+
+        assertEquals("partial-metadata-tables", result.status)
+        assertEquals("blob-heap-unavailable", result.fields.single().signatureStatus)
+        assertEquals("blob-heap-unavailable", result.methods.single().signatureStatus)
+        assertTrue(result.note.orEmpty().contains("signatures"))
+    }
+
+    @Test
+    fun reportsNonMonotonicTypeMemberStartsAsPartialMetadata() {
+        val metadata = syntheticMetadataRoot(typeRowsCount = 2, invalidSecondTypeMemberStart = true)
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+
+        assertEquals("partial-metadata-tables", result.status)
+        assertTrue(result.note.orEmpty().contains("Привязка полей/методов"))
+    }
+
+    @Test
+    fun reportsTypeSampleLimitAsPartialMetadata() {
+        val metadata = syntheticMetadataRoot(typeRowsCount = 1001)
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+
+        assertEquals(1001, result.typeCount)
+        assertEquals(1000, result.types.size)
+        assertEquals("partial-metadata-tables", result.status)
+        assertTrue(result.note.orEmpty().contains("ограничены первыми 1000"))
+    }
+
+    @Test
+    fun rejectsDuplicateMetadataStreamNames() {
+        val metadata = syntheticMetadataRoot(duplicateStreamName = true)
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+        assertEquals("duplicate-stream-name", result.status)
+    }
+
+    @Test
+    fun rejectsOverlappingMetadataStreamPayloads() {
+        val metadata = syntheticMetadataRoot()
+        val tablesName = metadata.indexOfSubsequence("#~".toByteArray(Charsets.US_ASCII))
+        val stringsName = metadata.indexOfSubsequence("#Strings".toByteArray(Charsets.US_ASCII))
+        require(tablesName >= 8 && stringsName >= 8)
+        val tablesOffset = readU32(metadata, tablesName - 8)
+        put32(metadata, stringsName - 8, tablesOffset)
+
+        val result = requireNotNull(ClrMetadataParser.parse(metadata, 0, metadata.size.toLong()))
+        assertEquals("overlapping-streams", result.status)
+    }
+
+    @Test
     fun reportsMetadataOutsideBoundedReadWindow() {
         val result = ClrMetadataParser.parse(ByteArray(32), 16, 1024, "4.0", 0)
         assertNotNull(result)
@@ -61,7 +129,30 @@ class ClrMetadataParserTest {
         assertEquals("invalid-metadata-signature", result?.status)
     }
 
-    private fun syntheticMetadataRoot(): ByteArray {
+    private fun ByteArray.indexOfSubsequence(needle: ByteArray): Int {
+        if (needle.isEmpty() || needle.size > size) return -1
+        for (start in 0..(size - needle.size)) {
+            if (needle.indices.all { this[start + it] == needle[it] }) return start
+        }
+        return -1
+    }
+
+    private fun readU32(bytes: ByteArray, offset: Int): Long =
+        (bytes[offset].toLong() and 0xff) or
+            ((bytes[offset + 1].toLong() and 0xff) shl 8) or
+            ((bytes[offset + 2].toLong() and 0xff) shl 16) or
+            ((bytes[offset + 3].toLong() and 0xff) shl 24)
+
+    private fun put32(bytes: ByteArray, offset: Int, value: Long) {
+        for (index in 0 until 4) bytes[offset + index] = (value ushr (8 * index)).toByte()
+    }
+
+    private fun syntheticMetadataRoot(
+        typeRowsCount: Int = 1,
+        includeBlobHeap: Boolean = true,
+        invalidSecondTypeMemberStart: Boolean = false,
+        duplicateStreamName: Boolean = false
+    ): ByteArray {
         val strings = ByteArrayOutputStream().apply {
             write(0)
         }
@@ -85,13 +176,18 @@ class ClrMetadataParserTest {
             u8(2); u8(0); u8(0); u8(1)
             u64((1L shl 0) or (1L shl 2) or (1L shl 4) or (1L shl 6) or (1L shl 32) or (1L shl 35))
             u64(0)
-            u32(1); u32(1); u32(1); u32(1); u32(1); u32(1)
+            u32(1); u32(typeRowsCount.toLong()); u32(1); u32(1); u32(1); u32(1)
 
             // Module row
             u16(0); u16(moduleName); u16(0); u16(0); u16(0)
 
-            // TypeDef row: public class Game.PlayerController
-            u32(1); u16(typeName); u16(namespace); u16(0); u16(1); u16(1)
+            // TypeDef rows: the first row owns the field and method; later
+            // rows start after those tables' only records.
+            repeat(typeRowsCount) { index ->
+                u32(1); u16(typeName); u16(namespace); u16(0)
+                u16(if (index == 0) 1 else if (invalidSecondTypeMemberStart && index == 1) 0 else 2)
+                u16(if (index == 0) 1 else 2)
+            }
 
             // Field row: private Int32 health
             u16(6); u16(fieldName); u16(1)
@@ -113,20 +209,21 @@ class ClrMetadataParserTest {
             u16(1); u16(1); u32(0)
             u32(8)
             write(byteArrayOf('v'.code.toByte(), '4'.code.toByte(), '.'.code.toByte(), '0'.code.toByte(), 0, 0, 0, 0))
-            u16(0); u16(3)
+            u16(0); u16(if (includeBlobHeap) 3 else 2)
         }.toByteArray()
 
         val blobHeap = byteArrayOf(0, 2, 0x06, 0x08, 4, 0x20, 1, 1, 0x08)
         fun paddedStreamHeaderLength(name: String): Int = 8 + (((name.length + 1 + 3) / 4) * 4)
+        val blobStreamName = if (duplicateStreamName) "#~" else "#Blob"
         val headerLength = paddedStreamHeaderLength("#~") + paddedStreamHeaderLength("#Strings") +
-            paddedStreamHeaderLength("#Blob")
+            if (includeBlobHeap) paddedStreamHeaderLength(blobStreamName) else 0
         val tablesOffset = prefix.size + headerLength
         val stringsOffset = tablesOffset + tables.size
         val blobsOffset = stringsOffset + stringHeap.size
         val headers = ByteArrayOutputStream().apply {
             streamHeader(tablesOffset, tables.size, "#~")
             streamHeader(stringsOffset, stringHeap.size, "#Strings")
-            streamHeader(blobsOffset, blobHeap.size, "#Blob")
+            if (includeBlobHeap) streamHeader(blobsOffset, blobHeap.size, blobStreamName)
         }.toByteArray()
         return prefix + headers + tables + stringHeap + blobHeap
     }

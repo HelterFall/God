@@ -27,14 +27,14 @@ God — самостоятельный Android-first исследователь�
 
 ### Этап A — Inventory и file access
 
-**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, progress callback, single-job coordinator и cancellation. Partial report сохраняет inventory и накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. Per-file AnalyzerRun подключён к PE, CLR metadata, Unity header, SerializedFile metadata, локальному MonoScript payload и внешним MonoScript bindings; external PPtr/scene resolver и остальные analyzer families ещё требуют интеграции.
+**Уже есть в MVP:** SAF recursive traversal с лимитами 100 000 entries/depth 40; JSON files[] содержит `FileRecord.id`, `parentId`, `identitySource` и `inventoryStatus`; есть агрегированные ScanCoverage, progress callback, single-job coordinator и cancellation. Partial report сохраняет inventory и накопленные AnalyzerRun records. Typed `ScanIssue` публикуется в JSON `issues[]`, а `warnings[]` оставлен для совместимости. Markdown tree отдельно ограничен 20 000 строк. Per-file AnalyzerRun подключён к PE, CLR metadata, Unity header, SerializedFile metadata, локальному/внешнему MonoScript payload, external PPtr, MonoBehaviour script bindings и scene-object decoding; остальные analyzer families ещё требуют интеграции.
 
 **Цель расширения (не повторная реализация):**
 - [x] Добавить stable FileRecord IDs, physical-folder `parentId` и inventory statuses `discovered`, `enumerated`, `partial`, `inaccessible`; raw SAF URI не попадает в JSON.
 - [x] Добавить `AnalyzerRun` с `scanId`, `inputFileId` и статусами queued/analyzed/partial/skipped/unsupported/failed для PE, CLR metadata, Unity header, SerializedFile metadata и local MonoScript payload; сохранять накопленные outcomes в partial report.
 - [x] Подключить local `mono_script_payload` AnalyzerRun с FileRecord linkage и analyzed/partial/failed/skipped outcomes (PR #33).
 - [x] Подключить `external_mono_script_payload` AnalyzerRun для внешних MonoScript bindings с linkage на исходный SerializedFile и analyzed/partial outcomes.
-- [ ] Подключить per-file AnalyzerRun к external-reference/PPtr и scene resolvers; не смешивать их с `inventoryStatus`.
+- [x] Подключить per-file AnalyzerRun к external-reference/PPtr, MonoBehaviour script binding и scene-object decoders; не смешивать их с `inventoryStatus`. 
 - Сохранить текущий JSON inventory и связать его записи с analyzer runs/findings.
 - Поддержка large-file streaming и positional/random-access reads через SAF abstraction.
 - Потоковое хеширование по опции для сравнения файлов и доказательства идентичности.
@@ -171,9 +171,9 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | Приоритет | Работа | Результат |
 |---|---|---|
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
-| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | Надёжный полный обход; partial report сохраняет PE/CLR/Unity header/SerializedFile/local MonoScript AnalyzerRun outcomes, но отмена внутри provider reads и external resolver-specific states остаются открытыми |
+| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | PE section/import/thunk loops, path matching, SerializedFile/CLR parser loops, TypeTree nodes, MonoScript/scene payload, managed-type linking и prefix reads проверяют cancellation; активные AnalyzerRun переводятся в partial, незапущенные остаются queued. Positional/range reads и прерывание уже блокирующего provider `InputStream.read()` остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
-| P1 | Per-file statuses для external resolver stages и оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile/local MonoScript и external MonoScript runs связаны с FileRecord IDs; остаются external PPtr/scene, scene/UnityFS и другие стадии |
+| P1 | Per-file statuses для оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile, MonoScript, external PPtr, MonoBehaviour binding и scene graph уже имеют FileRecord-linked runs; остаются containers/assets и другие analyzer families |
 | P2 | PE/native dependency graph | Понимание нативных границ |
 | P2 | CLR/Mono metadata, IL, P/Invoke и call-site graph | Понимание managed-логики |
 | P2 | SerializedFile/TypeTree/object graph | Понимание сцен и компонентов |
@@ -252,3 +252,10 @@ P1/P2 обозначают приоритет исследования и раз
 Эта дорожная карта определяет конечные функциональные направления. План дальнейших действий определяет практический порядок изменений в коде и критерии перехода между этапами. При расхождении приоритет для ближайшего рабочего шага задаёт IMPLEMENTATION_PLAN.md, а полный перечень целевых функций сохраняется здесь.
 
 Не добавлять изолированные декодеры ради количества. Каждый новый анализатор должен публиковать структурированные findings/evidence и расширять общую модель связей.
+
+## Follow-up — 2026-11-26 (draft PR #37)
+
+- PathID uniqueness проверяется по всей таблице до 250 000 объектов; при дубликатах неоднозначные samples отключаются, при превышении лимита samples/scene graph не строятся и результат помечается partial.
+- Scene graph поддерживает Transform (ClassID 4) и RectTransform (224), требует единственный transform на GameObject и проверяет типы целей parent/child и reciprocal father/children links. Missing/ambiguous/wrong-class links не пропадают молча, а учитываются как unresolved.
+- При отмене внутри активного этапа его per-file AnalyzerRun получает статус partial; незапущенные этапы остаются queued. Cancellation checks добавлены в SerializedFile metadata, TypeTree/object parsing, MonoScript/scene payload streams и resolver loops между bounded chunks.
+- Проверки синтетические. Не заменяют реальные Unity/PE/CLR fixtures, fuzzing, Android SAF instrumentation и полную совместимость. PR #37 остаётся draft; main не изменён.

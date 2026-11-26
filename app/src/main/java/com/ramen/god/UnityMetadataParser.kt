@@ -104,6 +104,7 @@ internal object UnityMetadataParser {
     private const val MAX_VERSION_STRING = 64
     private const val MAX_TYPE_COUNT = 200_000L
     private const val MAX_OBJECT_COUNT = 2_000_000L
+    private const val MAX_PATH_ID_UNIQUENESS_CHECK = 250_000L
     private const val MAX_AUX_COUNT = 500_000L
     private const val MAX_OBJECT_SAMPLES = 500
     private const val MAX_MONOSCRIPT_OBJECT_SAMPLES = 1000
@@ -169,7 +170,12 @@ internal object UnityMetadataParser {
         1226 to "LoadableSceneId"
     )
 
-    fun parse(prefix: ByteArray, header: UnityFileHeader): UnityMetadataSummary? {
+    fun parse(
+        prefix: ByteArray,
+        header: UnityFileHeader,
+        shouldCancel: () -> Boolean = { false }
+    ): UnityMetadataSummary? {
+        if (shouldCancel()) throw ScanCancelledException()
         if (header.kind != "SerializedFile") return null
         val version = header.formatVersion ?: return null
         if (version !in MIN_SUPPORTED_VERSION..MAX_SUPPORTED_VERSION) {
@@ -179,9 +185,16 @@ internal object UnityMetadataParser {
             )
         }
         val base = header.headerSize
-        if (prefix.size <= base) return null
+        val metadataSize = header.metadataSize ?: return null
+        val dataOffset = header.dataOffset ?: return null
+        if (base < 0 || prefix.size <= base || metadataSize <= 0L ||
+            dataOffset < base.toLong() || metadataSize > dataOffset - base.toLong()) return null
+        // SerializedFile metadata is a bounded region immediately after the
+        // header. Do not let malformed counts consume bytes from the data area.
+        val metadataEnd = base.toLong() + metadataSize
+        val metadataLimit = minOf(prefix.size.toLong(), metadataEnd).toInt()
         val little = header.endianness == "Little Endian"
-        val cursor = Cursor(prefix, base, little)
+        val cursor = Cursor(prefix, base, little, metadataLimit)
 
         val unityVersion = cursor.readCString(MAX_VERSION_STRING) ?: return null
         if (unityVersion.isBlank()) return null
@@ -198,15 +211,18 @@ internal object UnityMetadataParser {
 
         val typeClassIds = ArrayList<Int>(typeCount.toInt())
         val typeTrees = ArrayList<UnityTypeTreeSummary>()
+        var parsedTypeTreeCount = 0L
         val serializedTypes = ArrayList<UnitySerializedTypeSummary>(minOf(typeCount, MAX_SERIALIZED_TYPE_SAMPLES.toLong()).toInt())
         repeat(typeCount.toInt()) { typeIndex ->
-            val typeEntry = readTypeEntry(cursor, version, typeTreeEnabled)
+            if (shouldCancel()) throw ScanCancelledException()
+            val typeEntry = readTypeEntry(cursor, version, typeTreeEnabled, shouldCancel = shouldCancel)
                 ?: return partial.copy(note = "Таблица типов обрезана или содержит неподдерживаемые размеры; object count не прочитан.")
             typeClassIds.add(typeEntry.classId)
             if (serializedTypes.size < MAX_SERIALIZED_TYPE_SAMPLES) {
                 serializedTypes.add(UnitySerializedTypeSummary(typeEntry.classId, typeEntry.scriptTypeIndex, typeEntry.scriptId))
             }
             typeEntry.typeTree?.let { parsedTree ->
+                parsedTypeTreeCount++
                 val tree = parsedTree.copy(typeIndex = typeIndex)
                 val retainedMonoBehaviourTrees = typeTrees.count {
                     it.classId == 114 && it.completeForDecoding
@@ -214,6 +230,7 @@ internal object UnityMetadataParser {
                 val keepCompleteTree = tree.completeForDecoding && when (tree.classId) {
                     1 -> typeTrees.none { it.classId == 1 && it.completeForDecoding }
                     4 -> typeTrees.none { it.classId == 4 && it.completeForDecoding }
+                    224 -> typeTrees.none { it.classId == 224 && it.completeForDecoding }
                     114 -> retainedMonoBehaviourTrees < MAX_MONOBEHAVIOUR_DECODER_TREES
                     else -> false
                 }
@@ -233,12 +250,19 @@ internal object UnityMetadataParser {
 
         val objectSamples = ArrayList<UnityObjectSummary>(minOf(objectCount, MAX_OBJECT_SAMPLES.toLong()).toInt())
         val monoScriptObjects = ArrayList<UnityObjectSummary>()
+        // Check every PathID when feasible; for larger tables disable object targets rather than resolve ambiguously.
+        val pathIdsForUniqueness = if (objectCount <= MAX_PATH_ID_UNIQUENESS_CHECK) {
+            LongArray(objectCount.toInt())
+        } else null
+        var pathIdIndex = 0
         val objectTypeCounts = linkedMapOf<Int, Long>()
         val objectTypePathSamples = linkedMapOf<Int, MutableList<Long>>()
+        var rawTypeIndexFallbackCount = 0L
         val dataSectionSize = if (header.fileSize != null && header.dataOffset != null && header.fileSize >= header.dataOffset) {
             header.fileSize - header.dataOffset
         } else null
         repeat(objectCount.toInt()) {
+            if (shouldCancel()) throw ScanCancelledException()
             if (!cursor.align4()) {
                 return partial.copy(objectCount = objectCount, objectSamples = objectSamples, note = "Таблица объектов обрезана.")
             }
@@ -253,16 +277,40 @@ internal object UnityMetadataParser {
                 return partial.copy(objectCount = objectCount, objectSamples = objectSamples,
                     note = "Запись объекта указывает за пределы data section; дальнейший разбор остановлен.")
             }
-            val classId = typeClassIds.getOrNull(typeIndex)
-            if (classId != null) {
-                objectTypeCounts[classId] = (objectTypeCounts[classId] ?: 0L) + 1L
-                val samples = objectTypePathSamples.getOrPut(classId) { mutableListOf() }
-                if (samples.size < 10) samples.add(pathId)
+            pathIdsForUniqueness?.set(pathIdIndex, pathId)
+            pathIdIndex++
+            val classId = typeClassIds.getOrNull(typeIndex) ?: run {
+                // Stripped SerializedFiles may store persistentTypeID directly
+                // in typeIndex when no matching m_Types entry exists.
+                rawTypeIndexFallbackCount++
+                typeIndex
             }
-            val summary = UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, classId)
-            if (objectSamples.size < MAX_OBJECT_SAMPLES) objectSamples.add(summary)
-            if (classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES) {
-                monoScriptObjects.add(summary)
+            objectTypeCounts[classId] = (objectTypeCounts[classId] ?: 0L) + 1L
+            val samples = objectTypePathSamples.getOrPut(classId) { mutableListOf() }
+            if (samples.size < 10) samples.add(pathId)
+            if (pathIdsForUniqueness != null) {
+                val summary = UnityObjectSummary(pathId, relativeStart, byteSize, typeIndex, classId)
+                if (objectSamples.size < MAX_OBJECT_SAMPLES) objectSamples.add(summary)
+                if (classId == 115 && monoScriptObjects.size < MAX_MONOSCRIPT_OBJECT_SAMPLES) {
+                    monoScriptObjects.add(summary)
+                }
+            }
+        }
+
+        if (pathIdsForUniqueness != null) {
+            if (shouldCancel()) throw ScanCancelledException()
+            pathIdsForUniqueness.sort()
+            if (shouldCancel()) throw ScanCancelledException()
+            for (index in 1 until pathIdsForUniqueness.size) {
+                if (shouldCancel()) throw ScanCancelledException()
+                if (pathIdsForUniqueness[index] == pathIdsForUniqueness[index - 1]) {
+                    return partial.copy(
+                        objectCount = objectCount,
+                        objectSamples = emptyList(),
+                        monoScriptObjects = emptyList(),
+                        note = "Обнаружен повторяющийся PathID в таблице объектов; неоднозначные записи исключены из ссылок и граф сцены."
+                    )
+                }
             }
         }
 
@@ -277,6 +325,7 @@ internal object UnityMetadataParser {
         }
         val scriptTypeReferences = ArrayList<UnityScriptTypeReference>(minOf(scriptCount, MAX_SCRIPT_TYPE_SAMPLES.toLong()).toInt())
         repeat(scriptCount.toInt()) {
+            if (shouldCancel()) throw ScanCancelledException()
             val fileId = cursor.readI32()
             if (fileId == null || !cursor.align4()) {
                 return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount, objectSamples = objectSamples,
@@ -303,6 +352,7 @@ internal object UnityMetadataParser {
         }
         val externalReferences = ArrayList<UnityExternalReference>(minOf(externalCount, MAX_EXTERNAL_REFERENCE_SAMPLES.toLong()).toInt())
         repeat(externalCount.toInt()) { index ->
+            if (shouldCancel()) throw ScanCancelledException()
             if (cursor.readCString(4096) == null || !cursor.skip(16)) {
                 return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
                     externalReferenceCount = externalCount, objectSamples = objectSamples,
@@ -337,7 +387,10 @@ internal object UnityMetadataParser {
         )
         if (referenceTypeCount != null) {
             repeat(referenceTypeCount.toInt()) {
-                val refType = readTypeEntry(cursor, version, typeTreeEnabled, isReferenceType = true)
+                if (shouldCancel()) throw ScanCancelledException()
+                val refType = readTypeEntry(
+                    cursor, version, typeTreeEnabled, isReferenceType = true, shouldCancel = shouldCancel
+                )
                     ?: return partial.copy(objectCount = objectCount, scriptTypeCount = scriptCount,
                         externalReferenceCount = externalCount, objectSamples = objectSamples,
                         scriptTypeReferences = scriptTypeReferences, externalReferences = externalReferences,
@@ -373,6 +426,44 @@ internal object UnityMetadataParser {
             serializedTypes, scriptTypeReferences, externalReferences, monoScriptObjects
         )
 
+        val sampleNotes = mutableListOf<String>()
+        if (pathIdsForUniqueness == null) {
+            sampleNotes.add(
+                "Object samples and scene graph were disabled because the object table exceeds $MAX_PATH_ID_UNIQUENESS_CHECK rows and full PathID uniqueness could not be checked; analysis is partial."
+            )
+        }
+        if (rawTypeIndexFallbackCount > 0L) {
+            sampleNotes.add(
+                "$rawTypeIndexFallbackCount object row(s) used the raw typeIndex as a persistentTypeID fallback because no matching SerializedType entry was present; analysis is partial."
+            )
+        }
+        if (typeCount > MAX_SERIALIZED_TYPE_SAMPLES) {
+            sampleNotes.add("SerializedType выборка ограничена первыми $MAX_SERIALIZED_TYPE_SAMPLES записями.")
+        }
+        if (parsedTypeTreeCount > MAX_TYPE_TREE_SAMPLES) {
+            sampleNotes.add("TypeTree выборка ограничена первыми $MAX_TYPE_TREE_SAMPLES деревьями.")
+        }
+        if (objectCount > MAX_OBJECT_SAMPLES) {
+            sampleNotes.add("Выборка объектов ограничена первыми $MAX_OBJECT_SAMPLES записями.")
+        }
+        if (scriptCount > MAX_SCRIPT_TYPE_SAMPLES) {
+            sampleNotes.add("Выборка MonoScript-ссылок ограничена первыми $MAX_SCRIPT_TYPE_SAMPLES записями.")
+        }
+        if (externalCount > MAX_EXTERNAL_REFERENCE_SAMPLES) {
+            sampleNotes.add("Выборка внешних ссылок ограничена первыми $MAX_EXTERNAL_REFERENCE_SAMPLES записями.")
+        }
+        if ((objectTypeCounts[115] ?: 0L) > MAX_MONOSCRIPT_OBJECT_SAMPLES) {
+            sampleNotes.add("Выборка MonoScript objects ограничена первыми $MAX_MONOSCRIPT_OBJECT_SAMPLES объектами.")
+        }
+        if ((referenceTypeCount ?: 0L) > MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES) {
+            sampleNotes.add("Выборка SerializeReference types ограничена первыми $MAX_SERIALIZED_REFERENCE_TYPE_SAMPLES записями.")
+        }
+
+        val completionNote = if (version >= 26L)
+            "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types; shared TypeTree subtree payloads пока не разбираются."
+        else "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
+        val summaryNote = (listOf(completionNote) + sampleNotes).joinToString(" ")
+
         return partial.copy(
             objectCount = objectCount,
             scriptTypeCount = scriptCount,
@@ -388,9 +479,7 @@ internal object UnityMetadataParser {
             scriptTypeReferences = scriptTypeReferences,
             externalReferences = externalReferences,
             scriptTypeBindings = scriptTypeBindings,
-            note = if (version >= 26L)
-                "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types; shared TypeTree subtree payloads пока не разбираются."
-            else "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
+            note = summaryNote
         )
     }
 
@@ -459,8 +548,10 @@ internal object UnityMetadataParser {
         cursor: Cursor,
         version: Long,
         typeTreeEnabled: Boolean,
-        isReferenceType: Boolean = false
+        isReferenceType: Boolean = false,
+        shouldCancel: () -> Boolean = { false }
     ): ParsedTypeEntry? {
+        if (shouldCancel()) throw ScanCancelledException()
         val classId = cursor.readI32() ?: return null
         if (version >= 16L && cursor.readU8() == null) return null
         val scriptTypeIndex = if (version >= 17L) cursor.readI16() ?: return null else -1
@@ -484,7 +575,7 @@ internal object UnityMetadataParser {
                 null
             } else {
                 val blob = cursor.readBytes(treeSize.toInt()) ?: return null
-                parseTypeTreeBlob(blob, cursor.isLittleEndian(), classId) ?: return null
+                parseTypeTreeBlob(blob, cursor.isLittleEndian(), classId, shouldCancel) ?: return null
             }
         } else {
             val nodeCount = cursor.readU32() ?: return null
@@ -495,7 +586,7 @@ internal object UnityMetadataParser {
                 nodeBytesCount + stringSize > MAX_TYPE_TREE_BYTES) return null
             val nodeBytes = cursor.readBytes(nodeBytesCount.toInt()) ?: return null
             val strings = cursor.readBytes(stringSize.toInt()) ?: return null
-            parseTypeTreeNodes(nodeBytes, strings, nodeCount, cursor.isLittleEndian(), classId) ?: return null
+            parseTypeTreeNodes(nodeBytes, strings, nodeCount, cursor.isLittleEndian(), classId, shouldCancel) ?: return null
         }
 
         var className: String? = null
@@ -514,7 +605,13 @@ internal object UnityMetadataParser {
         return ParsedTypeEntry(classId, scriptTypeIndex, scriptId, tree, className, namespace, assemblyName)
     }
 
-    private fun parseTypeTreeBlob(bytes: ByteArray, little: Boolean, classId: Int): UnityTypeTreeSummary? {
+    private fun parseTypeTreeBlob(
+        bytes: ByteArray,
+        little: Boolean,
+        classId: Int,
+        shouldCancel: () -> Boolean
+    ): UnityTypeTreeSummary? {
+        if (shouldCancel()) throw ScanCancelledException()
         if (bytes.size < 16 || bytes[0] != 'm'.code.toByte() || bytes[1] != 'h'.code.toByte() ||
             bytes[2] != 't'.code.toByte() || bytes[3] != 't'.code.toByte()) return null
         val info = Cursor(bytes, 4, little)
@@ -527,7 +624,7 @@ internal object UnityMetadataParser {
             nodeBytesCount + stringSize > MAX_TYPE_TREE_BYTES) return null
         val nodeBytes = info.readBytes(nodeBytesCount.toInt()) ?: return null
         val strings = info.readBytes(stringSize.toInt()) ?: return null
-        return parseTypeTreeNodes(nodeBytes, strings, nodeCount, little, classId)
+        return parseTypeTreeNodes(nodeBytes, strings, nodeCount, little, classId, shouldCancel)
     }
 
     private fun parseTypeTreeNodes(
@@ -535,19 +632,23 @@ internal object UnityMetadataParser {
         stringBuffer: ByteArray,
         nodeCount: Long,
         little: Boolean,
-        classId: Int
+        classId: Int,
+        shouldCancel: () -> Boolean
     ): UnityTypeTreeSummary? {
+        if (shouldCancel()) throw ScanCancelledException()
         if (nodeCount == 0L) return UnityTypeTreeSummary(classId, 0, null, null, emptyList())
         val nodes = Cursor(nodeBytes, 0, little)
         var rootType: String? = null
         var rootName: String? = null
         val fields = ArrayList<String>()
         val nodeSamples = ArrayList<UnityTypeTreeNodeSummary>(minOf(nodeCount, MAX_TYPE_TREE_NODE_SAMPLES.toLong()).toInt())
-        val retainDecoderNodes = classId == 1 || classId == 4 || classId == 114
+        val retainDecoderNodes = classId == 1 || classId == 4 || classId == 224 || classId == 114
+        var allNodeStringsResolved = true
         val decoderNodes = if (retainDecoderNodes && nodeCount <= MAX_DECODER_TYPE_TREE_NODES) {
             ArrayList<UnityTypeTreeNodeSummary>(nodeCount.toInt())
         } else null
         repeat(nodeCount.toInt()) { index ->
+            if (shouldCancel()) throw ScanCancelledException()
             if (nodes.readI16() == null) return null
             val level = nodes.readU8() ?: return null
             val typeFlags = nodes.readU8() ?: return null
@@ -559,6 +660,7 @@ internal object UnityMetadataParser {
             if (nodes.readU64() == null) return null // reference type hash
             val typeName = readTreeString(stringBuffer, typeOffset)
             val fieldName = readTreeString(stringBuffer, nameOffset)
+            if (typeName == null || fieldName == null) allNodeStringsResolved = false
             val node = UnityTypeTreeNodeSummary(level, typeName, fieldName, byteSize, typeFlags, metaFlags)
             if (nodeSamples.size < MAX_TYPE_TREE_NODE_SAMPLES) nodeSamples.add(node)
             decoderNodes?.add(node)
@@ -574,7 +676,8 @@ internal object UnityMetadataParser {
         return UnityTypeTreeSummary(
             classId, nodeCount, rootType, rootName, fields, nodeSamples,
             decoderNodes = completeNodes,
-            completeForDecoding = retainDecoderNodes && completeNodes.size.toLong() == nodeCount
+            completeForDecoding = retainDecoderNodes &&
+                completeNodes.size.toLong() == nodeCount && allNodeStringsResolved
         )
     }
 
@@ -598,17 +701,19 @@ internal object UnityMetadataParser {
     private class Cursor(
         private val bytes: ByteArray,
         private var position: Int,
-        private val little: Boolean
+        private val little: Boolean,
+        private val limit: Int = bytes.size
     ) {
         fun isLittleEndian(): Boolean = little
 
         fun readBytes(count: Int): ByteArray? {
-            if (count < 0 || position < 0 || position.toLong() + count > bytes.size) return null
+            if (count < 0 || position < 0 || limit > bytes.size ||
+                position.toLong() + count.toLong() > limit.toLong()) return null
             return bytes.copyOfRange(position, position + count).also { position += count }
         }
 
         fun readU8(): Int? {
-            if (position >= bytes.size) return null
+            if (position < 0 || position >= limit) return null
             return bytes[position++].toInt() and 0xff
         }
 
@@ -624,13 +729,11 @@ internal object UnityMetadataParser {
 
         fun readU32(): Long? = readUnsigned(4)
 
-        fun readU64(): Long? {
-            val value = readUnsigned(8) ?: return null
-            return value
-        }
+        fun readU64(): Long? = readUnsigned(8)
 
         fun readCString(maximum: Int): String? {
-            val endLimit = minOf(bytes.size, position + maximum + 1)
+            if (maximum < 0 || position < 0 || position > limit) return null
+            val endLimit = minOf(limit.toLong(), position.toLong() + maximum.toLong() + 1L).toInt()
             var end = position
             while (end < endLimit && bytes[end].toInt() != 0) end++
             if (end >= endLimit) return null
@@ -640,23 +743,23 @@ internal object UnityMetadataParser {
         }
 
         fun skip(count: Long): Boolean {
-            if (count < 0L || count > Int.MAX_VALUE.toLong()) return false
+            if (count < 0L || position < 0) return false
             val next = position.toLong() + count
-            if (next > bytes.size) return false
+            if (next > limit.toLong()) return false
             position = next.toInt()
             return true
         }
 
         fun align4(): Boolean {
-            val relative = position - (if (position >= 0) 0 else 0)
-            val aligned = (relative + 3) and -4
-            if (aligned > bytes.size) return false
-            position = aligned
+            if (position < 0) return false
+            val aligned = (position.toLong() + 3L) and -4L
+            if (aligned > limit.toLong()) return false
+            position = aligned.toInt()
             return true
         }
 
         private fun readUnsigned(count: Int): Long? {
-            if (position < 0 || position + count > bytes.size) return null
+            if (count < 0 || position < 0 || position.toLong() + count.toLong() > limit.toLong()) return null
             var value = 0L
             if (little) {
                 for (i in count - 1 downTo 0) value = (value shl 8) or (bytes[position + i].toLong() and 0xff)

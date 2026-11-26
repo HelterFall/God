@@ -25,6 +25,10 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private val entries = mutableListOf<ScanEntry>()
     private val issues = mutableListOf<ScanIssue>()
     private val analyzerRuns = mutableListOf<AnalyzerRun>()
+    private val findings = mutableListOf<Finding>()
+    private val evidenceRecords = mutableListOf<Evidence>()
+    private val graphNodes = mutableListOf<GraphNode>()
+    private val graphEdges = mutableListOf<GraphEdge>()
     private var scanId: String = ""
     private val warnings: List<String>
         get() = issues.map { it.message }
@@ -33,7 +37,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private val managedTypeResolutions = mutableListOf<UnityManagedTypeResolution>()
     private val unityHeaders = linkedMapOf<String, UnityFileHeader>()
     private val unityMetadata = linkedMapOf<String, UnityMetadataSummary>()
+    private val ambiguousInventoryPaths = mutableSetOf<String>()
     private var totalBytes = 0L
+    private var inventoryCompleted = false
     private var inaccessibleDirectoryCount = 0
     private var depthLimitHitCount = 0
     private var entryLimitReached = false
@@ -48,6 +54,14 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private var unityMetadataFailedCount = 0
     private var unityMetadataPrerequisiteSkippedCount = 0
     private var unityMetadataWindowLimitedCount = 0
+    private val unityHeaderCandidateFileIds = mutableSetOf<String>()
+    private val unityHeaderAttemptedFileIds = mutableSetOf<String>()
+    private val unityHeaderFailedFileIds = mutableSetOf<String>()
+    private val unityMetadataCandidateFileIds = mutableSetOf<String>()
+    private val unityMetadataAttemptedFileIds = mutableSetOf<String>()
+    private val unityMetadataWindowLimitedFileIds = mutableSetOf<String>()
+    private val unityMetadataPrerequisiteSkippedFileIds = mutableSetOf<String>()
+    private val unityMetadataFailedFileIds = mutableSetOf<String>()
 
     companion object {
         private const val MAX_ENTRIES = 100_000
@@ -72,13 +86,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         entries.clear()
         issues.clear()
         analyzerRuns.clear()
+        findings.clear()
+        evidenceRecords.clear()
+        graphNodes.clear()
+        graphEdges.clear()
         scanId = UUID.randomUUID().toString()
         peResults.clear()
         clrResults.clear()
         managedTypeResolutions.clear()
         unityHeaders.clear()
         unityMetadata.clear()
+        ambiguousInventoryPaths.clear()
         totalBytes = 0L
+        inventoryCompleted = false
         inaccessibleDirectoryCount = 0
         depthLimitHitCount = 0
         entryLimitReached = false
@@ -93,13 +113,45 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         unityMetadataFailedCount = 0
         unityMetadataPrerequisiteSkippedCount = 0
         unityMetadataWindowLimitedCount = 0
+        unityHeaderCandidateFileIds.clear()
+        unityHeaderAttemptedFileIds.clear()
+        unityHeaderFailedFileIds.clear()
+        unityMetadataCandidateFileIds.clear()
+        unityMetadataAttemptedFileIds.clear()
+        unityMetadataWindowLimitedFileIds.clear()
+        unityMetadataPrerequisiteSkippedFileIds.clear()
+        unityMetadataFailedFileIds.clear()
         try {
             walk(root, "", 0, null, shouldCancel, onProgress)
+            inventoryCompleted = true
         } catch (_: ScanCancelledException) {
             return buildPartialResult(root.name ?: "(unnamed)")
         }
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         onProgress(entries.size, "Инвентаризация завершена; анализирую PE-файлы")
+
+        val pathOccurrences = HashMap<String, Int>(entries.size)
+        try {
+            entries.forEach { entry ->
+                if (shouldCancel()) throw ScanCancelledException()
+                pathOccurrences[entry.path] = (pathOccurrences[entry.path] ?: 0) + 1
+            }
+            pathOccurrences.toSortedMap().forEach { (path, count) ->
+                if (shouldCancel()) throw ScanCancelledException()
+                if (count > 1) {
+                    ambiguousInventoryPaths.add(path)
+                    addIssue(
+                        code = "inventory.duplicate_relative_path",
+                        stage = ScanIssueStage.INVENTORY,
+                        severity = ScanIssueSeverity.WARNING,
+                        message = "Несколько inventory entries имеют одинаковый relative path; анализ содержимого пропущен, чтобы избежать перезаписи результатов.",
+                        path = path
+                    )
+                }
+            }
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
 
         val files = entries.filter { !it.directory }
         val dlls = files.filter { it.name.endsWith(".dll", true) }
@@ -133,12 +185,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val peRunIds = mutableMapOf<String, String>()
         peCandidates.forEachIndexed { index, entry ->
             val limited = index >= MAX_PE_FILES
+            val duplicatePath = entry.path in ambiguousInventoryPaths
+            val reason = when {
+                limited -> "Candidate limit reached ($MAX_PE_FILES)."
+                duplicatePath -> "Duplicate relative path; PE results are path-keyed and analysis was skipped to prevent collisions."
+                else -> null
+            }
             val run = AnalyzerRun.create(
                 scanId = scanId,
                 analyzerId = "pe",
                 inputFileId = entry.record.id,
-                status = if (limited) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
-                reason = if (limited) "Candidate limit reached ($MAX_PE_FILES)." else null
+                status = if (limited || duplicatePath) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                reason = reason
             )
             analyzerRuns.add(run)
             peRunIds[entry.record.id] = run.id
@@ -146,8 +204,15 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         try {
             peCandidates.take(MAX_PE_FILES).forEach { entry ->
                 if (shouldCancel()) throw ScanCancelledException()
+                if (entry.path in ambiguousInventoryPaths) return@forEach
                 peAttemptedCount++
-                val info = readPeInfo(entry)
+                val peRunId = peRunIds.getValue(entry.record.id)
+                val info = try {
+                    readPeInfo(entry, shouldCancel)
+                } catch (e: ScanCancelledException) {
+                    markAnalyzerRunPartialOnCancellation(peRunId, "Cancelled during PE header/CLR inspection.")
+                    throw e
+                }
                 if (info == null) {
                     peFailedCount++
                     updateAnalyzerRun(
@@ -176,6 +241,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 else -> 3
             }
         }
+        unityHeaderCandidateFileIds.addAll(unityCandidates.map { it.record.id })
         if (unityCandidates.size > MAX_UNITY_HEADER_FILES) addIssue(
             code = "unity.header_candidate_limit_reached",
             stage = ScanIssueStage.UNITY_FILE_HEADERS,
@@ -186,18 +252,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val unityHeaderRunIds = mutableMapOf<String, String>()
         unityCandidates.forEachIndexed { index, entry ->
             val limited = index >= MAX_UNITY_HEADER_FILES
-            val reason = if (limited) {
-                "Unity header candidate limit reached ($MAX_UNITY_HEADER_FILES); file kind and SerializedFile metadata were not inspected."
-            } else {
-                null
+            val duplicatePath = entry.path in ambiguousInventoryPaths
+            val reason = when {
+                limited -> "Unity header candidate limit reached ($MAX_UNITY_HEADER_FILES); file kind and SerializedFile metadata were not inspected."
+                duplicatePath -> "Duplicate relative path; Unity header/metadata results are path-keyed and analysis was skipped to prevent collisions."
+                else -> null
             }
             unityHeaderRunIds[entry.record.id] = addAnalyzerRun(
                 analyzerId = "unity_file_headers",
                 entry = entry,
-                status = if (limited) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                status = if (limited || duplicatePath) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
                 reason = reason
             )
-            if (limited) {
+            if (limited || duplicatePath) {
                 addAnalyzerRun(
                     analyzerId = "serialized_file_metadata",
                     entry = entry,
@@ -210,8 +277,11 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         try {
             unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
                 if (shouldCancel()) throw ScanCancelledException()
+                if (entry.path in ambiguousInventoryPaths) return@forEachIndexed
                 val deepMetadataRead = index < MAX_UNITY_METADATA_FILES
-                unityHeaderAttemptedCount++
+                if (unityHeaderAttemptedFileIds.add(entry.record.id)) {
+                    unityHeaderAttemptedCount = unityHeaderAttemptedFileIds.size
+                }
                 val headerRunId = unityHeaderRunIds.getValue(entry.record.id)
 
                 var prefix: ByteArray? = null
@@ -219,7 +289,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 var headerDiagnostic: String? = null
                 try {
                     val readLimit = if (deepMetadataRead) MAX_UNITY_METADATA_READ else MAX_UNITY_HEADER_READ
-                    val readPrefix = readPrefix(entry.node, readLimit)
+                    val readPrefix = readPrefix(entry.node, readLimit, shouldCancel)
                     prefix = readPrefix
                     if (readPrefix == null) {
                         headerDiagnostic = "не удалось открыть файл для чтения"
@@ -232,15 +302,26 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                             unityHeaders[entry.path] = parsed
                         }
                     }
+                } catch (e: ScanCancelledException) {
+                    markAnalyzerRunPartialOnCancellation(
+                        headerRunId, "Cancelled during Unity file header read."
+                    )
+                    throw e
                 } catch (e: Exception) {
                     headerDiagnostic = e.message ?: e.javaClass.simpleName
                 }
 
                 val parsedHeader = header
                 if (parsedHeader == null) {
-                    unityHeaderFailedCount++
-                    unityMetadataCandidateCount++
-                    unityMetadataPrerequisiteSkippedCount++
+                    if (unityHeaderFailedFileIds.add(entry.record.id)) {
+                        unityHeaderFailedCount = unityHeaderFailedFileIds.size
+                    }
+                    if (unityMetadataCandidateFileIds.add(entry.record.id)) {
+                        unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
+                    }
+                    if (unityMetadataPrerequisiteSkippedFileIds.add(entry.record.id)) {
+                        unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedFileIds.size
+                    }
                     val reason = headerDiagnostic ?: "Unity header prerequisite did not produce a recognized format."
                     updateAnalyzerRun(headerRunId, AnalyzerRunStatus.FAILED, reason)
                     addAnalyzerRun(
@@ -259,12 +340,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     return@forEachIndexed
                 }
 
+                unityHeaderFailedFileIds.remove(entry.record.id)
+                unityHeaderFailedCount = unityHeaderFailedFileIds.size
                 updateAnalyzerRun(headerRunId, AnalyzerRunStatus.ANALYZED, parsedHeader.note)
                 if (parsedHeader.kind != "SerializedFile") return@forEachIndexed
 
-                unityMetadataCandidateCount++
+                if (unityMetadataCandidateFileIds.add(entry.record.id)) {
+                    unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
+                }
                 if (!deepMetadataRead) {
-                    unityMetadataWindowLimitedCount++
+                    if (unityMetadataWindowLimitedFileIds.add(entry.record.id)) {
+                        unityMetadataWindowLimitedCount = unityMetadataWindowLimitedFileIds.size
+                    }
                     addAnalyzerRun(
                         analyzerId = "serialized_file_metadata",
                         entry = entry,
@@ -274,27 +361,36 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     return@forEachIndexed
                 }
 
-                unityMetadataAttemptedCount++
+                if (unityMetadataAttemptedFileIds.add(entry.record.id)) {
+                    unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
+                }
                 val metadataRunId = addAnalyzerRun("serialized_file_metadata", entry)
                 var metadataSummary: UnityMetadataSummary? = null
                 var metadataDiagnostic: String? = null
                 try {
                     val metadataPrefix = requireNotNull(prefix)
-                    val parsedMetadata = UnityMetadataParser.parse(metadataPrefix, parsedHeader)
+                    val parsedMetadata = UnityMetadataParser.parse(metadataPrefix, parsedHeader, shouldCancel)
                     if (parsedMetadata == null) {
                         metadataDiagnostic = "metadata не разобрана в доступном диапазоне"
                     } else {
-                        val enrichedMetadata = readMonoScriptRecords(entry, parsedHeader, parsedMetadata)
+                        val enrichedMetadata = readMonoScriptRecords(entry, parsedHeader, parsedMetadata, shouldCancel)
                         metadataSummary = enrichedMetadata
                         unityMetadata[entry.path] = enrichedMetadata
                     }
+                } catch (e: ScanCancelledException) {
+                    markAnalyzerRunPartialOnCancellation(
+                        metadataRunId, "Cancelled during SerializedFile metadata or dependent payload analysis."
+                    )
+                    throw e
                 } catch (e: Exception) {
                     metadataDiagnostic = e.message ?: e.javaClass.simpleName
                 }
 
                 val summary = metadataSummary
                 if (summary == null) {
-                    unityMetadataFailedCount++
+                    if (unityMetadataFailedFileIds.add(entry.record.id)) {
+                        unityMetadataFailedCount = unityMetadataFailedFileIds.size
+                    }
                     val reason = metadataDiagnostic ?: "SerializedFile metadata parser returned no result."
                     updateAnalyzerRun(metadataRunId, AnalyzerRunStatus.FAILED, reason)
                     addIssue(
@@ -305,10 +401,15 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         path = entry.path
                     )
                 } else {
+                    unityMetadataFailedFileIds.remove(entry.record.id)
+                    unityMetadataFailedCount = unityMetadataFailedFileIds.size
                     val summaryNote = summary.note
-                    val isCompletedSummaryNote = summaryNote?.startsWith(
+                    val expectedCompletedSummaryNote = if ((parsedHeader.formatVersion ?: -1L) >= 26L) {
+                        "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types; shared TypeTree subtree payloads пока не разбираются."
+                    } else {
                         "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
-                    ) == true && !summaryNote.contains("shared TypeTree subtree payloads пока не разбираются.")
+                    }
+                    val isCompletedSummaryNote = summaryNote == expectedCompletedSummaryNote
                     val metadataStatus = when {
                         (parsedHeader.formatVersion ?: -1L) !in 19L..26L -> AnalyzerRunStatus.UNSUPPORTED
                         summaryNote != null && !isCompletedSummaryNote -> AnalyzerRunStatus.PARTIAL
@@ -330,15 +431,54 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             return buildPartialResult(root.name ?: "(unnamed)")
         }
 
-        resolveExternalMonoScriptRecords(files)
+        val externalPathIndex = try {
+            if (unityMetadata.values.any { metadata ->
+                metadata.externalReferences.any { it.path.isNotBlank() }
+            }) {
+                UnityExternalPathResolver.Index.create(
+                    candidates = files,
+                    pathOf = { it.path },
+                    nameOf = { it.name },
+                    shouldCancel = shouldCancel
+                )
+            } else {
+                null
+            }
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
+
+        try {
+            resolveExternalMonoScriptRecords(files, externalPathIndex, shouldCancel)
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
-        resolveExternalScenePointers(files)
+        try {
+            resolveExternalScenePointers(files, externalPathIndex, shouldCancel)
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
-        resolveMonoBehaviourScriptBindings(files)
+        try {
+            resolveMonoBehaviourScriptBindings(files, externalPathIndex, shouldCancel)
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
-        managedTypeResolutions.addAll(UnityManagedTypeResolver.resolve(unityMetadata, clrResults))
+        try {
+            managedTypeResolutions.addAll(
+                UnityManagedTypeResolver.resolve(unityMetadata, clrResults, shouldCancel)
+            )
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
-        val unityVersion = collectUnityVersion(files)
+        val unityVersion = try {
+            collectUnityVersion(files, shouldCancel)
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
 
         val managedBinaries = peResults.filterValues { it.managed }.keys
         val nativeBinaries = peResults.filterValues { !it.managed }.keys
@@ -348,7 +488,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             files.size,
             entries.size - files.size,
             peCandidates.size,
-            unityCandidates.size,
+            unityHeaderCandidateFileIds.size,
             hasGameAssembly || hasMetadata || hasIl2CppDir
         )
 
@@ -374,14 +514,41 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         issues.add(ScanIssue(code, stage, severity, message, path))
     }
 
-    private fun buildPartialResult(rootName: String): ScanResult =
-        PartialReportBuilder.build(
-            rootName,
-            entries.map { it.record },
-            totalBytes,
-            scanId,
-            analyzerRuns.toList()
+    private fun buildPartialResult(rootName: String): ScanResult {
+        val files = entries.filter { !it.directory }
+        val lowerPaths = entries.map { it.path.lowercase(Locale.ROOT) }
+        val hasGameAssembly = files.any { it.name.equals("GameAssembly.dll", true) }
+        val hasMetadata = files.any { it.name.equals("global-metadata.dat", true) }
+        val hasIl2CppDir = lowerPaths.any { it.contains("/il2cpp_data/") }
+        val peCandidateCount = files.count {
+            it.name.endsWith(".exe", true) || it.name.endsWith(".dll", true)
+        }
+        val unityCandidateCount = files.count { isUnityHeaderCandidate(it.name) }
+        val computedCoverage = buildScanCoverage(
+            fileCount = files.size,
+            directoryCount = entries.size - files.size,
+            peCandidateCount = peCandidateCount,
+            unityCandidateCount = unityCandidateCount,
+            hasIl2CppEvidence = hasGameAssembly || hasMetadata || hasIl2CppDir
         )
+        val coverage = computedCoverage.copy(
+            inventoryStatus = if (inventoryCompleted) computedCoverage.inventoryStatus else "partial"
+        )
+
+        return PartialReportBuilder.build(
+            rootName = rootName,
+            files = entries.map { it.record },
+            totalBytes = totalBytes,
+            scanId = scanId,
+            analyzerRuns = analyzerRuns.toList(),
+            findings = findings.toList(),
+            evidence = evidenceRecords.toList(),
+            graphNodes = graphNodes.toList(),
+            graphEdges = graphEdges.toList(),
+            scanCoverage = coverage,
+            issues = issues.toList()
+        )
+    }
 
     private fun addAnalyzerRun(
         analyzerId: String,
@@ -394,6 +561,62 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         return run.id
     }
 
+    /** Updates the deterministic run for one analyzer/file pair, never adding a duplicate. */
+    private fun setAnalyzerRun(
+        analyzerId: String,
+        entry: ScanEntry,
+        status: AnalyzerRunStatus,
+        reason: String? = null
+    ): String {
+        val existing = analyzerRuns.firstOrNull {
+            it.analyzerId == analyzerId && it.inputFileId == entry.record.id
+        }
+        if (existing != null) {
+            updateAnalyzerRun(existing.id, status, reason)
+            return existing.id
+        }
+        return addAnalyzerRun(analyzerId, entry, status, reason)
+    }
+
+    private fun serializedMetadataOutcome(
+        header: UnityFileHeader,
+        summary: UnityMetadataSummary
+    ): Pair<AnalyzerRunStatus, String?> {
+        val note = summary.note
+        val complete = note?.startsWith(
+            "Прочитаны таблицы объектов, MonoScript-ссылок, внешних файлов и SerializeReference types."
+        ) == true && !note.contains("shared TypeTree subtree payloads пока не разбираются.")
+        val status = when {
+            (header.formatVersion ?: -1L) !in 19L..26L -> AnalyzerRunStatus.UNSUPPORTED
+            note != null && !complete -> AnalyzerRunStatus.PARTIAL
+            else -> AnalyzerRunStatus.ANALYZED
+        }
+        val reason = note?.takeUnless { complete } ?: if (status == AnalyzerRunStatus.UNSUPPORTED) {
+            "SerializedFile format " + header.formatVersion + " is outside the supported metadata range 19-26."
+        } else null
+        return status to reason
+    }
+
+    private fun externalPointers(metadata: UnityMetadataSummary): List<UnityObjectPointerSummary> =
+        buildList {
+            metadata.decodedObjects.forEach { source ->
+                source.gameObject?.let { add(it) }
+                source.father?.let { add(it) }
+                source.children.forEach { add(it) }
+                source.components.forEach { add(it) }
+                source.script?.let { add(it) }
+            }
+        }
+
+    private fun externalPointerCandidateCount(metadata: UnityMetadataSummary): Int =
+        externalPointers(metadata).count { it.fileId != 0 && it.pathId != 0L }
+
+    private fun externalMonoScriptCandidateCount(metadata: UnityMetadataSummary): Int =
+        metadata.scriptTypeBindings.count { (it.fileId ?: 0) > 0 }
+
+    private fun monoBehaviourScriptCandidateCount(metadata: UnityMetadataSummary): Int =
+        metadata.decodedObjects.count { it.classId == 114 && it.script != null }
+
     private fun updateAnalyzerRun(
         runId: String,
         status: AnalyzerRunStatus,
@@ -402,6 +625,32 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val index = analyzerRuns.indexOfFirst { it.id == runId }
         check(index >= 0) { "Unknown analyzer run: $runId" }
         analyzerRuns[index] = analyzerRuns[index].copy(status = status, reason = reason)
+    }
+
+    private fun markAnalyzerRunPartialOnCancellation(runId: String, reason: String) {
+        updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, reason)
+    }
+
+    private fun markQueuedAnalyzerRunsPartialOnCancellation(runIds: Iterable<String>, reason: String) {
+        runIds.forEach { runId ->
+            val run = analyzerRuns.firstOrNull { it.id == runId } ?: return@forEach
+            if (run.status == AnalyzerRunStatus.QUEUED) {
+                updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, reason)
+            }
+        }
+    }
+
+    private fun markFileAnalyzerRunPartialOnCancellation(
+        analyzerId: String,
+        inputFileId: String,
+        reason: String
+    ) {
+        val run = analyzerRuns.lastOrNull {
+            it.analyzerId == analyzerId && it.inputFileId == inputFileId
+        } ?: return
+        if (run.status == AnalyzerRunStatus.QUEUED) {
+            updateAnalyzerRun(run.id, AnalyzerRunStatus.PARTIAL, reason)
+        }
     }
 
     private fun walk(
@@ -605,10 +854,15 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             lower == "globalgamemanagers" || lower.startsWith("level")
     }
 
-    private fun collectUnityVersion(files: List<ScanEntry>): UnityVersionResult {
+    private fun collectUnityVersion(
+        files: List<ScanEntry>,
+        shouldCancel: () -> Boolean
+    ): UnityVersionResult {
+        if (shouldCancel()) throw ScanCancelledException()
         val evidence = mutableListOf<UnityVersionEvidence>()
 
         unityMetadata.forEach { (path, metadata) ->
+            if (shouldCancel()) throw ScanCancelledException()
             val value = metadata.unityVersion ?: return@forEach
             val fileName = path.substringAfterLast('/')
             val isRootFile = fileName.equals("globalgamemanagers", true) ||
@@ -624,6 +878,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
 
         unityHeaders.forEach { (path, header) ->
+            if (shouldCancel()) throw ScanCancelledException()
             if (header.kind == "UnityFS bundle") {
                 header.engineVersion?.let { engineVersion ->
                     UnityVersionResolver.extractVersions(engineVersion).forEach { version ->
@@ -639,17 +894,21 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         // did not provide an exact version string.
         if (evidence.none { it.source == "globalgamemanagers-metadata" }) {
             files.filter {
-                it.name.equals("globalgamemanagers", true) ||
-                    it.name.equals("globalgamemanagers.assets", true)
+                (it.name.equals("globalgamemanagers", true) ||
+                    it.name.equals("globalgamemanagers.assets", true)) &&
+                    it.path !in ambiguousInventoryPaths
             }.take(2).forEach { entry ->
+                if (shouldCancel()) throw ScanCancelledException()
                 try {
-                    val bytes = readPrefix(entry.node, MAX_GGM_READ) ?: return@forEach
+                    val bytes = readPrefix(entry.node, MAX_GGM_READ, shouldCancel) ?: return@forEach
                     val text = String(bytes, Charsets.ISO_8859_1)
                     UnityVersionResolver.extractVersions(text).take(8).forEach { version ->
                         evidence.add(UnityVersionEvidence(
                             version, "globalgamemanagers-raw", entry.path, "medium"
                         ))
                     }
+                } catch (e: ScanCancelledException) {
+                    throw e
                 } catch (e: Exception) {
                     addIssue(
                         code = "unity.version_read_failed",
@@ -673,26 +932,37 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val target: MonoScriptObjectTarget
     )
 
-    private fun resolveExternalMonoScriptRecords(files: List<ScanEntry>) {
+    private fun resolveExternalMonoScriptRecords(
+        files: List<ScanEntry>,
+        externalPathIndex: UnityExternalPathResolver.Index<ScanEntry>?,
+        shouldCancel: () -> Boolean
+    ) {
         val metadataSnapshot = unityMetadata.toMap()
         val updatedBindings = metadataSnapshot.mapValues { it.value.scriptTypeBindings.toMutableList() }.toMutableMap()
         val changedOwners = mutableSetOf<String>()
         val requests = mutableListOf<ExternalMonoScriptRequest>()
         val discoveredMetadata = linkedMapOf<String, UnityMetadataSummary>()
         val attemptedMetadata = mutableSetOf<String>()
+        val ownerRuns = linkedMapOf<String, String>()
         var extraMetadataReads = 0
-        // External script bindings originate in the owner SerializedFile. Keep
-        // their resolver outcome attached to that exact inventory record.
-        val entriesByPath = files.associateBy { it.path }
-        val externalRunIds = metadataSnapshot.mapNotNull { (ownerPath, metadata) ->
-            val hasExternalBindings = metadata.scriptTypeBindings.any { (it.fileId ?: 0) > 0 }
-            if (!hasExternalBindings) return@mapNotNull null
-            val ownerEntry = entriesByPath[ownerPath] ?: return@mapNotNull null
-            ownerPath to addAnalyzerRun("external_mono_script_payload", ownerEntry)
-        }.toMap()
 
         metadataSnapshot.forEach { (ownerPath, metadata) ->
-            metadata.scriptTypeBindings.forEachIndexed { index, binding ->
+            if (shouldCancel()) throw ScanCancelledException()
+            val owner = files.firstOrNull { it.path == ownerPath } ?: return@forEach
+            val count = externalMonoScriptCandidateCount(metadata)
+            ownerRuns[ownerPath] = addAnalyzerRun(
+                "external_mono_script_payload", owner,
+                if (count == 0) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                if (count == 0) "No external MonoScript references were present in the bounded metadata sample." else null
+            )
+        }
+        if (shouldCancel()) throw ScanCancelledException()
+
+        metadataSnapshot.forEach { (ownerPath, metadata) ->
+            if (shouldCancel()) throw ScanCancelledException()
+            try {
+                metadata.scriptTypeBindings.forEachIndexed { index, binding ->
+                    if (shouldCancel()) throw ScanCancelledException()
                 val fileId = binding.fileId ?: return@forEachIndexed
                 if (fileId <= 0) return@forEachIndexed
                 val current = updatedBindings[ownerPath]?.getOrNull(index) ?: binding
@@ -703,7 +973,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     changedOwners.add(ownerPath)
                     return@forEachIndexed
                 }
-                val match = resolveExternalFile(binding.externalPath, files)
+                val match = resolveExternalFile(binding.externalPath, externalPathIndex, shouldCancel)
                 if (match.entry == null) {
                     val resolution = if (match.ambiguous) "external-file-name-ambiguous" else "external-file-not-matched"
                     updatedBindings[ownerPath]?.set(index, current.copy(resolution = resolution))
@@ -715,9 +985,17 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 var targetHeader = unityHeaders[targetEntry.path]
                 var targetMetadata = metadataSnapshot[targetEntry.path] ?: discoveredMetadata[targetEntry.path]
 
-                // The initial metadata pass is deliberately limited to 40 files.
-                // External references can promote another referenced file into a
-                // second bounded pass, without rescanning the full game folder.
+                if (targetMetadata == null && targetHeader != null && targetHeader.kind != "SerializedFile") {
+                    val reason = "External MonoScript target is not a SerializedFile; kind=" + targetHeader.kind + "."
+                    setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.SKIPPED, reason)
+                    updatedBindings[ownerPath]?.set(index, current.copy(
+                        matchedExternalFilePath = targetEntry.path,
+                        resolution = "external-file-found-not-parsed"
+                    ))
+                    changedOwners.add(ownerPath)
+                    return@forEachIndexed
+                }
+
                 if (targetMetadata == null && targetEntry.path !in attemptedMetadata) {
                     if (extraMetadataReads >= MAX_EXTERNAL_METADATA_FILES) {
                         updatedBindings[ownerPath]?.set(index, current.copy(
@@ -729,18 +1007,157 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     }
                     attemptedMetadata.add(targetEntry.path)
                     extraMetadataReads++
-                    val prefix = readPrefix(targetEntry.node, MAX_UNITY_METADATA_READ)
-                    if (prefix != null) {
+                    unityHeaderCandidateFileIds.add(targetEntry.record.id)
+                    if (unityHeaderAttemptedFileIds.add(targetEntry.record.id)) {
+                        unityHeaderAttemptedCount = unityHeaderAttemptedFileIds.size
+                    }
+                    try {
+                        val prefix = readPrefix(targetEntry.node, MAX_UNITY_METADATA_READ, shouldCancel)
+                        if (prefix == null) {
+                            val reason = "External MonoScript target provider returned no input stream."
+                            if (targetHeader == null) {
+                                if (unityHeaderFailedFileIds.add(targetEntry.record.id)) {
+                                    unityHeaderFailedCount = unityHeaderFailedFileIds.size
+                                }
+                                setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                            }
+                            if (unityMetadataCandidateFileIds.add(targetEntry.record.id)) {
+                                unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
+                            }
+                            if (unityMetadataAttemptedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
+                            }
+                            if (unityMetadataFailedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataFailedCount = unityMetadataFailedFileIds.size
+                            }
+                            setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                            updatedBindings[ownerPath]?.set(index, current.copy(
+                                matchedExternalFilePath = targetEntry.path,
+                                resolution = "external-file-found-not-parsed"
+                            ))
+                            changedOwners.add(ownerPath)
+                            return@forEachIndexed
+                        }
+
                         if (targetHeader == null) {
                             targetHeader = UnityFileHeaderParser.parse(prefix, targetEntry.size)
                             if (targetHeader != null) unityHeaders[targetEntry.path] = targetHeader
                         }
-                        if (targetHeader?.kind == "SerializedFile") {
-                            targetMetadata = UnityMetadataParser.parse(prefix, targetHeader)?.let { parsed ->
-                                readMonoScriptRecords(targetEntry, targetHeader, parsed)
+                        if (targetHeader == null) {
+                            val reason = "External MonoScript target did not contain a recognized Unity file header."
+                            if (unityHeaderFailedFileIds.add(targetEntry.record.id)) {
+                                unityHeaderFailedCount = unityHeaderFailedFileIds.size
                             }
-                            if (targetMetadata != null) discoveredMetadata[targetEntry.path] = targetMetadata
+                            setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                            if (unityMetadataCandidateFileIds.add(targetEntry.record.id)) {
+                                unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
+                            }
+                            if (unityMetadataAttemptedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
+                            }
+                            if (unityMetadataFailedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataFailedCount = unityMetadataFailedFileIds.size
+                            }
+                            setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                            updatedBindings[ownerPath]?.set(index, current.copy(
+                                matchedExternalFilePath = targetEntry.path,
+                                resolution = "external-file-found-not-parsed"
+                            ))
+                            changedOwners.add(ownerPath)
+                            return@forEachIndexed
                         }
+
+                        unityHeaderFailedFileIds.remove(targetEntry.record.id)
+                        unityHeaderFailedCount = unityHeaderFailedFileIds.size
+                        setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.ANALYZED, targetHeader.note)
+                        if (targetHeader.kind != "SerializedFile") {
+                            if (unityMetadataCandidateFileIds.remove(targetEntry.record.id)) {
+                                unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
+                            }
+                            if (unityMetadataPrerequisiteSkippedFileIds.remove(targetEntry.record.id)) {
+                                unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedFileIds.size
+                            }
+                            if (unityMetadataWindowLimitedFileIds.remove(targetEntry.record.id)) {
+                                unityMetadataWindowLimitedCount = unityMetadataWindowLimitedFileIds.size
+                            }
+                            val reason = "External MonoScript target is not a SerializedFile; kind=" + targetHeader.kind + "."
+                            setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.SKIPPED, reason)
+                            updatedBindings[ownerPath]?.set(index, current.copy(
+                                matchedExternalFilePath = targetEntry.path,
+                                resolution = "external-file-found-not-parsed"
+                            ))
+                            changedOwners.add(ownerPath)
+                            return@forEachIndexed
+                        }
+
+                        if (unityMetadataCandidateFileIds.add(targetEntry.record.id)) {
+                            unityMetadataCandidateCount = unityMetadataCandidateFileIds.size
+                        }
+                        if (unityMetadataPrerequisiteSkippedFileIds.remove(targetEntry.record.id)) {
+                            unityMetadataPrerequisiteSkippedCount = unityMetadataPrerequisiteSkippedFileIds.size
+                        }
+                        if (unityMetadataWindowLimitedFileIds.remove(targetEntry.record.id)) {
+                            unityMetadataWindowLimitedCount = unityMetadataWindowLimitedFileIds.size
+                        }
+                        if (unityMetadataAttemptedFileIds.add(targetEntry.record.id)) {
+                            unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
+                        }
+                        val parsedMetadata = UnityMetadataParser.parse(prefix, targetHeader, shouldCancel)
+                        if (parsedMetadata == null) {
+                            val reason = "External MonoScript target SerializedFile metadata could not be parsed in the bounded window."
+                            if (unityMetadataFailedFileIds.add(targetEntry.record.id)) {
+                                unityMetadataFailedCount = unityMetadataFailedFileIds.size
+                            }
+                            setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                            updatedBindings[ownerPath]?.set(index, current.copy(
+                                matchedExternalFilePath = targetEntry.path,
+                                resolution = "external-file-found-not-parsed"
+                            ))
+                            changedOwners.add(ownerPath)
+                            return@forEachIndexed
+                        }
+                        unityMetadataFailedFileIds.remove(targetEntry.record.id)
+                        unityMetadataFailedCount = unityMetadataFailedFileIds.size
+                        val enriched = readMonoScriptRecords(targetEntry, targetHeader, parsedMetadata, shouldCancel)
+                        targetMetadata = enriched
+                        discoveredMetadata[targetEntry.path] = enriched
+                        val outcome = serializedMetadataOutcome(targetHeader, enriched)
+                        setAnalyzerRun("serialized_file_metadata", targetEntry, outcome.first, outcome.second)
+                    } catch (e: ScanCancelledException) {
+                        ownerRuns[ownerPath]?.let {
+                            markAnalyzerRunPartialOnCancellation(
+                                it, "Cancelled while resolving external MonoScript file/metadata references."
+                            )
+                        }
+                        if (targetHeader == null) {
+                            markFileAnalyzerRunPartialOnCancellation(
+                                "unity_file_headers", targetEntry.record.id,
+                                "Cancelled while reading an external Unity file header."
+                            )
+                        }
+                        markFileAnalyzerRunPartialOnCancellation(
+                            "serialized_file_metadata", targetEntry.record.id,
+                            "Cancelled while parsing external SerializedFile metadata."
+                        )
+                        throw e
+                    } catch (e: Exception) {
+                        val reason = e.message ?: e.javaClass.simpleName
+                        if (targetHeader == null) {
+                            setAnalyzerRun("unity_file_headers", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                        }
+                        if (unityMetadataAttemptedFileIds.add(targetEntry.record.id)) {
+                            unityMetadataAttemptedCount = unityMetadataAttemptedFileIds.size
+                        }
+                        if (unityMetadataFailedFileIds.add(targetEntry.record.id)) {
+                            unityMetadataFailedCount = unityMetadataFailedFileIds.size
+                        }
+                        setAnalyzerRun("serialized_file_metadata", targetEntry, AnalyzerRunStatus.FAILED, reason)
+                        updatedBindings[ownerPath]?.set(index, current.copy(
+                            matchedExternalFilePath = targetEntry.path,
+                            resolution = "external-file-found-not-parsed"
+                        ))
+                        changedOwners.add(ownerPath)
+                        return@forEachIndexed
                     }
                 }
 
@@ -752,7 +1169,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     changedOwners.add(ownerPath)
                     return@forEachIndexed
                 }
-                val targetObject = targetMetadata.monoScriptObjects.firstOrNull { it.pathId == binding.pathId }
+                val targetObjectMatches = targetMetadata.monoScriptObjects.filter {
+                    it.pathId == binding.pathId
+                }
+                if (targetObjectMatches.size > 1) {
+                    updatedBindings[ownerPath]?.set(index, current.copy(
+                        matchedExternalFilePath = targetEntry.path,
+                        resolution = "external-monoscript-path-id-ambiguous"
+                    ))
+                    changedOwners.add(ownerPath)
+                    return@forEachIndexed
+                }
+                val targetObject = targetObjectMatches.singleOrNull()
                 if (targetObject == null) {
                     updatedBindings[ownerPath]?.set(index, current.copy(
                         matchedExternalFilePath = targetEntry.path,
@@ -777,32 +1205,42 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     resolution = "external-monoscript-object-found"
                 ))
                 changedOwners.add(ownerPath)
-                requests.add(
-                    ExternalMonoScriptRequest(
-                        ownerPath,
-                        index,
-                        targetEntry,
-                        targetHeader,
-                        MonoScriptObjectTarget(targetObject.pathId, targetObject.byteStart, targetObject.byteSize)
+                requests.add(ExternalMonoScriptRequest(
+                    ownerPath, index, targetEntry, targetHeader,
+                    MonoScriptObjectTarget(targetObject.pathId, targetObject.byteStart, targetObject.byteSize)
+                ))
+                }
+            } catch (e: ScanCancelledException) {
+                ownerRuns[ownerPath]?.let {
+                    markAnalyzerRunPartialOnCancellation(
+                        it, "Cancelled while resolving this file's external MonoScript bindings."
                     )
-                )
+                }
+                throw e
             }
         }
 
-        // Add newly parsed targets only after iterating the original owner set.
         discoveredMetadata.forEach { (path, metadata) ->
             if (!unityMetadata.containsKey(path)) unityMetadata[path] = metadata
         }
 
         val extraScripts = mutableMapOf<String, MutableList<UnityMonoScriptSummary>>()
-        requests.groupBy { it.targetEntry.path }.forEach { (_, group) ->
+        val extraTargetScripts = mutableMapOf<String, MutableList<UnityMonoScriptSummary>>()
+        val groupedRequests = requests.groupBy { it.targetEntry.path }
+        val payloadRunIds = groupedRequests.mapValues { (_, group) ->
+            setAnalyzerRun("unity_external_monoscript_payload", group.first().targetEntry, AnalyzerRunStatus.QUEUED)
+        }
+        groupedRequests.forEach { (targetPath, group) ->
+            if (shouldCancel()) throw ScanCancelledException()
             val first = group.first()
+            val runId = payloadRunIds.getValue(targetPath)
             val littleEndian = when (first.targetHeader.endianness) {
                 "Little Endian" -> true
                 "Big Endian" -> false
                 else -> null
             }
             if (littleEndian == null) {
+                updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "External MonoScript target endianness is unknown.")
                 group.forEach { request ->
                     val bindings = updatedBindings[request.ownerPath] ?: return@forEach
                     val current = bindings.getOrNull(request.bindingIndex) ?: return@forEach
@@ -814,6 +1252,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             try {
                 val input = fileAccess.openInputStream(first.targetEntry.node)
                 if (input == null) {
+                    updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, "External MonoScript target provider returned no input stream.")
                     group.forEach { request ->
                         val bindings = updatedBindings[request.ownerPath] ?: return@forEach
                         val current = bindings.getOrNull(request.bindingIndex) ?: return@forEach
@@ -824,14 +1263,23 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 }
                 val readResult = input.use { stream ->
                     MonoScriptParser.readObjects(
-                        stream,
-                        first.targetHeader.dataOffset!!,
-                        first.targetHeader.fileSize!!,
-                        group.map { it.target },
-                        littleEndian
+                        stream, first.targetHeader.dataOffset!!, first.targetHeader.fileSize!!,
+                        group.map { it.target }.distinctBy { it.pathId }, littleEndian, shouldCancel
                     )
                 }
                 val parsedByPath = readResult.scripts.associateBy { it.pathId }
+                val expectedIds = group.map { it.target.pathId }.toSet()
+                val foundIds = parsedByPath.keys
+                val payloadStatus = when {
+                    expectedIds.isNotEmpty() && foundIds.containsAll(expectedIds) &&
+                        readResult.note == null && readResult.skippedCount == 0 -> AnalyzerRunStatus.ANALYZED
+                    readResult.scripts.isNotEmpty() -> AnalyzerRunStatus.PARTIAL
+                    else -> AnalyzerRunStatus.FAILED
+                }
+                val payloadReason = if (payloadStatus == AnalyzerRunStatus.ANALYZED) null else
+                    readResult.note ?: ("Decoded " + foundIds.size + " of " + expectedIds.size +
+                        " requested external MonoScript payloads.")
+                updateAnalyzerRun(runId, payloadStatus, payloadReason)
                 group.forEach { request ->
                     val bindings = updatedBindings[request.ownerPath] ?: return@forEach
                     val current = bindings.getOrNull(request.bindingIndex) ?: return@forEach
@@ -840,19 +1288,32 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         bindings[request.bindingIndex] = current.copy(resolution = "external-monoscript-unreadable")
                     } else {
                         bindings[request.bindingIndex] = current.copy(
-                            monoScriptName = script.name,
-                            className = script.className,
-                            namespace = script.namespace,
-                            assemblyName = script.assemblyName,
-                            executionOrder = script.executionOrder,
-                            resolution = "external-monoscript-decoded"
+                            monoScriptName = script.name, className = script.className,
+                            namespace = script.namespace, assemblyName = script.assemblyName,
+                            executionOrder = script.executionOrder, resolution = "external-monoscript-decoded"
                         )
                         extraScripts.getOrPut(request.ownerPath) { mutableListOf() }
+                            .add(script.copy(sourceFilePath = request.targetEntry.path))
+                        extraTargetScripts.getOrPut(request.targetEntry.path) { mutableListOf() }
                             .add(script.copy(sourceFilePath = request.targetEntry.path))
                     }
                     changedOwners.add(request.ownerPath)
                 }
+            } catch (e: ScanCancelledException) {
+                markAnalyzerRunPartialOnCancellation(
+                    runId, "Cancelled while reading external MonoScript payload."
+                )
+                group.map { it.ownerPath }.distinct().forEach { ownerPath ->
+                    ownerRuns[ownerPath]?.let {
+                        markAnalyzerRunPartialOnCancellation(
+                            it, "Cancelled while reading external MonoScript payload."
+                        )
+                    }
+                }
+                throw e
             } catch (e: Exception) {
+                val reason = e.message ?: e.javaClass.simpleName
+                updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
                 group.forEach { request ->
                     val bindings = updatedBindings[request.ownerPath] ?: return@forEach
                     val current = bindings.getOrNull(request.bindingIndex) ?: return@forEach
@@ -862,77 +1323,884 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
         }
 
-        externalRunIds.forEach { (ownerPath, runId) ->
-            val bindings = updatedBindings[ownerPath].orEmpty().filter { (it.fileId ?: 0) > 0 }
-            val decodedCount = bindings.count { it.resolution == "external-monoscript-decoded" }
-            val unresolved = bindings.filter { it.resolution != "external-monoscript-decoded" }
-            val reason = if (unresolved.isEmpty()) {
-                null
-            } else {
-                val outcomes = unresolved.groupingBy { it.resolution }.eachCount()
-                    .entries.sortedBy { it.key }
-                    .joinToString(", ") { "${it.key}: ${it.value}" }
-                "Decoded $decodedCount of ${bindings.size} sampled external MonoScript references; unresolved outcomes: $outcomes."
-            }
-            updateAnalyzerRun(
-                runId,
-                if (unresolved.isEmpty()) AnalyzerRunStatus.ANALYZED else AnalyzerRunStatus.PARTIAL,
-                reason
-            )
-        }
-
         changedOwners.forEach { ownerPath ->
             val old = unityMetadata[ownerPath] ?: return@forEach
             val bindings = updatedBindings[ownerPath] ?: old.scriptTypeBindings
             val scripts = (old.monoScripts + extraScripts[ownerPath].orEmpty())
                 .distinctBy { it.sourceFilePath to it.pathId }
-            unityMetadata[ownerPath] = old.copy(
-                scriptTypeBindings = bindings,
-                monoScripts = scripts
+            unityMetadata[ownerPath] = old.copy(scriptTypeBindings = bindings, monoScripts = scripts)
+        }
+        extraTargetScripts.forEach { (targetPath, scripts) ->
+            val old = unityMetadata[targetPath] ?: return@forEach
+            unityMetadata[targetPath] = old.copy(
+                monoScripts = (old.monoScripts + scripts).distinctBy { it.sourceFilePath to it.pathId }
             )
         }
+        metadataSnapshot.forEach { (ownerPath, _) ->
+            val runId = ownerRuns[ownerPath] ?: return@forEach
+            val candidates = updatedBindings[ownerPath].orEmpty().filter { (it.fileId ?: 0) > 0 }
+            when {
+                candidates.isEmpty() -> updateAnalyzerRun(
+                    runId, AnalyzerRunStatus.SKIPPED,
+                    "No external MonoScript references were present in the bounded metadata sample."
+                )
+                candidates.all { it.resolution == "external-monoscript-decoded" } ->
+                    updateAnalyzerRun(runId, AnalyzerRunStatus.ANALYZED)
+                else -> updateAnalyzerRun(
+                    runId, AnalyzerRunStatus.PARTIAL,
+                    "External MonoScript resolution completed with unresolved, ambiguous, limited or unreadable references."
+                )
+            }
+        }
     }
 
-    private fun resolveExternalScenePointers(files: List<ScanEntry>) {
+    private fun resolveExternalScenePointers(
+        files: List<ScanEntry>,
+        externalPathIndex: UnityExternalPathResolver.Index<ScanEntry>?,
+        shouldCancel: () -> Boolean
+    ) {
         val snapshot = unityMetadata.toMap()
-        val resolutions = UnityExternalPointerResolver.resolve(snapshot) { externalPath ->
-            val match = resolveExternalFile(externalPath, files)
-            if (match.ambiguous) null else match.entry?.path
+        val runs = linkedMapOf<String, String>()
+        snapshot.forEach { (path, metadata) ->
+            val owner = files.firstOrNull { it.path == path } ?: return@forEach
+            val count = externalPointerCandidateCount(metadata)
+            runs[path] = addAnalyzerRun(
+                "unity_external_pointers", owner,
+                if (count == 0) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                if (count == 0) "No sampled external PPtrs were present in decoded scene objects." else null
+            )
         }
-        resolutions.forEach { (path, links) ->
-            val old = unityMetadata[path] ?: return@forEach
-            unityMetadata[path] = old.copy(externalPointerResolutions = links)
+        if (shouldCancel()) throw ScanCancelledException()
+        val resolutions = try {
+            UnityExternalPointerResolver.resolve(
+                metadataByPath = snapshot,
+                resolvePath = { externalPath ->
+                    val match = resolveExternalFile(externalPath, externalPathIndex, shouldCancel)
+                    if (match.ambiguous) null else match.entry?.path
+                },
+                shouldCancel = shouldCancel
+            )
+        } catch (e: ScanCancelledException) {
+            markQueuedAnalyzerRunsPartialOnCancellation(
+                runs.values, "Cancelled during external Unity PPtr resolution."
+            )
+            throw e
+        } catch (e: Exception) {
+            runs.forEach { (path, runId) ->
+                val metadata = snapshot[path] ?: return@forEach
+                if (externalPointerCandidateCount(metadata) > 0) {
+                    updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, e.message ?: e.javaClass.simpleName)
+                }
+            }
+            return
+        }
+        var activeRunId: String? = null
+        try {
+            resolutions.forEach { (path, links) ->
+                activeRunId = null
+                if (shouldCancel()) throw ScanCancelledException()
+                val old = unityMetadata[path] ?: return@forEach
+                unityMetadata[path] = old.copy(externalPointerResolutions = links)
+                val count = externalPointerCandidateCount(old)
+                val runId = runs[path] ?: return@forEach
+                activeRunId = runId
+                when {
+                    count == 0 -> updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "No sampled external PPtrs were present in decoded scene objects.")
+                    links.size == count && count <= 2048 && links.all {
+                        it.status == "resolved-decoded-object" || it.status == "resolved-object-record-not-decoded"
+                    } -> updateAnalyzerRun(runId, AnalyzerRunStatus.ANALYZED)
+                    else -> updateAnalyzerRun(
+                        runId, AnalyzerRunStatus.PARTIAL,
+                        if (count > 2048) "External PPtr resolution was capped at 2048 references for this file."
+                        else "One or more external PPtrs were unresolved, ambiguous, or outside the sampled target metadata."
+                    )
+                }
+                val ownerEntry = files.firstOrNull { it.path == path } ?: return@forEach
+                links.forEach { link ->
+                    if (shouldCancel()) throw ScanCancelledException()
+                    recordExternalPointerResolution(
+                        ownerPath = path,
+                        owner = ownerEntry,
+                        metadata = old,
+                        link = link,
+                        analyzerRunId = runId,
+                        files = files,
+                        externalPathIndex = externalPathIndex
+                    )
+                }
+                activeRunId = null
+            }
+        } catch (e: ScanCancelledException) {
+            activeRunId?.let {
+                markAnalyzerRunPartialOnCancellation(it, "Cancelled while publishing external Unity PPtr findings.")
+            }
+            markQueuedAnalyzerRunsPartialOnCancellation(
+                runs.values, "Cancelled while publishing external Unity PPtr findings."
+            )
+            throw e
         }
     }
 
-    private fun resolveMonoBehaviourScriptBindings(files: List<ScanEntry>) {
+    private fun resolveMonoBehaviourScriptBindings(
+        files: List<ScanEntry>,
+        externalPathIndex: UnityExternalPathResolver.Index<ScanEntry>?,
+        shouldCancel: () -> Boolean
+    ) {
         val snapshot = unityMetadata.toMap()
-        val bindings = UnityMonoBehaviourScriptResolver.resolve(snapshot) { externalPath ->
-            val match = resolveExternalFile(externalPath, files)
-            if (match.ambiguous) null else match.entry?.path
+        val runs = linkedMapOf<String, String>()
+        snapshot.forEach { (path, metadata) ->
+            val owner = files.firstOrNull { it.path == path } ?: return@forEach
+            val count = monoBehaviourScriptCandidateCount(metadata)
+            runs[path] = addAnalyzerRun(
+                "unity_monobehaviour_script_bindings", owner,
+                if (count == 0) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                if (count == 0) "No decoded MonoBehaviour m_Script pointers were present in the bounded object sample." else null
+            )
         }
-        bindings.forEach { (path, items) ->
-            val old = unityMetadata[path] ?: return@forEach
-            unityMetadata[path] = old.copy(monoBehaviourScriptBindings = items)
+        if (shouldCancel()) throw ScanCancelledException()
+        val bindings = try {
+            UnityMonoBehaviourScriptResolver.resolve(
+                metadataByPath = snapshot,
+                resolveExternalPath = { externalPath ->
+                    val match = resolveExternalFile(externalPath, externalPathIndex, shouldCancel)
+                    if (match.ambiguous) null else match.entry?.path
+                },
+                shouldCancel = shouldCancel
+            )
+        } catch (e: ScanCancelledException) {
+            markQueuedAnalyzerRunsPartialOnCancellation(
+                runs.values, "Cancelled during MonoBehaviour script binding resolution."
+            )
+            throw e
+        } catch (e: Exception) {
+            runs.forEach { (path, runId) ->
+                val metadata = snapshot[path] ?: return@forEach
+                if (monoBehaviourScriptCandidateCount(metadata) > 0) {
+                    updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, e.message ?: e.javaClass.simpleName)
+                }
+            }
+            return
         }
+        var activeRunId: String? = null
+        try {
+            bindings.forEach { (path, items) ->
+                activeRunId = null
+                if (shouldCancel()) throw ScanCancelledException()
+                val old = unityMetadata[path] ?: return@forEach
+                unityMetadata[path] = old.copy(monoBehaviourScriptBindings = items)
+                val count = monoBehaviourScriptCandidateCount(old)
+                val runId = runs[path] ?: return@forEach
+                activeRunId = runId
+                when {
+                    count == 0 -> updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "No decoded MonoBehaviour m_Script pointers were present in the bounded object sample.")
+                    items.size == count && items.all { it.status == "resolved-monoscript-class" } && count <= 1024 ->
+                        updateAnalyzerRun(runId, AnalyzerRunStatus.ANALYZED)
+                    else -> updateAnalyzerRun(
+                        runId, AnalyzerRunStatus.PARTIAL,
+                        if (count > 1024) "MonoBehaviour m_Script binding was capped at 1024 objects for this file."
+                        else "One or more MonoBehaviour m_Script references were null, unresolved, ambiguous or lacked decoded MonoScript payload."
+                    )
+                }
+
+                val ownerEntry = files.firstOrNull { it.path == path } ?: return@forEach
+                items.forEach { binding ->
+                    if (shouldCancel()) throw ScanCancelledException()
+                    recordMonoBehaviourScriptBinding(
+                        ownerPath = path,
+                        owner = ownerEntry,
+                        metadata = old,
+                        binding = binding,
+                        analyzerRunId = runId,
+                        files = files,
+                        externalPathIndex = externalPathIndex
+                    )
+                }
+                activeRunId = null
+            }
+        } catch (e: ScanCancelledException) {
+            activeRunId?.let {
+                markAnalyzerRunPartialOnCancellation(it, "Cancelled while publishing MonoBehaviour script binding findings.")
+            }
+            markQueuedAnalyzerRunsPartialOnCancellation(
+                runs.values, "Cancelled while publishing MonoBehaviour script binding findings."
+            )
+            throw e
+        }
+    }
+
+    private fun recordLocalUnityScenePointer(
+        ownerPath: String,
+        owner: ScanEntry,
+        metadata: UnityMetadataSummary,
+        sourceObject: UnityDecodedObjectSummary,
+        field: String,
+        targetPathId: Long,
+        analyzerRunId: String
+    ) {
+        // m_Script is owned by EVIDENCE-02; non-local PPtrs are owned by EVIDENCE-03.
+        val relationType = when (field) {
+            "gameObject" -> "belongs-to-gameobject"
+            "father" -> "has-parent-transform"
+            "children" -> "has-child-transform"
+            "components" -> "has-component"
+            else -> return
+        }
+        val expectedTargetClassIds = when (field) {
+            "gameObject" -> setOf(1)
+            "father", "children" -> setOf(4, 224)
+            else -> emptySet()
+        }
+        val targetDecodedMatches = metadata.decodedObjects.filter { it.pathId == targetPathId }
+        val targetObjectMatches = metadata.objectSamples.filter { it.pathId == targetPathId }
+        val targetAmbiguous = targetDecodedMatches.size > 1 || targetObjectMatches.size > 1
+        val targetDecodedObject = targetDecodedMatches.singleOrNull()
+        val targetObjectRecord = targetObjectMatches.singleOrNull()
+        val targetClassId = targetDecodedObject?.classId ?: targetObjectRecord?.classId
+        val targetClassMatches = expectedTargetClassIds.isEmpty() ||
+            targetClassId == null || targetClassId in expectedTargetClassIds
+        val isDecodedTarget = targetDecodedObject != null &&
+            targetObjectRecord != null && targetClassMatches
+        val isMetadataOnlyTarget = targetDecodedObject == null &&
+            targetObjectRecord != null && targetClassMatches
+
+        val findingStatus = when {
+            targetAmbiguous -> FindingStatus.UNRESOLVED
+            isDecodedTarget -> FindingStatus.DECODED
+            isMetadataOnlyTarget -> FindingStatus.METADATA_ONLY
+            targetObjectRecord == null -> FindingStatus.PARTIAL
+            else -> FindingStatus.UNRESOLVED
+        }
+        val confidence = when {
+            isDecodedTarget -> AnalysisConfidence.CONFIRMED
+            isMetadataOnlyTarget -> AnalysisConfidence.STRONG
+            findingStatus == FindingStatus.PARTIAL -> AnalysisConfidence.WEAK
+            else -> AnalysisConfidence.UNKNOWN
+        }
+        val reason = when {
+            targetAmbiguous -> "Multiple local object records share this PathID; no target was selected."
+            isDecodedTarget -> null
+            isMetadataOnlyTarget ->
+                "The local target object record exists in the bounded SerializedFile sample, but its payload was not decoded."
+            targetObjectRecord == null ->
+                "The local PPtr target PathID is outside the bounded object sample."
+            else ->
+                "The local PPtr target has ClassID=" + targetClassId +
+                    ", which does not match the expected ClassID=" + expectedTargetClassIds.joinToString(" or ") + "."
+        }
+
+        val sourceLabel = unityObjectGraphLabel(
+            sourceObject.classId,
+            sourceObject.pathId,
+            sourceObject.name
+        )
+        val targetLabel = if (isDecodedTarget || isMetadataOnlyTarget) {
+            unityObjectGraphLabel(targetClassId, targetPathId, targetDecodedObject?.name)
+        } else {
+            "Local Unity object PathID " + targetPathId
+        }
+        val title = sourceLabel + " " + relationType + " " + targetLabel
+        val summary = buildString {
+            append(ownerPath)
+            append(" source ClassID=").append(sourceObject.classId)
+            append(", PathID=").append(sourceObject.pathId)
+            append(" field=").append(field)
+            append(" points to local PPtr fileID=0, PathID=").append(targetPathId)
+            append("; resolution=")
+            append(
+                when {
+                    isDecodedTarget -> "resolved-decoded-object"
+                    isMetadataOnlyTarget -> "resolved-object-record-not-decoded"
+                    targetObjectRecord == null -> "pathID-not-in-object-sample"
+                    else -> "target-class-id-mismatch"
+                }
+            )
+            append('.')
+        }
+        val findingKey = "local-scene-pointer:" + sourceObject.pathId +
+            ":" + field + ":0:" + targetPathId
+        val findingId = Finding.create(
+            scanId = scanId,
+            findingKey = findingKey,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            category = "unity.local-scene-pointer",
+            title = title,
+            summary = summary,
+            confidence = confidence,
+            status = findingStatus,
+            reason = reason,
+            supportedFormatRange = "SerializedFile metadata v19-v26"
+        ).id
+        val evidenceItem = Evidence.create(
+            scanId = scanId,
+            evidenceKey = "local-scene-pptr:" + sourceObject.pathId +
+                ":" + field + ":" + targetPathId,
+            findingId = findingId,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            method = if (isDecodedTarget || isMetadataOnlyTarget) {
+                EvidenceMethod.RESOLVED_POINTER
+            } else {
+                EvidenceMethod.PARSED
+            },
+            confidence = confidence,
+            description = "Decoded Unity object PathID=" + sourceObject.pathId +
+                " field=" + field + " contains local PPtr fileID=0, PathID=" +
+                targetPathId + "; resolution=" +
+                (if (isDecodedTarget) "resolved-decoded-object"
+                else if (isMetadataOnlyTarget) "resolved-object-record-not-decoded"
+                else if (targetObjectRecord == null) "pathID-not-in-object-sample"
+                else "target-class-id-mismatch") + ".",
+            locator = SourceLocator(unityFileId = 0, pathId = targetPathId)
+        )
+        val sourceNode = GraphNode.create(
+            scanId = scanId,
+            nodeType = unityObjectGraphNodeType(sourceObject.classId),
+            key = "PathID:" + sourceObject.pathId,
+            label = sourceLabel,
+            fileRecordId = owner.record.id,
+            locator = SourceLocator(pathId = sourceObject.pathId),
+            findingIds = listOf(findingId),
+            evidenceIds = listOf(evidenceItem.id)
+        )
+        val targetNode = if (isDecodedTarget || isMetadataOnlyTarget) {
+            GraphNode.create(
+                scanId = scanId,
+                nodeType = unityObjectGraphNodeType(targetClassId),
+                key = "PathID:" + targetPathId,
+                label = targetLabel,
+                fileRecordId = owner.record.id,
+                locator = SourceLocator(pathId = targetPathId),
+                findingIds = listOf(findingId),
+                evidenceIds = listOf(evidenceItem.id)
+            )
+        } else {
+            null
+        }
+        val targetHint = if (targetNode == null) {
+            "fileID=0, PathID=" + targetPathId +
+                if (targetObjectRecord == null) {
+                    " (pathID-not-in-object-sample)"
+                } else {
+                    " (target-class-id-mismatch)"
+                }
+        } else {
+            null
+        }
+        val edge = GraphEdge.create(
+            scanId = scanId,
+            edgeKey = "local-scene-pointer:" + sourceObject.pathId +
+                ":" + field + ":0:" + targetPathId,
+            sourceNodeId = sourceNode.id,
+            targetNodeId = targetNode?.id,
+            relationType = relationType,
+            confidence = confidence,
+            status = findingStatus,
+            evidenceIds = listOf(evidenceItem.id),
+            findingIds = listOf(findingId),
+            analyzerRunId = analyzerRunId,
+            targetHint = targetHint
+        )
+        val finding = Finding.create(
+            scanId = scanId,
+            findingKey = findingKey,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            category = "unity.local-scene-pointer",
+            title = title,
+            summary = summary,
+            confidence = confidence,
+            status = findingStatus,
+            reason = reason,
+            evidenceIds = listOf(evidenceItem.id),
+            graphNodeIds = listOfNotNull(sourceNode.id, targetNode?.id),
+            graphEdgeIds = listOf(edge.id),
+            supportedFormatRange = "SerializedFile metadata v19-v26"
+        )
+        if (findings.none { it.id == finding.id }) findings.add(finding)
+        if (evidenceRecords.none { it.id == evidenceItem.id }) evidenceRecords.add(evidenceItem)
+        addOrMergeGraphNode(sourceNode)
+        targetNode?.let { addOrMergeGraphNode(it) }
+        if (graphEdges.none { it.id == edge.id }) graphEdges.add(edge)
+    }
+
+    private fun recordExternalPointerResolution(
+        ownerPath: String,
+        owner: ScanEntry,
+        metadata: UnityMetadataSummary,
+        link: UnityExternalPointerResolution,
+        analyzerRunId: String,
+        files: List<ScanEntry>,
+        externalPathIndex: UnityExternalPathResolver.Index<ScanEntry>?
+    ) {
+        // MonoBehaviour.m_Script is already published by EVIDENCE-02.
+        if (link.field == "m_Script") return
+
+        val relationType = when (link.field) {
+            "gameObject" -> "belongs-to-gameobject"
+            "father" -> "has-parent-transform"
+            "children" -> "has-child-transform"
+            "components" -> "has-component"
+            else -> return
+        }
+        val sourceObject = metadata.decodedObjects.singleOrNull {
+            it.pathId == link.sourcePathId
+        } ?: return
+        val targetPath = link.targetFilePath
+        val targetEntry = targetPath?.let { path ->
+            if (externalPathIndex != null) {
+                externalPathIndex.exactPath(path)
+            } else {
+                files.singleOrNull { it.path == path }
+            }
+        }
+        val targetMetadata = targetPath?.let { unityMetadata[it] }
+        val targetDecodedObject = targetMetadata?.decodedObjects?.singleOrNull {
+            it.pathId == link.pathId
+        }
+        val targetObjectRecord = targetMetadata?.objectSamples?.singleOrNull {
+            it.pathId == link.pathId
+        }
+        val targetClassId = targetDecodedObject?.classId ?: targetObjectRecord?.classId ?: link.targetClassId
+        val targetFileRecordId = targetEntry?.record?.id
+        val isDecodedTarget = link.status == "resolved-decoded-object" &&
+            targetDecodedObject != null && targetObjectRecord != null && targetFileRecordId != null
+        val isMetadataOnlyTarget = link.status == "resolved-object-record-not-decoded" &&
+            targetObjectRecord != null && targetDecodedObject == null && targetFileRecordId != null
+
+        val findingStatus = when {
+            isDecodedTarget -> FindingStatus.DECODED
+            isMetadataOnlyTarget -> FindingStatus.METADATA_ONLY
+            link.status == "external-file-not-parsed" ||
+                link.status == "pathID-not-in-object-sample" ||
+                (link.status.startsWith("resolved-") && targetFileRecordId == null) -> FindingStatus.PARTIAL
+            else -> FindingStatus.UNRESOLVED
+        }
+        val confidence = when {
+            isDecodedTarget -> AnalysisConfidence.CONFIRMED
+            isMetadataOnlyTarget -> AnalysisConfidence.STRONG
+            findingStatus == FindingStatus.PARTIAL -> AnalysisConfidence.WEAK
+            else -> AnalysisConfidence.UNKNOWN
+        }
+        val externalReferencePath = metadata.externalReferences.firstOrNull {
+            it.fileId == link.fileId
+        }?.path
+        val reason = when {
+            isDecodedTarget -> null
+            isMetadataOnlyTarget ->
+                "The target object record exists in the bounded SerializedFile sample, but its payload was not decoded."
+            link.status == "external-fileID-not-in-reference-table" ->
+                "The PPtr fileID is absent from the owner's external reference table."
+            link.status == "external-file-path-unmatched-or-ambiguous" ->
+                "The external SerializedFile path did not resolve to one unique inventory entry."
+            link.status == "external-file-not-parsed" ->
+                "The external target file was identified but its SerializedFile metadata was not parsed."
+            link.status == "pathID-not-in-object-sample" ->
+                "The target SerializedFile was parsed, but this PathID is outside its bounded object sample."
+            link.status == "target-path-id-ambiguous" ->
+                "Multiple decoded/object records share this target PathID; no target was selected."
+            targetFileRecordId == null && targetPath != null ->
+                "The resolved target path has no matching FileRecord in this scan inventory."
+            else -> "The external PPtr was not fully resolved: " + link.status + "."
+        }
+
+        val sourceLabel = unityObjectGraphLabel(
+            sourceObject.classId,
+            sourceObject.pathId,
+            sourceObject.name
+        )
+        val targetLabel = if (isDecodedTarget || isMetadataOnlyTarget) {
+            unityObjectGraphLabel(targetClassId, link.pathId, link.targetName)
+        } else {
+            "External Unity object PathID " + link.pathId
+        }
+        val title = sourceLabel + " " + relationType + " " + targetLabel
+        val summary = buildString {
+            append(ownerPath)
+            append(" source ClassID=").append(sourceObject.classId)
+            append(", PathID=").append(link.sourcePathId)
+            append(" field=").append(link.field)
+            append(" points to external fileID=").append(link.fileId)
+            append(", PathID=").append(link.pathId)
+            append("; resolver status=").append(link.status).append('.')
+            targetPath?.let { append(" Target file=").append(it).append('.') }
+        }
+        val findingKey = "external-pointer:" + link.sourcePathId + ":" +
+            link.field + ":" + link.fileId + ":" + link.pathId
+        val findingId = Finding.create(
+            scanId = scanId,
+            findingKey = findingKey,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            category = "unity.external-pointer",
+            title = title,
+            summary = summary,
+            confidence = confidence,
+            status = findingStatus,
+            reason = reason,
+            supportedFormatRange = "SerializedFile metadata v19-v26"
+        ).id
+        val evidenceItem = Evidence.create(
+            scanId = scanId,
+            evidenceKey = "external-pptr:" + link.sourcePathId + ":" +
+                link.field + ":" + link.fileId + ":" + link.pathId,
+            findingId = findingId,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            method = if (isDecodedTarget || isMetadataOnlyTarget) {
+                EvidenceMethod.RESOLVED_POINTER
+            } else {
+                EvidenceMethod.PARSED
+            },
+            confidence = confidence,
+            description = "Decoded Unity object PathID=" + link.sourcePathId +
+                " field=" + link.field + " contains external PPtr fileID=" +
+                link.fileId + ", PathID=" + link.pathId +
+                "; resolver status=" + link.status + "." +
+                (targetPath?.let { " Target file=" + it + "." } ?: ""),
+            locator = SourceLocator(unityFileId = link.fileId, pathId = link.pathId)
+        )
+        val sourceNode = GraphNode.create(
+            scanId = scanId,
+            nodeType = unityObjectGraphNodeType(sourceObject.classId),
+            key = "PathID:" + sourceObject.pathId,
+            label = sourceLabel,
+            fileRecordId = owner.record.id,
+            locator = SourceLocator(pathId = sourceObject.pathId),
+            findingIds = listOf(findingId),
+            evidenceIds = listOf(evidenceItem.id)
+        )
+        val targetNode = if (isDecodedTarget || isMetadataOnlyTarget) {
+            GraphNode.create(
+                scanId = scanId,
+                nodeType = unityObjectGraphNodeType(targetClassId),
+                key = "PathID:" + link.pathId,
+                label = targetLabel,
+                fileRecordId = requireNotNull(targetFileRecordId),
+                locator = SourceLocator(pathId = link.pathId),
+                findingIds = listOf(findingId),
+                evidenceIds = listOf(evidenceItem.id)
+            )
+        } else {
+            null
+        }
+        val targetHint = if (targetNode == null) {
+            buildString {
+                append("fileID=").append(link.fileId)
+                append(", PathID=").append(link.pathId)
+                (targetPath ?: externalReferencePath)?.let { append(", path=").append(it) }
+                append(" (").append(link.status).append(')')
+            }
+        } else {
+            null
+        }
+        val edge = GraphEdge.create(
+            scanId = scanId,
+            edgeKey = "external-pointer:" + link.sourcePathId + ":" +
+                link.field + ":" + link.fileId + ":" + link.pathId,
+            sourceNodeId = sourceNode.id,
+            targetNodeId = targetNode?.id,
+            relationType = relationType,
+            confidence = confidence,
+            status = findingStatus,
+            evidenceIds = listOf(evidenceItem.id),
+            findingIds = listOf(findingId),
+            analyzerRunId = analyzerRunId,
+            targetHint = targetHint
+        )
+        val finding = Finding.create(
+            scanId = scanId,
+            findingKey = findingKey,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            category = "unity.external-pointer",
+            title = title,
+            summary = summary,
+            confidence = confidence,
+            status = findingStatus,
+            reason = reason,
+            evidenceIds = listOf(evidenceItem.id),
+            graphNodeIds = listOfNotNull(sourceNode.id, targetNode?.id),
+            graphEdgeIds = listOf(edge.id),
+            supportedFormatRange = "SerializedFile metadata v19-v26"
+        )
+        if (findings.none { it.id == finding.id }) findings.add(finding)
+        if (evidenceRecords.none { it.id == evidenceItem.id }) evidenceRecords.add(evidenceItem)
+        addOrMergeGraphNode(sourceNode)
+        targetNode?.let { addOrMergeGraphNode(it) }
+        if (graphEdges.none { it.id == edge.id }) graphEdges.add(edge)
+    }
+
+    private fun unityObjectGraphNodeType(classId: Int?): String = when (classId) {
+        1 -> "unity-gameobject"
+        4 -> "unity-transform"
+        224 -> "unity-rect-transform"
+        114 -> "unity-monobehaviour"
+        115 -> "unity-monoscript"
+        null -> "unity-object"
+        else -> "unity-object-class-" + classId
+    }
+
+    private fun unityObjectGraphLabel(classId: Int?, pathId: Long, name: String?): String {
+        name?.takeIf { it.isNotBlank() }?.let { return it }
+        val typeName = when (classId) {
+            1 -> "GameObject"
+            4 -> "Transform"
+            224 -> "RectTransform"
+            114 -> "MonoBehaviour"
+            115 -> "MonoScript"
+            null -> "Unity object"
+            else -> "Unity object ClassID " + classId
+        }
+        return typeName + " PathID " + pathId
+    }
+
+    private fun recordMonoBehaviourScriptBinding(
+        ownerPath: String,
+        owner: ScanEntry,
+        metadata: UnityMetadataSummary,
+        binding: UnityMonoBehaviourScriptBinding,
+        analyzerRunId: String,
+        files: List<ScanEntry>,
+        externalPathIndex: UnityExternalPathResolver.Index<ScanEntry>?
+    ) {
+        val sourceObject = metadata.decodedObjects.singleOrNull {
+            it.pathId == binding.sourcePathId && it.classId == 114
+        }
+        val targetPath = binding.targetFilePath
+        val targetEntry = targetPath?.let { path ->
+            if (externalPathIndex != null) {
+                externalPathIndex.exactPath(path)
+            } else {
+                files.singleOrNull { it.path == path }
+            }
+        }
+        val targetMetadata = targetPath?.let { unityMetadata[it] }
+        val targetScript = targetMetadata?.monoScripts?.singleOrNull {
+            it.pathId == binding.scriptPathId
+        }
+        val targetObject = targetMetadata?.monoScriptObjects?.singleOrNull {
+            it.pathId == binding.scriptPathId
+        }
+        val targetObjectKnown = targetScript != null || targetObject != null
+        val targetFileRecordId = targetEntry?.record?.id
+
+        val isResolvedClass = binding.status == "resolved-monoscript-class" &&
+            targetScript != null && targetFileRecordId != null
+        val isMetadataOnly = binding.status == "monoscript-object-found-payload-unavailable" &&
+            targetObjectKnown && targetFileRecordId != null
+        val isNullPointer = binding.status == "null-script-reference"
+
+        val findingStatus = when {
+            isResolvedClass -> FindingStatus.DECODED
+            isMetadataOnly -> FindingStatus.METADATA_ONLY
+            isNullPointer -> FindingStatus.SKIPPED
+            binding.status == "target-file-not-parsed" ||
+                binding.status == "monoscript-not-in-object-sample" -> FindingStatus.PARTIAL
+            else -> FindingStatus.UNRESOLVED
+        }
+        val confidence = when {
+            isResolvedClass || isNullPointer -> AnalysisConfidence.CONFIRMED
+            isMetadataOnly -> AnalysisConfidence.STRONG
+            binding.status == "target-file-not-parsed" -> AnalysisConfidence.WEAK
+            else -> AnalysisConfidence.UNKNOWN
+        }
+        val reason = when {
+            isResolvedClass -> null
+            isMetadataOnly -> "MonoScript object record was found, but its payload did not provide a decoded class."
+            isNullPointer -> "MonoBehaviour m_Script is a null PPtr; no script target is assigned in the decoded record."
+            binding.status == "external-fileID-not-in-reference-table" ->
+                "The PPtr fileID is absent from the owner's external reference table."
+            binding.status == "external-file-path-unmatched-or-ambiguous" ->
+                "The external SerializedFile path did not resolve to one unique inventory entry."
+            binding.status == "target-file-not-parsed" ->
+                "The target file was identified but its metadata was not available in the parsed sample."
+            binding.status == "monoscript-not-in-object-sample" ->
+                "The target SerializedFile was parsed, but the referenced MonoScript is outside its bounded object sample."
+            binding.status == "monoscript-path-id-ambiguous" ->
+                "Multiple MonoScript records share this PathID; no class identity was selected."
+            targetEntry == null && binding.targetFilePath != null ->
+                "The resolved target path has no matching FileRecord in this scan inventory."
+            else -> "MonoBehaviour m_Script binding was not fully resolved: ${binding.status}."
+        }
+
+        val classLabel = binding.className?.let { className ->
+            (binding.namespace?.takeIf { it.isNotBlank() }?.plus(".") ?: "") + className
+        }
+        val targetLabel = classLabel
+            ?: binding.monoScriptName
+            ?: "MonoScript PathID ${binding.scriptPathId}"
+        val sourceLabel = sourceObject?.name?.takeIf { it.isNotBlank() }
+            ?: "MonoBehaviour PathID ${binding.sourcePathId}"
+        val title = if (isResolvedClass || isMetadataOnly) {
+            "$sourceLabel attaches $targetLabel"
+        } else {
+            "$sourceLabel m_Script binding"
+        }
+        val summary = buildString {
+            append(ownerPath)
+            append(" MonoBehaviour PathID=").append(binding.sourcePathId)
+            append(" has m_Script PPtr fileID=").append(binding.fileId)
+            append(", PathID=").append(binding.scriptPathId)
+            append("; resolver status=").append(binding.status).append('.')
+            targetPath?.let { append(" Target file=").append(it).append('.') }
+            classLabel?.let { append(" Resolved class=").append(it).append('.') }
+        }
+
+        val findingKey = "monobehaviour-script:" + binding.sourcePathId + ":" +
+            binding.fileId + ":" + binding.scriptPathId
+        val findingId = Finding.create(
+            scanId = scanId,
+            findingKey = findingKey,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            category = "unity.monobehaviour-script-binding",
+            title = title,
+            summary = summary,
+            confidence = confidence,
+            status = findingStatus,
+            reason = reason,
+            supportedFormatRange = "SerializedFile metadata v19-v26"
+        ).id
+        val evidenceItem = Evidence.create(
+            scanId = scanId,
+            evidenceKey = "m-script-pptr:" + binding.sourcePathId + ":" +
+                binding.fileId + ":" + binding.scriptPathId,
+            findingId = findingId,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            method = if (isResolvedClass || isMetadataOnly) {
+                EvidenceMethod.RESOLVED_POINTER
+            } else {
+                EvidenceMethod.PARSED
+            },
+            confidence = confidence,
+            description = "Decoded MonoBehaviour.m_Script on source object PathID=" + binding.sourcePathId +
+                "; PPtr fileID=" + binding.fileId + ", PathID=" + binding.scriptPathId +
+                "; resolver status=" + binding.status + "." +
+                (targetPath?.let { " Target file=$it." } ?: ""),
+            locator = SourceLocator(unityFileId = binding.fileId, pathId = binding.scriptPathId)
+        )
+
+        val sourceNode = GraphNode.create(
+            scanId = scanId,
+            nodeType = "unity-monobehaviour",
+            key = "PathID:" + binding.sourcePathId,
+            label = sourceLabel,
+            fileRecordId = owner.record.id,
+            locator = SourceLocator(pathId = binding.sourcePathId),
+            findingIds = listOf(findingId),
+            evidenceIds = listOf(evidenceItem.id)
+        )
+        val targetNode = if (isResolvedClass || isMetadataOnly) {
+            GraphNode.create(
+                scanId = scanId,
+                nodeType = "unity-monoscript",
+                key = "PathID:" + binding.scriptPathId,
+                label = if (isResolvedClass) targetLabel else "$targetLabel (payload unavailable)",
+                fileRecordId = requireNotNull(targetFileRecordId),
+                locator = SourceLocator(pathId = binding.scriptPathId),
+                findingIds = listOf(findingId),
+                evidenceIds = listOf(evidenceItem.id)
+            )
+        } else {
+            null
+        }
+
+        val edge = if (isNullPointer) {
+            null
+        } else {
+            val externalPathHint = metadata.externalReferences.firstOrNull {
+                it.fileId == binding.fileId
+            }?.path
+            val targetHint = if (targetNode == null) {
+                buildString {
+                    append("fileID=").append(binding.fileId)
+                    append(", PathID=").append(binding.scriptPathId)
+                    (targetPath ?: externalPathHint)?.let { append(", path=").append(it) }
+                    append(" (").append(binding.status).append(')')
+                }
+            } else {
+                null
+            }
+            GraphEdge.create(
+                scanId = scanId,
+                edgeKey = "monobehaviour-script:" + binding.sourcePathId + ":" +
+                    binding.fileId + ":" + binding.scriptPathId,
+                sourceNodeId = sourceNode.id,
+                targetNodeId = targetNode?.id,
+                relationType = "attaches-script",
+                confidence = confidence,
+                status = findingStatus,
+                evidenceIds = listOf(evidenceItem.id),
+                findingIds = listOf(findingId),
+                analyzerRunId = analyzerRunId,
+                targetHint = targetHint
+            )
+        }
+
+        val finding = Finding.create(
+            scanId = scanId,
+            findingKey = findingKey,
+            analyzerRunId = analyzerRunId,
+            sourceFileId = owner.record.id,
+            category = "unity.monobehaviour-script-binding",
+            title = title,
+            summary = summary,
+            confidence = confidence,
+            status = findingStatus,
+            reason = reason,
+            evidenceIds = listOf(evidenceItem.id),
+            graphNodeIds = listOfNotNull(sourceNode.id, targetNode?.id),
+            graphEdgeIds = listOfNotNull(edge?.id),
+            supportedFormatRange = "SerializedFile metadata v19-v26"
+        )
+        if (findings.none { it.id == finding.id }) findings.add(finding)
+        if (evidenceRecords.none { it.id == evidenceItem.id }) evidenceRecords.add(evidenceItem)
+        addOrMergeGraphNode(sourceNode)
+        targetNode?.let { addOrMergeGraphNode(it) }
+        edge?.let { candidate ->
+            if (graphEdges.none { it.id == candidate.id }) graphEdges.add(candidate)
+        }
+    }
+
+    private fun addOrMergeGraphNode(candidate: GraphNode) {
+        val index = graphNodes.indexOfFirst { it.id == candidate.id }
+        if (index < 0) {
+            graphNodes.add(candidate)
+            return
+        }
+        val existing = graphNodes[index]
+        val preferredLabel = if (existing.label.startsWith("MonoScript PathID ") &&
+            !candidate.label.startsWith("MonoScript PathID ")) {
+            candidate.label
+        } else {
+            existing.label
+        }
+        graphNodes[index] = existing.copy(
+            label = preferredLabel,
+            findingIds = (existing.findingIds + candidate.findingIds).distinct(),
+            evidenceIds = (existing.evidenceIds + candidate.evidenceIds).distinct()
+        )
     }
 
     private data class ExternalFileMatch(val entry: ScanEntry?, val ambiguous: Boolean)
 
-    private fun resolveExternalFile(externalPath: String, files: List<ScanEntry>): ExternalFileMatch {
-        val match = UnityExternalPathResolver.resolve(
-            externalPath,
-            files,
-            { entry -> entry.path },
-            { entry -> entry.name }
-        )
+    private fun resolveExternalFile(
+        externalPath: String,
+        index: UnityExternalPathResolver.Index<ScanEntry>?,
+        shouldCancel: () -> Boolean = { false }
+    ): ExternalFileMatch {
+        if (index == null) return ExternalFileMatch(null, false)
+        val match = index.resolve(externalPath, shouldCancel)
         return ExternalFileMatch(match.item, match.ambiguous)
     }
 
     private fun readMonoScriptRecords(
         entry: ScanEntry,
         header: UnityFileHeader,
-        metadata: UnityMetadataSummary
+        metadata: UnityMetadataSummary,
+        shouldCancel: () -> Boolean
     ): UnityMetadataSummary {
         val dataOffset = header.dataOffset
         if (dataOffset == null) {
@@ -942,7 +2210,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 AnalyzerRunStatus.SKIPPED,
                 "Unity header does not provide a data offset."
             )
-            return readUnitySceneRecords(entry, header, metadata)
+            return readUnitySceneRecords(entry, header, metadata, shouldCancel)
         }
         val fileSize = header.fileSize ?: entry.size
         val littleEndian = when (header.endianness) {
@@ -955,7 +2223,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     AnalyzerRunStatus.SKIPPED,
                     "Unity header endianness is unknown."
                 )
-                return readUnitySceneRecords(entry, header, metadata)
+                return readUnitySceneRecords(entry, header, metadata, shouldCancel)
             }
         }
         val targets = metadata.scriptTypeBindings.mapNotNull { binding ->
@@ -974,7 +2242,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 AnalyzerRunStatus.SKIPPED,
                 "No local MonoScript object targets were present in the bounded metadata sample."
             )
-            return readUnitySceneRecords(entry, header, metadata)
+            return readUnitySceneRecords(entry, header, metadata, shouldCancel)
         }
 
         val runId = addAnalyzerRun("mono_script_payload", entry)
@@ -990,7 +2258,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 metadata.copy(note = listOfNotNull(metadata.note, readNote).joinToString(" "))
             } else {
                 val result = input.use { stream ->
-                    MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
+                    MonoScriptParser.readObjects(stream, dataOffset, fileSize, targets, littleEndian, shouldCancel)
                 }
                 val status = when {
                     result.note == null && result.skippedCount == 0 -> AnalyzerRunStatus.ANALYZED
@@ -1019,68 +2287,164 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     note = combinedNote.takeIf { it.isNotBlank() }
                 )
             }
+        } catch (e: ScanCancelledException) {
+            markAnalyzerRunPartialOnCancellation(
+                runId, "Cancelled while reading local MonoScript payload."
+            )
+            throw e
         } catch (e: Exception) {
             val reason = e.message ?: e.javaClass.simpleName
             updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
             val readNote = "MonoScript payload не прочитан: $reason"
             metadata.copy(note = listOfNotNull(metadata.note, readNote).joinToString(" "))
         }
-        return readUnitySceneRecords(entry, header, updated)
+        return readUnitySceneRecords(entry, header, updated, shouldCancel)
     }
 
     private fun readUnitySceneRecords(
         entry: ScanEntry,
         header: UnityFileHeader,
-        metadata: UnityMetadataSummary
+        metadata: UnityMetadataSummary,
+        shouldCancel: () -> Boolean
     ): UnityMetadataSummary {
-        val dataOffset = header.dataOffset ?: return metadata.copy(
-            sceneDecodeNote = "Неизвестен dataOffset; payload объектов не прочитан."
-        )
+        val runId = addAnalyzerRun("unity_scene_graph", entry)
+
+        fun skipped(reason: String): UnityMetadataSummary {
+            updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, reason)
+            return metadata.copy(sceneDecodeNote = reason)
+        }
+
+        val dataOffset = header.dataOffset
+            ?: return skipped("Неизвестен dataOffset; payload объектов не прочитан.")
         val fileSize = header.fileSize ?: entry.size
         val littleEndian = when (header.endianness) {
             "Little Endian" -> true
             "Big Endian" -> false
-            else -> return metadata.copy(sceneDecodeNote = "Неизвестен порядок байтов; payload объектов не прочитан.")
+            else -> return skipped("Неизвестен порядок байтов; payload объектов не прочитан.")
         }
+        val sceneClassIds = setOf(1, 4, 224, 114)
+        val sceneObjectCount = metadata.objectTypeCounts
+            .filter { it.classId in sceneClassIds }
+            .sumOf { it.count }
         val targets = metadata.objectSamples.mapNotNull { objectInfo ->
             val classId = objectInfo.classId ?: return@mapNotNull null
-            if (classId != 1 && classId != 4 && classId != 114) return@mapNotNull null
+            if (classId !in sceneClassIds) return@mapNotNull null
             val tree = metadata.typeTrees.firstOrNull {
                 it.typeIndex == objectInfo.typeIndex && it.classId == classId && it.completeForDecoding
             } ?: return@mapNotNull null
             UnityObjectDecodeTarget(objectInfo, tree)
         }
+        val omittedSceneObjectCount = (sceneObjectCount - targets.size.toLong()).coerceAtLeast(0L)
         if (targets.isEmpty()) {
-            val reason = when {
-                metadata.typeTreeEnabled != true -> "TypeTree отключён или отсутствует."
-                else -> "В ограниченной выборке нет полного TypeTree для GameObject, Transform или MonoBehaviour."
+            val pathIdSafetyReason = metadata.note?.takeIf {
+                it.contains("повторяющийся PathID", ignoreCase = true) ||
+                    it.contains("scene graph were disabled", ignoreCase = true) ||
+                    it.contains("PathID uniqueness was not fully checked", ignoreCase = true)
             }
-            return metadata.copy(sceneDecodeNote = reason)
+            if (pathIdSafetyReason != null) {
+                updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, pathIdSafetyReason)
+                return metadata.copy(sceneDecodeNote = pathIdSafetyReason)
+            }
+            if (sceneObjectCount > 0L) {
+                val reason = if (metadata.typeTreeEnabled != true) {
+                    "Найдено " + sceneObjectCount + " объектов GameObject/Transform/RectTransform/MonoBehaviour, но TypeTree отключён или отсутствует; scene graph не построен."
+                } else {
+                    "Найдено " + sceneObjectCount + " объектов GameObject/Transform/RectTransform/MonoBehaviour, но ни для одного образца нет полного поддерживаемого TypeTree."
+                }
+                updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, reason)
+                return metadata.copy(sceneDecodeNote = reason)
+            }
+            val reason = when {
+                metadata.typeTreeEnabled != true -> "TypeTree отключён или отсутствует; подходящих scene objects в SerializedFile не обнаружено."
+                else -> "Подходящих GameObject/Transform/RectTransform/MonoBehaviour records не обнаружено."
+            }
+            return skipped(reason)
         }
         return try {
             val input = fileAccess.openInputStream(entry.node)
-                ?: return metadata.copy(sceneDecodeNote = "Не удалось открыть файл для чтения scene objects.")
+            if (input == null) {
+                val reason = "Не удалось открыть файл для чтения scene objects."
+                updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
+                return metadata.copy(sceneDecodeNote = reason)
+            }
             val result = input.use { stream ->
-                UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
+                UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian, shouldCancel)
             }
             val graph = UnitySceneGraphResolver.resolve(result.objects)
-            metadata.copy(decodedObjects = result.objects, sceneGraph = graph, sceneDecodeNote = result.note)
+            val partialReasons = mutableListOf<String>()
+            if (omittedSceneObjectCount > 0L) {
+                partialReasons.add(
+                    omittedSceneObjectCount.toString() + " of " + sceneObjectCount + " scene-object records were not decoded because they were outside the bounded sample or lacked a complete supported TypeTree."
+                )
+            }
+            if (result.skippedCount > 0) {
+                partialReasons.add(result.note ?: "Some scene-object payloads were skipped by decoder limits.")
+            }
+            if (graph.unresolvedReferenceCount > 0) {
+                partialReasons.add(
+                    graph.unresolvedReferenceCount.toString() + " local/external scene pointers could not be represented as resolved local links; external pointers are handled by a separate resolver."
+                )
+            }
+            if (result.objects.isNotEmpty() && graph.nodes.isEmpty()) {
+                partialReasons.add("Scene payloads decoded, but no GameObject nodes were available to construct the local scene graph.")
+            }
+            val sceneNote = partialReasons.distinct().joinToString(" ").takeIf { it.isNotBlank() }
+            val status = if (sceneNote != null) AnalyzerRunStatus.PARTIAL else AnalyzerRunStatus.ANALYZED
+            updateAnalyzerRun(runId, status, sceneNote)
+            val updated = metadata.copy(
+                decodedObjects = result.objects,
+                sceneGraph = graph,
+                sceneDecodeNote = sceneNote
+            )
+            result.objects.forEach { sourceObject ->
+                if (shouldCancel()) throw ScanCancelledException()
+                val localPointers = buildList {
+                    sourceObject.gameObject?.let { add("gameObject" to it) }
+                    sourceObject.father?.let { add("father" to it) }
+                    sourceObject.children.forEach { add("children" to it) }
+                    sourceObject.components.forEach { add("components" to it) }
+                }
+                localPointers.forEach { (field, pointer) ->
+                    if (shouldCancel()) throw ScanCancelledException()
+                    if (pointer.fileId == 0 && pointer.pathId != 0L) {
+                        recordLocalUnityScenePointer(
+                            ownerPath = entry.path,
+                            owner = entry,
+                            metadata = updated,
+                            sourceObject = sourceObject,
+                            field = field,
+                            targetPathId = pointer.pathId,
+                            analyzerRunId = runId
+                        )
+                    }
+                }
+            }
+            updated
+        } catch (e: ScanCancelledException) {
+            markAnalyzerRunPartialOnCancellation(
+                runId, "Cancelled during Unity scene object decoding or graph evidence emission."
+            )
+            throw e
         } catch (e: Exception) {
-            metadata.copy(sceneDecodeNote = "Scene object payload не прочитан: " +
-                (e.message ?: e.javaClass.simpleName))
+            val reason = "Scene object payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
+            updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
+            metadata.copy(sceneDecodeNote = reason)
         }
     }
 
-    private fun readPeInfo(entry: ScanEntry): PeInfo? {
+    private fun readPeInfo(
+        entry: ScanEntry,
+        shouldCancel: () -> Boolean
+    ): PeInfo? {
         return try {
-            var data = readPrefix(entry.node, MAX_PE_READ) ?: return null
-            var info = PeParser.parse(data) ?: return null
+            var data = readPrefix(entry.node, MAX_PE_READ, shouldCancel) ?: return null
+            var info = PeParser.parse(data, shouldCancel) ?: return null
             val metadataEnd = info.clrMetadataOffset?.toLong()?.plus(info.clrMetadataSize ?: 0L)
             if (info.managed && metadataEnd != null && metadataEnd > data.size.toLong()) {
-                val expanded = readPrefix(entry.node, MAX_CLR_PE_READ)
+                val expanded = readPrefix(entry.node, MAX_CLR_PE_READ, shouldCancel)
                 if (expanded != null) {
                     data = expanded
-                    info = PeParser.parse(data) ?: info
+                    info = PeParser.parse(data, shouldCancel) ?: info
                 }
             }
             if (info.managed) {
@@ -1089,7 +2453,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 try {
                     val summary = ClrMetadataParser.parse(
                         data, info.clrMetadataOffset, info.clrMetadataSize,
-                        info.clrRuntimeVersion, info.clrFlags
+                        info.clrRuntimeVersion, info.clrFlags, shouldCancel
                     )
                     if (summary == null) {
                         clrFailedCount++
@@ -1112,6 +2476,11 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                             summary.note ?: summary.status.takeIf { status != AnalyzerRunStatus.ANALYZED }
                         )
                     }
+                } catch (e: ScanCancelledException) {
+                    markAnalyzerRunPartialOnCancellation(
+                        clrRunId, "Cancelled during CLR metadata parsing."
+                    )
+                    throw e
                 } catch (e: Exception) {
                     clrFailedCount++
                     updateAnalyzerRun(
@@ -1129,6 +2498,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 }
             }
             info
+        } catch (e: ScanCancelledException) {
+            throw e
         } catch (e: Exception) {
             addIssue(
                 code = "pe.analysis_failed",
@@ -1141,13 +2512,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
     }
 
-    private fun readPrefix(node: ScanNode, maximum: Int): ByteArray? {
+    private fun readPrefix(
+        node: ScanNode,
+        maximum: Int,
+        shouldCancel: () -> Boolean = { false }
+    ): ByteArray? {
+        if (shouldCancel()) throw ScanCancelledException()
         val input = fileAccess.openInputStream(node) ?: return null
         input.use { stream ->
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(16 * 1024)
             var total = 0
             while (total < maximum) {
+                if (shouldCancel()) throw ScanCancelledException()
                 val count = stream.read(buffer, 0, minOf(buffer.size, maximum - total))
                 if (count <= 0) break
                 output.write(buffer, 0, count)
@@ -1340,6 +2717,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 val label = when (obj.classId) {
                     1 -> "GameObject"
                     4 -> "Transform"
+                    224 -> "RectTransform"
                     114 -> "MonoBehaviour"
                     else -> "ClassID=${obj.classId}"
                 }
@@ -1383,6 +2761,76 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     (binding.className?.let { " class=" + (if (binding.namespace.isNullOrBlank()) it else binding.namespace + "." + it) } ?: "") +
                     (binding.assemblyName?.let { " assembly=" + it } ?: "") +
                     " status=${binding.status}")
+            }
+        }
+        appendLine()
+        appendLine("## Evidence-backed Unity script bindings")
+        val scriptFindings = findings.filter { it.category == "unity.monobehaviour-script-binding" }
+        if (scriptFindings.isEmpty()) appendLine("- Общие Finding/Evidence/Graph записи для MonoBehaviour script bindings не сформированы")
+        scriptFindings.forEach { finding ->
+            appendLine("- [" + finding.status.id + "/" + finding.confidence.id + "] " +
+                finding.title + ": " + finding.summary +
+                (finding.reason?.let { " Reason: " + it } ?: ""))
+            finding.evidenceIds.forEach { id ->
+                val item = evidenceRecords.firstOrNull { it.id == id }
+                if (item != null) {
+                    appendLine("  - evidence=" + item.id + "; method=" + item.method.id +
+                        "; file=" + item.sourceFileId +
+                        "; Unity fileID=" + (item.locator?.unityFileId ?: "?") +
+                        "; PathID=" + (item.locator?.pathId ?: "?"))
+                }
+            }
+        }
+        graphEdges.filter { it.relationType == "attaches-script" }.forEach { edge ->
+            appendLine("- graph " + edge.relationType + ": " + edge.sourceNodeId + " -> " +
+                (edge.targetNodeId ?: edge.targetHint.orEmpty()) + " (" + edge.status.id + ")")
+        }
+        appendLine()
+        appendLine("## Evidence-backed external Unity PPtr relations")
+        val externalPointerFindings = findings.filter { it.category == "unity.external-pointer" }
+        if (externalPointerFindings.isEmpty()) {
+            appendLine("- Общие Finding/Evidence/Graph записи для внешних PPtr relations не сформированы")
+        }
+        externalPointerFindings.forEach { finding ->
+            appendLine("- [" + finding.status.id + "/" + finding.confidence.id + "] " +
+                finding.title + ": " + finding.summary +
+                (finding.reason?.let { " Reason: " + it } ?: ""))
+            finding.evidenceIds.forEach { id ->
+                val item = evidenceRecords.firstOrNull { it.id == id }
+                if (item != null) {
+                    appendLine("  - evidence=" + item.id + "; method=" + item.method.id +
+                        "; sourceFile=" + item.sourceFileId +
+                        "; Unity fileID=" + (item.locator?.unityFileId ?: "?") +
+                        "; PathID=" + (item.locator?.pathId ?: "?"))
+                }
+            }
+            graphEdges.filter { finding.id in it.findingIds }.forEach { edge ->
+                appendLine("  - graph " + edge.relationType + ": " + edge.sourceNodeId + " -> " +
+                    (edge.targetNodeId ?: edge.targetHint.orEmpty()) + " (" + edge.status.id + ")")
+            }
+        }
+        appendLine()
+        appendLine("## Evidence-backed local Unity scene relations")
+        val localSceneFindings = findings.filter { it.category == "unity.local-scene-pointer" }
+        if (localSceneFindings.isEmpty()) {
+            appendLine("- Общие Finding/Evidence/Graph записи для локальных scene PPtrs не сформированы")
+        }
+        localSceneFindings.forEach { finding ->
+            appendLine("- [" + finding.status.id + "/" + finding.confidence.id + "] " +
+                finding.title + ": " + finding.summary +
+                (finding.reason?.let { " Reason: " + it } ?: ""))
+            finding.evidenceIds.forEach { id ->
+                val item = evidenceRecords.firstOrNull { it.id == id }
+                if (item != null) {
+                    appendLine("  - evidence=" + item.id + "; method=" + item.method.id +
+                        "; sourceFile=" + item.sourceFileId +
+                        "; Unity fileID=" + (item.locator?.unityFileId ?: "?") +
+                        "; PathID=" + (item.locator?.pathId ?: "?"))
+                }
+            }
+            graphEdges.filter { finding.id in it.findingIds }.forEach { edge ->
+                appendLine("  - graph " + edge.relationType + ": " + edge.sourceNodeId + " -> " +
+                    (edge.targetNodeId ?: edge.targetHint.orEmpty()) + " (" + edge.status.id + ")")
             }
         }
         appendLine()
@@ -1470,6 +2918,10 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         root.put("totalFileBytes", totalBytes)
         root.put("scanId", scanId)
         root.put("analyzerRuns", JSONArray(analyzerRuns.map { it.toJsonObject() }))
+        root.put("findings", JSONArray(findings.map { it.toJsonObject() }))
+        root.put("evidence", JSONArray(evidenceRecords.map { it.toJsonObject() }))
+        root.put("graphNodes", JSONArray(graphNodes.map { it.toJsonObject() }))
+        root.put("graphEdges", JSONArray(graphEdges.map { it.toJsonObject() }))
         root.put("scanCoverage", JSONObject()
             .put("status", coverage.status)
             .put("inventory", JSONObject()
@@ -1662,6 +3114,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 .put("endianness", header.endianness ?: JSONObject.NULL)
                 .put("playerVersion", header.playerVersion ?: JSONObject.NULL)
                 .put("engineVersion", header.engineVersion ?: JSONObject.NULL)
+                .put("bundleCompressedBlocksInfoSize", header.bundleCompressedBlocksInfoSize ?: JSONObject.NULL)
+                .put("bundleUncompressedBlocksInfoSize", header.bundleUncompressedBlocksInfoSize ?: JSONObject.NULL)
+                .put("bundleFlags", header.bundleFlags ?: JSONObject.NULL)
                 .put("headerSize", header.headerSize)
                 .put("note", header.note ?: JSONObject.NULL)
         }))

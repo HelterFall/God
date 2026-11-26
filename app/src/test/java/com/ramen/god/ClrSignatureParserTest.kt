@@ -45,6 +45,28 @@ class ClrSignatureParserTest {
     }
 
     @Test
+    fun onlyAllowsSentinelForVarargCallingConventions() {
+        // Sentinel before a parameter in a default-convention signature is invalid.
+        assertNull(ClrSignatureParser.parseMethod(byteArrayOf(0x00, 0x01, 0x01, 0x41, 0x08)))
+        val vararg = ClrSignatureParser.parseMethod(byteArrayOf(0x05, 0x01, 0x01, 0x41, 0x08))
+        assertEquals("vararg", vararg?.callingConvention)
+        assertEquals(listOf("Int32"), vararg?.parameterTypes)
+    }
+
+    @Test
+    fun rejectsPinnedAndImpossibleArrayShapeInMethodSignatures() {
+        assertNull(ClrSignatureParser.parseMethod(byteArrayOf(0x00, 0x01, 0x01, 0x45, 0x08)))
+        // The array declares rank 1 but two explicit dimension sizes.
+        assertNull(ClrSignatureParser.parseMethod(byteArrayOf(0x00, 0x01, 0x01, 0x14, 0x08, 0x01, 0x02, 0x01, 0x02, 0x00)))
+    }
+
+    @Test
+    fun rejectsInvalidGenericAndExplicitThisFlags() {
+        assertNull(ClrSignatureParser.parseMethod(byteArrayOf(0x10, 0x00, 0x00, 0x01)))
+        assertNull(ClrSignatureParser.parseMethod(byteArrayOf(0x40, 0x00, 0x01)))
+    }
+
+    @Test
     fun rejectsTruncatedAndUnknownSignatures() {
         assertNull(ClrSignatureParser.parseField(byteArrayOf(0x06)))
         assertNull(ClrSignatureParser.parseMethod(byteArrayOf(0x00, 0x02, 0x01, 0x08)))

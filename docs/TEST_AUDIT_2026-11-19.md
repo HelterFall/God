@@ -225,3 +225,42 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 - Coverage измеряется и публикуется; процент не объявляется целью до получения честной исходной метрики.
 
 Наличие зелёного CI — обязательное условие, но не замена этим критериям.
+
+## 7. Follow-up — 2026-11-26 (PR #37, draft; not merged)
+
+В PR #37 после первоначального аудита добавлены дополнительные проверки и защитные механизмы. На момент этого дополнения PR остаётся draft и не слит в `main`.
+
+**Подтверждено кодом и зелёными JVM/Debug APK CI runs:**
+- External Unity path resolution использует единый индекс путей/имён на scan; неоднозначные нормализованные пути не разрешаются через fallback на «первый» файл.
+- Cancellation проверяется внутри path-index creation, поиска внешнего пути, external PPtr resolver и MonoBehaviour script binding resolver.
+- SerializedFile parser сохраняет raw `typeIndex` как documented stripped-file `persistentTypeID` fallback и помечает такой результат partial.
+- PathID проверяется по всей таблице объектов до 250 000 строк. Повторный PathID делает object sample пустой и прекращает разрешение неоднозначных ссылок; выше этого предела object/MonoScript samples и scene graph отключаются, а metadata помечается partial.
+- Сам Unity object decoder отказывает при duplicate PathID в переданном наборе целей, вместо выбора первого target.
+- ClassID 224 RectTransform включён в TypeTree retention, decoding, parent/child graph resolution, target-class validation и отчётные labels.
+
+Новые синтетические regression tests покрывают duplicate PathID за пределами первых 500 object samples, превышение лимита 250 000, повторные decoder targets, индексированные пути и RectTransform TypeTree/parent/child PPtrs. Запуски #517–#521 прошли успешно; в частности, #520 проверил лимит PathID, а #521 — фактическое декодирование RectTransform. Это подтверждает именно эти синтетические сценарии, а не совместимость со всеми реальными Unity builds.
+
+**Оставшиеся пробелы:** нет легально распространяемого corpus реальных SerializedFiles/AssetBundles и compiler-produced PE/CLR fixtures; нет fuzz/property testing и Android SAF instrumentation/lifecycle tests; уже начатое чтение через `InputStream.read()` нельзя принудительно прервать, если сам provider заблокировал вызов; UnityFS block table/decompression/entries, полноценные shared TypeTree subtree v26, форматы SerializedFile вне v19–v26 и полный IL2CPP metadata parser остаются вне поддержки. В PR #37 `readPrefix` проверяет cancellation между чанками до 16 KiB; MonoScript/UnityObjectDecoder — до 8 KiB; PE parser — в section/import descriptor/thunk loops; UnityMetadataParser — в SerializedType/object/ScriptReference/external/SerializeReference/TypeTree; CLR parser — в streams/tables/TypeDef/Field/Method/AssemblyRef loops; UnityManagedTypeResolver — при индексации assembly/type и разрешении bindings. Duplicate PathID и превышение лимита полной проверки теперь дают partial для metadata и scene graph, а не ложный skipped.
+
+
+### 8. Follow-up — 2026-11-26, CLR cancellation (PR #37, draft)
+
+- `ClrMetadataParser.parse` принимает `shouldCancel` и проверяет его при перечислении stream headers, table validity/offsets, TypeDef/Field/Method/AssemblyRef rows и при связывании member rows с владельцами TypeDef.
+- `UnityManagedTypeResolver` строит индекс нормализованных CLR assembly names и type `(name, namespace)` counts один раз; cancellation проверяется при построении и разрешении.
+- `GameScanner` передаёт job callback в CLR parser и managed resolver; `ScanCancelledException` пробрасывается наружу, а не учитывается как failed analyzer.
+- Новые JVM-тесты: отмена внутри CLR metadata tables, внутри managed type indexing, а также end-to-end отмена через `GameScanner -> readPeInfo -> ClrMetadataParser`.
+- CI run #553 (`0412180`) прошёл `:app:testDebugUnitTest`, `:app:assembleDebug` и загрузку `God-debug-apk`. Это подтверждает синтетические fixtures, не полный ECMA-335/Unity corpus.
+
+## 8. Follow-up — 2026-11-26 (Unity graph consistency and cancellation)
+
+В draft PR #37 дополнительно закрыты несколько проблем достоверности локального графа и partial-report lifecycle.
+
+**Изменения, проверенные синтетическими regression tests:**
+- Для SerializedFile object tables до 250 000 строк проверяется каждый PathID; дубликат блокирует object samples, а большее число строк отключает samples/scene graph и даёт partial. Decoder и external resolvers дополнительно отказываются выбирать первую запись при повторяющемся PathID.
+- ClassID 224 RectTransform проходит TypeTree retention, payload decoding и локальный scene graph наряду с Transform.
+- GameObject должен иметь ровно один Transform/RectTransform; неоднозначная привязка, отсутствие Transform, неверный ClassID цели и не reciprocal father/children links учитываются как unresolved. Scene AnalyzerRun становится partial при пропущенных scene records или unresolved links, а не выдаёт неполный граф как analyzed.
+- Cancellation checkpoints добавлены в SerializedFile type/object/reference/TypeTree loops, MonoScript/scene payload reads с bounded chunks, PE/CLR/TypeTree parsers и external reference resolvers. Активный AnalyzerRun помечается partial; этапы, до которых отмена ещё не дошла, остаются queued. Прервать уже начавшийся блокирующий InputStream.read() провайдера всё ещё нельзя.
+
+**CI:** #582–#589 завершились успешно; JVM unit tests, Debug APK assemble и APK artifact upload прошли. #584 включает тест отмены внутри SerializedFile object table; #587–#589 — type validation и взаимные parent/child links. Запуск #590 проверяет обновлённую документацию.
+
+**Остаётся открытым:** нет реального легально распространяемого corpus Unity/PE/CLR fixtures, fuzz/property testing, Android SAF instrumentation/lifecycle coverage и полного UnityFS block/decompression/entry reader. SerializedFile parser ограничен v19–v26; shared TypeTree subtrees v26 ещё не полностью декодируются; IL2CPP global-metadata.dat и полный resource/asset decoder отсутствуют. PR #37 остаётся draft, не слит в main.
