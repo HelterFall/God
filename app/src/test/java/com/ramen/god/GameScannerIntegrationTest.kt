@@ -1342,7 +1342,11 @@ class GameScannerIntegrationTest {
         val owner = (0 until metadata.length()).map { metadata.getJSONObject(it) }
             .single { it.getString("path") == "Data/globalgamemanagers" }
         val bindings = owner.getJSONArray("scriptTypeBindings")
-        assertEquals(2, bindings.length())
+        assertEquals(
+            "typeCount=${owner.optLong("typeCount")}, serializedTypes=${owner.optJSONArray("serializedTypes")}, scriptRefs=${owner.optJSONArray("scriptTypeReferences")}, bindings=$bindings",
+            2,
+            bindings.length()
+        )
         for (index in 0 until bindings.length()) {
             assertEquals("external-monoscript-decoded", bindings.getJSONObject(index).getString("resolution"))
             assertEquals("HeroController", bindings.getJSONObject(index).getString("className"))
