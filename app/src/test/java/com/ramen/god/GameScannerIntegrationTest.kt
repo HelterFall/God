@@ -152,6 +152,66 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun retainsDuplicateInventoryPathsButSkipsPathKeyedAnalyzerOverwrites() {
+        val root = MemoryScanNode(
+            name = "DuplicateRelativePathFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode("Assembly-CSharp.dll", false, minimalNativePe()),
+                MemoryScanNode("Assembly-CSharp.dll", false, minimalNativePe()),
+                MemoryScanNode("globalgamemanagers", false, minimalUnitySerializedFile()),
+                MemoryScanNode("globalgamemanagers", false, minimalUnitySerializedFile())
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val files = report.getJSONArray("files")
+        val duplicatePeIds = (0 until files.length()).map { files.getJSONObject(it) }
+            .filter { it.getString("path") == "Assembly-CSharp.dll" }
+            .map { it.getString("id") }
+            .toSet()
+        val duplicateUnityIds = (0 until files.length()).map { files.getJSONObject(it) }
+            .filter { it.getString("path") == "globalgamemanagers" }
+            .map { it.getString("id") }
+            .toSet()
+
+        assertEquals(2, duplicatePeIds.size)
+        assertEquals(2, duplicateUnityIds.size)
+        assertEquals(4, files.length())
+
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val peRuns = runs.filter { it.getString("analyzerId") == "pe" }
+        val headerRuns = runs.filter { it.getString("analyzerId") == "unity_file_headers" }
+        val metadataRuns = runs.filter { it.getString("analyzerId") == "serialized_file_metadata" }
+
+        assertEquals(2, peRuns.size)
+        assertEquals(2, headerRuns.size)
+        assertEquals(2, metadataRuns.size)
+        assertEquals(duplicatePeIds, peRuns.map { it.getString("inputFileId") }.toSet())
+        assertEquals(duplicateUnityIds, headerRuns.map { it.getString("inputFileId") }.toSet())
+        assertEquals(duplicateUnityIds, metadataRuns.map { it.getString("inputFileId") }.toSet())
+        assertTrue((peRuns + headerRuns + metadataRuns).all { it.getString("status") == "skipped" })
+        assertTrue((peRuns + headerRuns + metadataRuns).all {
+            it.getString("reason").contains("Duplicate relative path")
+        })
+
+        val issues = report.getJSONArray("issues")
+        assertEquals(
+            2,
+            (0 until issues.length()).count {
+                issues.getJSONObject(it).getString("code") == "inventory.duplicate_relative_path"
+            }
+        )
+        assertFalse(result.isPartial)
+    }
+
+    @Test
     fun cancellationInsideClrMetadataParserMarksActiveAnalyzerRunsPartial() {
         val bytes = managedPeWithMetadata()
         var readCompleted = false
