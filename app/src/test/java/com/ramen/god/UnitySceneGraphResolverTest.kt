@@ -95,6 +95,35 @@ class UnitySceneGraphResolverTest {
     }
 
     @Test
+    fun doesNotChooseArbitraryTransformWhenGameObjectHasAmbiguousAssociations() {
+        val objects = listOf(
+            UnityDecodedObjectSummary(
+                pathId = 100L,
+                classId = 1,
+                name = "Ambiguous",
+                components = listOf(ptr(0, 200))
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 200L,
+                classId = 4,
+                gameObject = ptr(0, 100)
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 201L,
+                classId = 224,
+                gameObject = ptr(0, 100)
+            )
+        )
+
+        val graph = UnitySceneGraphResolver.resolve(objects)
+        val node = graph.nodes.single()
+
+        assertNull(node.transformPathId)
+        assertEquals(1, node.unresolvedReferenceCount)
+        assertEquals(1, graph.unresolvedReferenceCount)
+    }
+
+    @Test
     fun preservesExternalAndMissingLinksAsUnresolved() {
         val objects = listOf(
             UnityDecodedObjectSummary(
