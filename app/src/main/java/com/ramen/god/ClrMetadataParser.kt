@@ -436,10 +436,16 @@ internal object ClrMetadataParser {
             val fieldEnd = nextStarts?.first ?: (rows[4] + 1L)
             val methodEnd = nextStarts?.second ?: (rows[6] + 1L)
             val ownedFields = if (fieldStart in 1L..(rows[4] + 1L) && fieldEnd >= fieldStart) {
-                fields.filter { it.tableIndex.toLong() >= fieldStart && it.tableIndex.toLong() < fieldEnd }
+                fields.filterIndexed { fieldIndex, field ->
+                    if (fieldIndex % 32 == 0 && shouldCancel()) throw ScanCancelledException()
+                    field.tableIndex.toLong() >= fieldStart && field.tableIndex.toLong() < fieldEnd
+                }
             } else emptyList()
             val ownedMethods = if (methodStart in 1L..(rows[6] + 1L) && methodEnd >= methodStart) {
-                methods.filter { it.tableIndex.toLong() >= methodStart && it.tableIndex.toLong() < methodEnd }
+                methods.filterIndexed { methodIndex, method ->
+                    if (methodIndex % 32 == 0 && shouldCancel()) throw ScanCancelledException()
+                    method.tableIndex.toLong() >= methodStart && method.tableIndex.toLong() < methodEnd
+                }
             } else emptyList()
             if (fieldEnd > fields.lastOrNull()?.tableIndex?.plus(1)?.toLong().orZero() &&
                 fieldStart <= rows[4]) ownershipIncomplete = true
