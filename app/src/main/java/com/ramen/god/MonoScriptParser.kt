@@ -50,7 +50,8 @@ internal object MonoScriptParser {
         dataOffset: Long,
         fileSize: Long,
         targets: List<MonoScriptObjectTarget>,
-        littleEndian: Boolean
+        littleEndian: Boolean,
+        shouldCancel: () -> Boolean = { false }
     ): MonoScriptReadResult {
         if (dataOffset < 0L || fileSize < dataOffset) {
             return MonoScriptReadResult(emptyList(), targets.size, "Некорректные границы data section.")
@@ -64,6 +65,7 @@ internal object MonoScriptParser {
         val buffer = ByteArray(8192)
 
         for ((index, target) in limited.withIndex()) {
+            if (shouldCancel()) throw ScanCancelledException()
             if (target.byteStart < 0L || target.byteSize !in 1L..MAX_OBJECT_BYTES.toLong()) {
                 skipped++
                 continue
@@ -85,13 +87,13 @@ internal object MonoScriptParser {
                 skipped++
                 continue
             }
-            if (!skipFully(input, absoluteStart - position, buffer)) {
+            if (!skipFully(input, absoluteStart - position, buffer, shouldCancel)) {
                 skipped += limited.size - index
                 return MonoScriptReadResult(records, skipped, "Поток закончился до MonoScript object.")
             }
             position = absoluteStart
 
-            val payload = readExactly(input, target.byteSize.toInt()) ?: run {
+            val payload = readExactly(input, target.byteSize.toInt(), shouldCancel) ?: run {
                 skipped += limited.size - index
                 return MonoScriptReadResult(records, skipped, "MonoScript object обрезан.")
             }
@@ -120,27 +122,36 @@ internal object MonoScriptParser {
         return MonoScriptReadResult(records, skipped, note)
     }
 
-    private fun skipFully(input: InputStream, count: Long, buffer: ByteArray): Boolean {
+    private fun skipFully(
+        input: InputStream,
+        count: Long,
+        buffer: ByteArray,
+        shouldCancel: () -> Boolean
+    ): Boolean {
         var remaining = count
         while (remaining > 0L) {
-            val skipped = input.skip(remaining)
-            if (skipped > 0L) {
-                remaining -= skipped
-            } else {
-                val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
-                if (read <= 0) return false
-                remaining -= read.toLong()
-            }
+            if (shouldCancel()) throw ScanCancelledException()
+            // Read bounded chunks rather than delegating a potentially huge skip()
+            // to a provider stream that may not offer cancellation points.
+            val read = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+            if (read <= 0) return false
+            remaining -= read.toLong()
         }
         return true
     }
 
-    private fun readExactly(input: InputStream, count: Int): ByteArray? {
+    private fun readExactly(
+        input: InputStream,
+        count: Int,
+        shouldCancel: () -> Boolean
+    ): ByteArray? {
         if (count < 0 || count > MAX_OBJECT_BYTES) return null
         val result = ByteArray(count)
         var offset = 0
         while (offset < count) {
-            val read = input.read(result, offset, count - offset)
+            if (shouldCancel()) throw ScanCancelledException()
+            val chunkSize = minOf(8192, count - offset)
+            val read = input.read(result, offset, chunkSize)
             if (read <= 0) return null
             offset += read
         }
