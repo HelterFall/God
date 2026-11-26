@@ -131,18 +131,26 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         onProgress(entries.size, "Инвентаризация завершена; анализирую PE-файлы")
 
         val pathOccurrences = HashMap<String, Int>(entries.size)
-        entries.forEach { entry ->
-            pathOccurrences[entry.path] = (pathOccurrences[entry.path] ?: 0) + 1
-        }
-        pathOccurrences.filterValues { it > 1 }.keys.forEach { path ->
-            ambiguousInventoryPaths.add(path)
-            addIssue(
-                code = "inventory.duplicate_relative_path",
-                stage = ScanIssueStage.INVENTORY,
-                severity = ScanIssueSeverity.WARNING,
-                message = "Несколько inventory entries имеют одинаковый relative path; анализ содержимого пропущен, чтобы избежать перезаписи результатов.",
-                path = path
-            )
+        try {
+            entries.forEach { entry ->
+                if (shouldCancel()) throw ScanCancelledException()
+                pathOccurrences[entry.path] = (pathOccurrences[entry.path] ?: 0) + 1
+            }
+            pathOccurrences.toSortedMap().forEach { (path, count) ->
+                if (shouldCancel()) throw ScanCancelledException()
+                if (count > 1) {
+                    ambiguousInventoryPaths.add(path)
+                    addIssue(
+                        code = "inventory.duplicate_relative_path",
+                        stage = ScanIssueStage.INVENTORY,
+                        severity = ScanIssueSeverity.WARNING,
+                        message = "Несколько inventory entries имеют одинаковый relative path; анализ содержимого пропущен, чтобы избежать перезаписи результатов.",
+                        path = path
+                    )
+                }
+            }
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
         }
 
         val files = entries.filter { !it.directory }
