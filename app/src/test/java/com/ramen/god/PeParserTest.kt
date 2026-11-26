@@ -45,6 +45,20 @@ class PeParserTest {
     }
 
     @Test
+    fun observesCancellationInsidePeImportThunkParsing() {
+        var checks = 0
+        val error = runCatching {
+            PeParser.parse(
+                peWithImports(),
+                shouldCancel = { ++checks >= 5 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(5, checks)
+    }
+
+    @Test
     fun doesNotAcceptDllNameWithoutNullTerminatorWithinReadWindow() {
         val bytes = peWithImports()
         put32(bytes, 0x20c, 0x11f0)
