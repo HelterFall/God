@@ -1351,6 +1351,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         var activeRunId: String? = null
         try {
             resolutions.forEach { (path, links) ->
+                activeRunId = null
                 if (shouldCancel()) throw ScanCancelledException()
                 val old = unityMetadata[path] ?: return@forEach
                 unityMetadata[path] = old.copy(externalPointerResolutions = links)
@@ -1437,6 +1438,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         var activeRunId: String? = null
         try {
             bindings.forEach { (path, items) ->
+                activeRunId = null
                 if (shouldCancel()) throw ScanCancelledException()
                 val old = unityMetadata[path] ?: return@forEach
                 unityMetadata[path] = old.copy(monoBehaviourScriptBindings = items)
