@@ -1504,12 +1504,11 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             "father", "children" -> setOf(4, 224)
             else -> emptySet()
         }
-        val targetDecodedObject = metadata.decodedObjects.firstOrNull {
-            it.pathId == targetPathId
-        }
-        val targetObjectRecord = metadata.objectSamples.firstOrNull {
-            it.pathId == targetPathId
-        }
+        val targetDecodedMatches = metadata.decodedObjects.filter { it.pathId == targetPathId }
+        val targetObjectMatches = metadata.objectSamples.filter { it.pathId == targetPathId }
+        val targetAmbiguous = targetDecodedMatches.size > 1 || targetObjectMatches.size > 1
+        val targetDecodedObject = targetDecodedMatches.singleOrNull()
+        val targetObjectRecord = targetObjectMatches.singleOrNull()
         val targetClassId = targetDecodedObject?.classId ?: targetObjectRecord?.classId
         val targetClassMatches = expectedTargetClassIds.isEmpty() ||
             targetClassId == null || targetClassId in expectedTargetClassIds
@@ -1519,6 +1518,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             targetObjectRecord != null && targetClassMatches
 
         val findingStatus = when {
+            targetAmbiguous -> FindingStatus.UNRESOLVED
             isDecodedTarget -> FindingStatus.DECODED
             isMetadataOnlyTarget -> FindingStatus.METADATA_ONLY
             targetObjectRecord == null -> FindingStatus.PARTIAL
@@ -1531,6 +1531,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             else -> AnalysisConfidence.UNKNOWN
         }
         val reason = when {
+            targetAmbiguous -> "Multiple local object records share this PathID; no target was selected."
             isDecodedTarget -> null
             isMetadataOnlyTarget ->
                 "The local target object record exists in the bounded SerializedFile sample, but its payload was not decoded."
