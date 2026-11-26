@@ -8,12 +8,6 @@ import java.io.ByteArrayOutputStream
 import java.io.ByteArrayInputStream
 
 class MonoScriptParserTest {
-    private val cancelChecksHolder = intArrayOf(0)
-
-    private fun throwIfCancelled(checks: Int) {
-        if (checks >= 2) throw ScanCancelledException()
-    }
-
     @Test
     fun parsesLittleEndianMonoScriptPayload() {
         val payload = buildPayload(true)
@@ -61,6 +55,7 @@ class MonoScriptParserTest {
         val payload = buildPayload(true)
         val byteStart = 64L * 1024L
         val bytes = ByteArray(byteStart.toInt()) + payload
+        var checks = 0
         val error = runCatching {
             MonoScriptParser.readObjects(
                 ByteArrayInputStream(bytes),
@@ -68,11 +63,12 @@ class MonoScriptParserTest {
                 fileSize = bytes.size.toLong(),
                 targets = listOf(MonoScriptObjectTarget(7L, byteStart, payload.size.toLong())),
                 littleEndian = true,
-                shouldCancel = { throwIfCancelled(++cancelChecksHolder[0]) }
+                shouldCancel = { ++checks >= 2 }
             )
         }.exceptionOrNull()
 
         assertTrue(error is ScanCancelledException)
+        assertEquals(2, checks)
     }
 
     @Test
