@@ -174,7 +174,13 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             peCandidates.take(MAX_PE_FILES).forEach { entry ->
                 if (shouldCancel()) throw ScanCancelledException()
                 peAttemptedCount++
-                val info = readPeInfo(entry, shouldCancel)
+                val peRunId = peRunIds.getValue(entry.record.id)
+                val info = try {
+                    readPeInfo(entry, shouldCancel)
+                } catch (e: ScanCancelledException) {
+                    markAnalyzerRunPartialOnCancellation(peRunId, "Cancelled during PE header/CLR inspection.")
+                    throw e
+                }
                 if (info == null) {
                     peFailedCount++
                     updateAnalyzerRun(
@@ -263,6 +269,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         }
                     }
                 } catch (e: ScanCancelledException) {
+                    markAnalyzerRunPartialOnCancellation(
+                        headerRunId, "Cancelled during Unity file header read."
+                    )
                     throw e
                 } catch (e: Exception) {
                     headerDiagnostic = e.message ?: e.javaClass.simpleName
@@ -335,6 +344,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         unityMetadata[entry.path] = enrichedMetadata
                     }
                 } catch (e: ScanCancelledException) {
+                    markAnalyzerRunPartialOnCancellation(
+                        metadataRunId, "Cancelled during SerializedFile metadata or dependent payload analysis."
+                    )
                     throw e
                 } catch (e: Exception) {
                     metadataDiagnostic = e.message ?: e.javaClass.simpleName
@@ -579,6 +591,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val index = analyzerRuns.indexOfFirst { it.id == runId }
         check(index >= 0) { "Unknown analyzer run: $runId" }
         analyzerRuns[index] = analyzerRuns[index].copy(status = status, reason = reason)
+    }
+
+    private fun markAnalyzerRunPartialOnCancellation(runId: String, reason: String) {
+        updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, reason)
+    }
+
+    private fun markQueuedAnalyzerRunsPartialOnCancellation(runIds: Iterable<String>, reason: String) {
+        runIds.forEach { runId ->
+            val run = analyzerRuns.firstOrNull { it.id == runId } ?: return@forEach
+            if (run.status == AnalyzerRunStatus.QUEUED) {
+                updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, reason)
+            }
+        }
     }
 
     private fun walk(
@@ -2263,6 +2288,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
             updated
         } catch (e: ScanCancelledException) {
+            markAnalyzerRunPartialOnCancellation(
+                runId, "Cancelled during Unity scene object decoding or graph evidence emission."
+            )
             throw e
         } catch (e: Exception) {
             val reason = "Scene object payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
@@ -2316,6 +2344,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         )
                     }
                 } catch (e: ScanCancelledException) {
+                    markAnalyzerRunPartialOnCancellation(
+                        clrRunId, "Cancelled during CLR metadata parsing."
+                    )
                     throw e
                 } catch (e: Exception) {
                     clrFailedCount++
