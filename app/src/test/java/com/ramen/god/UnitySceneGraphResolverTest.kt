@@ -95,6 +95,17 @@ class UnitySceneGraphResolverTest {
     }
 
     @Test
+    fun marksGameObjectWithoutItsRequiredTransformAsUnresolved() {
+        val graph = UnitySceneGraphResolver.resolve(
+            listOf(UnityDecodedObjectSummary(pathId = 100L, classId = 1, name = "NoTransform"))
+        )
+
+        assertNull(graph.nodes.single().transformPathId)
+        assertEquals(1, graph.nodes.single().unresolvedReferenceCount)
+        assertEquals(1, graph.unresolvedReferenceCount)
+    }
+
+    @Test
     fun doesNotChooseArbitraryTransformWhenGameObjectHasAmbiguousAssociations() {
         val objects = listOf(
             UnityDecodedObjectSummary(
