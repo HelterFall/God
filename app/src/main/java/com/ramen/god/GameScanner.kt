@@ -2032,7 +2032,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 AnalyzerRunStatus.SKIPPED,
                 "Unity header does not provide a data offset."
             )
-            return readUnitySceneRecords(entry, header, metadata)
+            return readUnitySceneRecords(entry, header, metadata, shouldCancel)
         }
         val fileSize = header.fileSize ?: entry.size
         val littleEndian = when (header.endianness) {
@@ -2045,7 +2045,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     AnalyzerRunStatus.SKIPPED,
                     "Unity header endianness is unknown."
                 )
-                return readUnitySceneRecords(entry, header, metadata)
+                return readUnitySceneRecords(entry, header, metadata, shouldCancel)
             }
         }
         val targets = metadata.scriptTypeBindings.mapNotNull { binding ->
@@ -2064,7 +2064,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 AnalyzerRunStatus.SKIPPED,
                 "No local MonoScript object targets were present in the bounded metadata sample."
             )
-            return readUnitySceneRecords(entry, header, metadata)
+            return readUnitySceneRecords(entry, header, metadata, shouldCancel)
         }
 
         val runId = addAnalyzerRun("mono_script_payload", entry)
@@ -2117,13 +2117,14 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             val readNote = "MonoScript payload не прочитан: $reason"
             metadata.copy(note = listOfNotNull(metadata.note, readNote).joinToString(" "))
         }
-        return readUnitySceneRecords(entry, header, updated)
+        return readUnitySceneRecords(entry, header, updated, shouldCancel)
     }
 
     private fun readUnitySceneRecords(
         entry: ScanEntry,
         header: UnityFileHeader,
-        metadata: UnityMetadataSummary
+        metadata: UnityMetadataSummary,
+        shouldCancel: () -> Boolean
     ): UnityMetadataSummary {
         val runId = addAnalyzerRun("unity_scene_graph", entry)
 
@@ -2163,7 +2164,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 return metadata.copy(sceneDecodeNote = reason)
             }
             val result = input.use { stream ->
-                UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian)
+                UnityObjectDecoder.readObjects(stream, dataOffset, fileSize, targets, littleEndian, shouldCancel)
             }
             val graph = UnitySceneGraphResolver.resolve(result.objects)
             val status = if (result.skippedCount > 0) {
@@ -2199,6 +2200,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 }
             }
             updated
+        } catch (e: ScanCancelledException) {
+            throw e
         } catch (e: Exception) {
             val reason = "Scene object payload не прочитан: " + (e.message ?: e.javaClass.simpleName)
             updateAnalyzerRun(runId, AnalyzerRunStatus.FAILED, reason)
