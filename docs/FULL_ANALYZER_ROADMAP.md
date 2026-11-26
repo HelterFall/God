@@ -171,7 +171,7 @@ Machine-readable JSON, JSON Schema, format version и manifest применяю�
 | Приоритет | Работа | Результат |
 |---|---|---|
 | P0 | Исправность текущих анализаторов, честные coverage и тестовые fixtures | Достоверная база |
-| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | PE section/import/thunk loops, path matching, SerializedFile/CLR parser loops, TypeTree nodes, MonoScript/scene payload, managed-type linking и prefix reads проверяют cancellation; positional/range reads и прерывание уже блокирующего provider `InputStream.read()` остаются открытыми |
+| P1 | FileAccess abstraction, random access, streaming и распространение cancellation в операции чтения | PE section/import/thunk loops, path matching, SerializedFile/CLR parser loops, TypeTree nodes, MonoScript/scene payload, managed-type linking и prefix reads проверяют cancellation; активные AnalyzerRun переводятся в partial, незапущенные остаются queued. Positional/range reads и прерывание уже блокирующего provider `InputStream.read()` остаются открытыми |
 | P1 | UnityFS/ZIP/container readers | Доступ к вложенному содержимому |
 | P1 | Per-file statuses для оставшихся analyzer families; streaming report pipeline поверх JSON files[] | PE/CLR/Unity header/SerializedFile, MonoScript, external PPtr, MonoBehaviour binding и scene graph уже имеют FileRecord-linked runs; остаются containers/assets и другие analyzer families |
 | P2 | PE/native dependency graph | Понимание нативных границ |
@@ -252,3 +252,10 @@ P1/P2 обозначают приоритет исследования и раз
 Эта дорожная карта определяет конечные функциональные направления. План дальнейших действий определяет практический порядок изменений в коде и критерии перехода между этапами. При расхождении приоритет для ближайшего рабочего шага задаёт IMPLEMENTATION_PLAN.md, а полный перечень целевых функций сохраняется здесь.
 
 Не добавлять изолированные декодеры ради количества. Каждый новый анализатор должен публиковать структурированные findings/evidence и расширять общую модель связей.
+
+## Follow-up — 2026-11-26 (draft PR #37)
+
+- PathID uniqueness проверяется по всей таблице до 250 000 объектов; при дубликатах неоднозначные samples отключаются, при превышении лимита samples/scene graph не строятся и результат помечается partial.
+- Scene graph поддерживает Transform (ClassID 4) и RectTransform (224), требует единственный transform на GameObject и проверяет типы целей parent/child и reciprocal father/children links. Missing/ambiguous/wrong-class links не пропадают молча, а учитываются как unresolved.
+- При отмене внутри активного этапа его per-file AnalyzerRun получает статус partial; незапущенные этапы остаются queued. Cancellation checks добавлены в SerializedFile metadata, TypeTree/object parsing, MonoScript/scene payload streams и resolver loops между bounded chunks.
+- Проверки синтетические. Не заменяют реальные Unity/PE/CLR fixtures, fuzzing, Android SAF instrumentation и полную совместимость. PR #37 остаётся draft; main не изменён.
