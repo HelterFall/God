@@ -126,6 +126,48 @@ internal object UnitySceneGraphResolver {
                     unresolvedReferenceCount = unresolved
                 )
             }.toList()
-        return UnitySceneGraphResult(nodes, unresolvedTotal, externalTotal)
+
+        val nodesByGameObjectPathId = nodes.associateBy { it.gameObjectPathId }
+        val visitState = mutableMapOf<Long, Int>()
+        val visitStack = mutableListOf<Long>()
+        val cyclicGameObjectPathIds = mutableSetOf<Long>()
+
+        fun visitParentChain(pathId: Long) {
+            when (visitState[pathId]) {
+                1 -> {
+                    val cycleStart = visitStack.indexOf(pathId)
+                    if (cycleStart >= 0) {
+                        cyclicGameObjectPathIds.addAll(visitStack.subList(cycleStart, visitStack.size))
+                    }
+                    return
+                }
+                2 -> return
+            }
+            visitState[pathId] = 1
+            visitStack.add(pathId)
+            val parentPathId = nodesByGameObjectPathId[pathId]?.parentGameObjectPathId
+            if (parentPathId != null && parentPathId in nodesByGameObjectPathId) {
+                visitParentChain(parentPathId)
+            }
+            visitStack.removeAt(visitStack.lastIndex)
+            visitState[pathId] = 2
+        }
+
+        nodes.forEach { node -> visitParentChain(node.gameObjectPathId) }
+        if (cyclicGameObjectPathIds.isNotEmpty()) {
+            unresolvedTotal += cyclicGameObjectPathIds.size
+        }
+        val consistentNodes = nodes.map { node ->
+            if (node.gameObjectPathId !in cyclicGameObjectPathIds) {
+                node
+            } else {
+                node.copy(
+                    parentGameObjectPathId = null,
+                    childGameObjectPathIds = emptyList(),
+                    unresolvedReferenceCount = node.unresolvedReferenceCount + 1
+                )
+            }
+        }
+        return UnitySceneGraphResult(consistentNodes, unresolvedTotal, externalTotal)
     }
 }
