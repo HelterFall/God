@@ -83,20 +83,33 @@ internal object UnitySceneGraphResolver {
                 val parentTransformTarget = resolveLocal(transform?.father)
                 val parentTransform = parentTransformTarget?.takeIf { isTransformClass(it.classId) }
                 if (parentTransformTarget != null && parentTransform == null) unresolved++
-                val parentGameObjectTarget = parentTransform?.let { resolveLocal(it.gameObject) }
+                val parentRelationIsReciprocal = parentTransform?.children.orEmpty().any {
+                    it.fileId == 0 && it.pathId == transform?.pathId
+                }
+                if (parentTransform != null && !parentRelationIsReciprocal) unresolved++
+                val parentGameObjectTarget = if (parentRelationIsReciprocal) {
+                    parentTransform?.let { resolveLocal(it.gameObject) }
+                } else null
                 val parentGameObject = parentGameObjectTarget?.takeIf { it.classId == 1 }
                 if (parentGameObjectTarget != null && parentGameObject == null) unresolved++
-                val childGameObjects = transform?.children.orEmpty()
-                    .take(MAX_LINKS_PER_OBJECT)
-                    .mapNotNull { childPointer ->
-                        val childTransformTarget = resolveLocal(childPointer)
-                        val childTransform = childTransformTarget?.takeIf { isTransformClass(it.classId) }
-                        if (childTransformTarget != null && childTransform == null) unresolved++
-                        val childGameObjectTarget = childTransform?.let { resolveLocal(it.gameObject) }
-                        val childGameObject = childGameObjectTarget?.takeIf { it.classId == 1 }
-                        if (childGameObjectTarget != null && childGameObject == null) unresolved++
-                        childGameObject?.pathId
-                    }.distinct()
+                val childPointers = transform?.children.orEmpty().take(MAX_LINKS_PER_OBJECT)
+                val childPointerDuplicates = childPointers.size - childPointers.distinct().size
+                unresolved += childPointerDuplicates
+                val childGameObjects = childPointers.mapNotNull { childPointer ->
+                    val childTransformTarget = resolveLocal(childPointer)
+                    val childTransform = childTransformTarget?.takeIf { isTransformClass(it.classId) }
+                    if (childTransformTarget != null && childTransform == null) unresolved++
+                    val childFather = childTransform?.father
+                    val childRelationIsReciprocal = childFather?.fileId == 0 &&
+                        childFather.pathId == transform?.pathId
+                    if (childTransform != null && !childRelationIsReciprocal) unresolved++
+                    val childGameObjectTarget = if (childRelationIsReciprocal) {
+                        childTransform?.let { resolveLocal(it.gameObject) }
+                    } else null
+                    val childGameObject = childGameObjectTarget?.takeIf { it.classId == 1 }
+                    if (childGameObjectTarget != null && childGameObject == null) unresolved++
+                    childGameObject?.pathId
+                }.distinct()
                 if (transform?.children.orEmpty().size > MAX_LINKS_PER_OBJECT) {
                     unresolved += transform?.children.orEmpty().size - MAX_LINKS_PER_OBJECT
                 }
