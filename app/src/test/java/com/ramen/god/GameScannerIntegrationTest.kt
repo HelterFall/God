@@ -152,6 +152,59 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun cancellationInsideClrMetadataParserPreservesQueuedAnalyzerRuns() {
+        val bytes = managedPeWithMetadata()
+        var readCompleted = false
+        var checksAfterRead = 0
+        val root = MemoryScanNode(
+            name = "ClrCancellationFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    name = "Assembly-CSharp.dll",
+                    isDirectory = false,
+                    contents = bytes,
+                    inputStreamFactory = {
+                        readCompleted = false
+                        object : InputStream() {
+                            private val delegate = ByteArrayInputStream(bytes)
+                            override fun read(): Int {
+                                val value = delegate.read()
+                                if (value < 0) readCompleted = true
+                                return value
+                            }
+                            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                                val value = delegate.read(buffer, offset, length)
+                                if (value < 0) readCompleted = true
+                                return value
+                            }
+                        }
+                    }
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { readCompleted && ++checksAfterRead >= 3 },
+            onProgress = { _, _ -> }
+        )
+
+        assertTrue(readCompleted)
+        assertEquals(3, checksAfterRead)
+        assertTrue(result.isPartial)
+        val report = JSONObject(result.json)
+        assertEquals("cancelled", report.getString("scanStatus"))
+        val runs = report.getJSONArray("analyzerRuns")
+        val peRun = (0 until runs.length()).map { runs.getJSONObject(it) }
+            .single { it.getString("analyzerId") == "pe" }
+        val clrRun = (0 until runs.length()).map { runs.getJSONObject(it) }
+            .single { it.getString("analyzerId") == "clr_metadata" }
+        assertEquals("queued", peRun.getString("status"))
+        assertEquals("queued", clrRun.getString("status"))
+    }
+
+    @Test
     fun reportsSuccessfulClrMetadataThroughScannerCoverageAndBothReports() {
         val root = MemoryScanNode(
             name = "MonoFixture",
