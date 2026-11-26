@@ -1156,7 +1156,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 val readResult = input.use { stream ->
                     MonoScriptParser.readObjects(
                         stream, first.targetHeader.dataOffset!!, first.targetHeader.fileSize!!,
-                        group.map { it.target }, littleEndian, shouldCancel
+                        group.map { it.target }.distinctBy { it.pathId }, littleEndian, shouldCancel
                     )
                 }
                 val parsedByPath = readResult.scripts.associateBy { it.pathId }
