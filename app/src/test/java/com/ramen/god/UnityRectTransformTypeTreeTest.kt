@@ -7,6 +7,32 @@ import org.junit.Test
 class UnityRectTransformTypeTreeTest {
     @Test
     fun retainsCompleteRectTransformTypeTreeForObjectDecoding() {
+        val (bytes, header) = serializedFileWithRectTransformTree()
+        val result = requireNotNull(UnityMetadataParser.parse(bytes, header))
+        val rectTransformTree = result.typeTrees.single()
+
+        assertEquals(224, rectTransformTree.classId)
+        assertTrue(rectTransformTree.completeForDecoding)
+        assertTrue(rectTransformTree.decoderNodes.isNotEmpty())
+    }
+
+    @Test
+    fun observesCancellationInsideTypeTreeNodeLoop() {
+        val (bytes, header) = serializedFileWithRectTransformTree()
+        var checks = 0
+        val error = runCatching {
+            UnityMetadataParser.parse(
+                bytes,
+                header,
+                shouldCancel = { ++checks >= 6 }
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is ScanCancelledException)
+        assertEquals(6, checks)
+    }
+
+    private fun serializedFileWithRectTransformTree(): Pair<ByteArray, UnityFileHeader> {
         val version = "2023.1.0f1".toByteArray()
         val bytes = ByteArray(320)
         var p = 48
@@ -46,15 +72,9 @@ class UnityRectTransformTypeTreeTest {
         put32(bytes, p, 0); p += 4 // external references
         put32(bytes, p, 0) // SerializeReference types
 
-        val result = requireNotNull(UnityMetadataParser.parse(
-            bytes,
-            UnityFileHeader("SerializedFile", 23, 4096, 256, 512, "Little Endian", 48)
-        ))
-        val rectTransformTree = result.typeTrees.single()
-
-        assertEquals(224, rectTransformTree.classId)
-        assertTrue(rectTransformTree.completeForDecoding)
-        assertTrue(rectTransformTree.decoderNodes.isNotEmpty())
+        return bytes to UnityFileHeader(
+            "SerializedFile", 23, 4096, 256, 512, "Little Endian", 48
+        )
     }
 
     private fun put16(bytes: ByteArray, offset: Int, value: Int) {
