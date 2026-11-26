@@ -28,8 +28,16 @@ internal object UnitySceneGraphResolver {
     private fun isTransformClass(classId: Int?): Boolean = classId == 4 || classId == 224
 
     fun resolve(objects: List<UnityDecodedObjectSummary>): UnitySceneGraphResult {
-        val byPathId = objects.associateBy { it.pathId }
-        val transforms = objects.filter { isTransformClass(it.classId) }
+        val objectsByPathId = objects.groupBy { it.pathId }
+        val ambiguousPathIds = objectsByPathId
+            .filterValues { it.size > 1 }
+            .keys
+        val byPathId = objectsByPathId
+            .filterValues { it.size == 1 }
+            .mapValues { it.value.single() }
+        val transforms = objects.filter {
+            isTransformClass(it.classId) && it.pathId !in ambiguousPathIds
+        }
         val transformsByGameObject = transforms.mapNotNull { transform ->
             val gameObject = transform.gameObject
             if (gameObject?.fileId == 0 && byPathId[gameObject.pathId]?.classId == 1) {
@@ -37,10 +45,10 @@ internal object UnitySceneGraphResolver {
             } else null
         }.groupBy({ it.first }, { it.second })
 
-        var unresolvedTotal = 0
+        var unresolvedTotal = ambiguousPathIds.size
         var externalTotal = 0
         val nodes = objects.asSequence()
-            .filter { it.classId == 1 }
+            .filter { it.classId == 1 && it.pathId !in ambiguousPathIds }
             .take(MAX_GRAPH_NODES)
             .map { gameObject ->
                 var unresolved = 0
