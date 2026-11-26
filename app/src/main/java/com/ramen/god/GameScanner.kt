@@ -2171,6 +2171,15 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             UnityObjectDecodeTarget(objectInfo, tree)
         }
         if (targets.isEmpty()) {
+            val pathIdSafetyReason = metadata.note?.takeIf {
+                it.contains("повторяющийся PathID", ignoreCase = true) ||
+                    it.contains("scene graph were disabled", ignoreCase = true) ||
+                    it.contains("PathID uniqueness was not fully checked", ignoreCase = true)
+            }
+            if (pathIdSafetyReason != null) {
+                updateAnalyzerRun(runId, AnalyzerRunStatus.PARTIAL, pathIdSafetyReason)
+                return metadata.copy(sceneDecodeNote = pathIdSafetyReason)
+            }
             val reason = when {
                 metadata.typeTreeEnabled != true -> "TypeTree отключён или отсутствует."
                 else -> "В ограниченной выборке нет полного TypeTree для GameObject, Transform, RectTransform или MonoBehaviour."
