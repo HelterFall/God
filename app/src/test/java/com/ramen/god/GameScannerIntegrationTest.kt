@@ -152,7 +152,7 @@ class GameScannerIntegrationTest {
     }
 
     @Test
-    fun cancellationInsideClrMetadataParserPreservesQueuedAnalyzerRuns() {
+    fun cancellationInsideClrMetadataParserMarksActiveAnalyzerRunsPartial() {
         val bytes = managedPeWithMetadata()
         var readCompleted = false
         var checksAfterRead = 0
@@ -200,8 +200,10 @@ class GameScannerIntegrationTest {
             .single { it.getString("analyzerId") == "pe" }
         val clrRun = (0 until runs.length()).map { runs.getJSONObject(it) }
             .single { it.getString("analyzerId") == "clr_metadata" }
-        assertEquals("queued", peRun.getString("status"))
-        assertEquals("queued", clrRun.getString("status"))
+        assertEquals("partial", peRun.getString("status"))
+        assertEquals("partial", clrRun.getString("status"))
+        assertTrue(peRun.getString("reason").contains("Cancelled"))
+        assertTrue(clrRun.getString("reason").contains("Cancelled"))
     }
 
     @Test
@@ -1046,7 +1048,7 @@ class GameScannerIntegrationTest {
     }
 
     @Test
-    fun cancelsInsideChunkedUnityPrefixReadAndPreservesQueuedHeaderRun() {
+    fun cancelsInsideChunkedUnityPrefixReadAndMarksActiveHeaderRunPartial() {
         var prefixStreamOpened = false
         var checksAfterOpen = 0
         val bytes = ByteArray(64 * 1024)
@@ -1087,7 +1089,8 @@ class GameScannerIntegrationTest {
         val runs = report.getJSONArray("analyzerRuns")
         assertEquals(1, runs.length())
         assertEquals("unity_file_headers", runs.getJSONObject(0).getString("analyzerId"))
-        assertEquals("queued", runs.getJSONObject(0).getString("status"))
+        assertEquals("partial", runs.getJSONObject(0).getString("status"))
+        assertTrue(runs.getJSONObject(0).getString("reason").contains("Cancelled"))
     }
 
     @Test
