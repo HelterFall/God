@@ -37,6 +37,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
     private val managedTypeResolutions = mutableListOf<UnityManagedTypeResolution>()
     private val unityHeaders = linkedMapOf<String, UnityFileHeader>()
     private val unityMetadata = linkedMapOf<String, UnityMetadataSummary>()
+    private val ambiguousInventoryPaths = mutableSetOf<String>()
     private var totalBytes = 0L
     private var inventoryCompleted = false
     private var inaccessibleDirectoryCount = 0
@@ -95,6 +96,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         managedTypeResolutions.clear()
         unityHeaders.clear()
         unityMetadata.clear()
+        ambiguousInventoryPaths.clear()
         totalBytes = 0L
         inventoryCompleted = false
         inaccessibleDirectoryCount = 0
@@ -128,6 +130,21 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         onProgress(entries.size, "Инвентаризация завершена; анализирую PE-файлы")
 
+        val pathOccurrences = HashMap<String, Int>(entries.size)
+        entries.forEach { entry ->
+            pathOccurrences[entry.path] = (pathOccurrences[entry.path] ?: 0) + 1
+        }
+        pathOccurrences.filterValues { it > 1 }.keys.forEach { path ->
+            ambiguousInventoryPaths.add(path)
+            addIssue(
+                code = "inventory.duplicate_relative_path",
+                stage = ScanIssueStage.INVENTORY,
+                severity = ScanIssueSeverity.WARNING,
+                message = "Несколько inventory entries имеют одинаковый relative path; анализ содержимого пропущен, чтобы избежать перезаписи результатов.",
+                path = path
+            )
+        }
+
         val files = entries.filter { !it.directory }
         val dlls = files.filter { it.name.endsWith(".dll", true) }
         val lowerPaths = entries.map { it.path.lowercase(Locale.ROOT) }
@@ -160,12 +177,18 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val peRunIds = mutableMapOf<String, String>()
         peCandidates.forEachIndexed { index, entry ->
             val limited = index >= MAX_PE_FILES
+            val duplicatePath = entry.path in ambiguousInventoryPaths
+            val reason = when {
+                limited -> "Candidate limit reached ($MAX_PE_FILES)."
+                duplicatePath -> "Duplicate relative path; PE results are path-keyed and analysis was skipped to prevent collisions."
+                else -> null
+            }
             val run = AnalyzerRun.create(
                 scanId = scanId,
                 analyzerId = "pe",
                 inputFileId = entry.record.id,
-                status = if (limited) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
-                reason = if (limited) "Candidate limit reached ($MAX_PE_FILES)." else null
+                status = if (limited || duplicatePath) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                reason = reason
             )
             analyzerRuns.add(run)
             peRunIds[entry.record.id] = run.id
@@ -173,6 +196,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         try {
             peCandidates.take(MAX_PE_FILES).forEach { entry ->
                 if (shouldCancel()) throw ScanCancelledException()
+                if (entry.path in ambiguousInventoryPaths) return@forEach
                 peAttemptedCount++
                 val peRunId = peRunIds.getValue(entry.record.id)
                 val info = try {
@@ -220,18 +244,19 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         val unityHeaderRunIds = mutableMapOf<String, String>()
         unityCandidates.forEachIndexed { index, entry ->
             val limited = index >= MAX_UNITY_HEADER_FILES
-            val reason = if (limited) {
-                "Unity header candidate limit reached ($MAX_UNITY_HEADER_FILES); file kind and SerializedFile metadata were not inspected."
-            } else {
-                null
+            val duplicatePath = entry.path in ambiguousInventoryPaths
+            val reason = when {
+                limited -> "Unity header candidate limit reached ($MAX_UNITY_HEADER_FILES); file kind and SerializedFile metadata were not inspected."
+                duplicatePath -> "Duplicate relative path; Unity header/metadata results are path-keyed and analysis was skipped to prevent collisions."
+                else -> null
             }
             unityHeaderRunIds[entry.record.id] = addAnalyzerRun(
                 analyzerId = "unity_file_headers",
                 entry = entry,
-                status = if (limited) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
+                status = if (limited || duplicatePath) AnalyzerRunStatus.SKIPPED else AnalyzerRunStatus.QUEUED,
                 reason = reason
             )
-            if (limited) {
+            if (limited || duplicatePath) {
                 addAnalyzerRun(
                     analyzerId = "serialized_file_metadata",
                     entry = entry,
@@ -244,6 +269,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         try {
             unityCandidates.take(MAX_UNITY_HEADER_FILES).forEachIndexed { index, entry ->
                 if (shouldCancel()) throw ScanCancelledException()
+                if (entry.path in ambiguousInventoryPaths) return@forEachIndexed
                 val deepMetadataRead = index < MAX_UNITY_METADATA_FILES
                 if (unityHeaderAttemptedPaths.add(entry.path)) {
                     unityHeaderAttemptedCount = unityHeaderAttemptedPaths.size
