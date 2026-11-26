@@ -1348,6 +1348,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
             return
         }
+        var activeRunId: String? = null
         try {
             resolutions.forEach { (path, links) ->
                 if (shouldCancel()) throw ScanCancelledException()
@@ -1355,6 +1356,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 unityMetadata[path] = old.copy(externalPointerResolutions = links)
                 val count = externalPointerCandidateCount(old)
                 val runId = runs[path] ?: return@forEach
+                activeRunId = runId
                 when {
                     count == 0 -> updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "No sampled external PPtrs were present in decoded scene objects.")
                     links.size == count && count <= 2048 && links.all {
@@ -1379,8 +1381,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         externalPathIndex = externalPathIndex
                     )
                 }
+                activeRunId = null
             }
         } catch (e: ScanCancelledException) {
+            activeRunId?.let {
+                markAnalyzerRunPartialOnCancellation(it, "Cancelled while publishing external Unity PPtr findings.")
+            }
             markQueuedAnalyzerRunsPartialOnCancellation(
                 runs.values, "Cancelled while publishing external Unity PPtr findings."
             )
@@ -1428,6 +1434,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
             return
         }
+        var activeRunId: String? = null
         try {
             bindings.forEach { (path, items) ->
                 if (shouldCancel()) throw ScanCancelledException()
@@ -1435,6 +1442,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 unityMetadata[path] = old.copy(monoBehaviourScriptBindings = items)
                 val count = monoBehaviourScriptCandidateCount(old)
                 val runId = runs[path] ?: return@forEach
+                activeRunId = runId
                 when {
                     count == 0 -> updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "No decoded MonoBehaviour m_Script pointers were present in the bounded object sample.")
                     items.size == count && items.all { it.status == "resolved-monoscript-class" } && count <= 1024 ->
@@ -1459,8 +1467,12 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                         externalPathIndex = externalPathIndex
                     )
                 }
+                activeRunId = null
             }
         } catch (e: ScanCancelledException) {
+            activeRunId?.let {
+                markAnalyzerRunPartialOnCancellation(it, "Cancelled while publishing MonoBehaviour script binding findings.")
+            }
             markQueuedAnalyzerRunsPartialOnCancellation(
                 runs.values, "Cancelled while publishing MonoBehaviour script binding findings."
             )
