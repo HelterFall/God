@@ -8,6 +8,29 @@ import java.io.DataOutputStream
 
 class UnityObjectDecoderTest {
     @Test
+    fun rejectsDuplicatePathIdsInsteadOfSilentlyChoosingFirstTarget() {
+        val objectSummary = UnityObjectSummary(7L, 0L, 1L, 0, 1)
+        val typeTree = tree(1, listOf(node(0, "GameObject", "Base")))
+        val result = UnityObjectDecoder.readObjects(
+            input = java.io.ByteArrayInputStream(byteArrayOf()),
+            dataOffset = 0L,
+            fileSize = 1L,
+            targets = listOf(
+                UnityObjectDecodeTarget(objectSummary, typeTree),
+                UnityObjectDecodeTarget(objectSummary.copy(byteStart = 1L), typeTree)
+            ),
+            littleEndian = true
+        )
+
+        assertEquals(emptyList<UnityDecodedObjectSummary>(), result.objects)
+        assertEquals(2, result.skippedCount)
+        assertEquals(
+            "Duplicate Unity PathID in decoder targets; decoding stopped to avoid ambiguous object selection.",
+            result.note
+        )
+    }
+
+    @Test
     fun decodesGameObjectNameActiveStateAndComponentPointer() {
         val tree = tree(1, listOf(
             node(0, "GameObject", "Base"),
