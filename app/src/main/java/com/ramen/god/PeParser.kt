@@ -34,7 +34,11 @@ internal object PeParser {
     private const val MAX_DLL_NAME_BYTES = 260
     private const val MAX_FUNCTION_NAME_BYTES = 512
 
-    fun parse(bytes: ByteArray): PeInfo? {
+    fun parse(
+        bytes: ByteArray,
+        shouldCancel: () -> Boolean = { false }
+    ): PeInfo? {
+        if (shouldCancel()) throw ScanCancelledException()
         if (bytes.size < 64 || u8(bytes, 0) != 0x4d || u8(bytes, 1) != 0x5a) return null
         val peLong = u32(bytes, 0x3c)
         if (peLong > Int.MAX_VALUE) return null
@@ -83,6 +87,7 @@ internal object PeParser {
         val sectionsToRead = minOf(sectionCount, MAX_SECTIONS)
         var sectionTableTruncated = false
         for (index in 0 until sectionsToRead) {
+            if (shouldCancel()) throw ScanCancelledException()
             val offset = sectionsStart + index * 40
             if (!has(bytes, offset, 40)) {
                 sectionTableTruncated = true
@@ -102,7 +107,7 @@ internal object PeParser {
         val importData = if (importRva == 0L) {
             ImportParseResult(emptyList(), emptyList())
         } else {
-            parseImports(bytes, importRva, importDirectorySize, sections, is64Bit)
+            parseImports(bytes, importRva, importDirectorySize, sections, is64Bit, shouldCancel)
         }
         val importNote = when {
             importData.note != null -> importData.note
@@ -167,8 +172,10 @@ internal object PeParser {
         rva: Long,
         directorySize: Long,
         sections: List<Section>,
-        is64Bit: Boolean
+        is64Bit: Boolean,
+        shouldCancel: () -> Boolean
     ): ImportParseResult {
+        if (shouldCancel()) throw ScanCancelledException()
         if (directorySize <= 0L) {
             return ImportParseResult(emptyList(), emptyList(), "import directory has an empty declared size")
         }
@@ -193,6 +200,7 @@ internal object PeParser {
         var descriptorTableTruncated = false
 
         for (descriptorIndex in 0 until readableDescriptorCount) {
+            if (shouldCancel()) throw ScanCancelledException()
             val descriptorOffsetLong = start.toLong() + descriptorIndex.toLong() * 20L
             if (descriptorOffsetLong > Int.MAX_VALUE || !has(bytes, descriptorOffsetLong.toInt(), 20)) {
                 descriptorTableTruncated = true
@@ -234,6 +242,7 @@ internal object PeParser {
             var thunkTerminated = false
             var thunkTableTruncated = false
             for (thunkIndex in 0 until MAX_THUNKS_PER_DLL) {
+                if (shouldCancel()) throw ScanCancelledException()
                 val thunkOffsetLong = thunkStart.toLong() + thunkIndex.toLong() * pointerSize
                 val thunkRelativeOffset = thunkIndex.toLong() * pointerSize
                 if (thunkOffsetLong > Int.MAX_VALUE ||
