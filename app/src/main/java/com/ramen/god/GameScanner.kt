@@ -1339,36 +1339,43 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
             return
         }
-        resolutions.forEach { (path, links) ->
-            if (shouldCancel()) throw ScanCancelledException()
-            val old = unityMetadata[path] ?: return@forEach
-            unityMetadata[path] = old.copy(externalPointerResolutions = links)
-            val count = externalPointerCandidateCount(old)
-            val runId = runs[path] ?: return@forEach
-            when {
-                count == 0 -> updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "No sampled external PPtrs were present in decoded scene objects.")
-                links.size == count && count <= 2048 && links.all {
-                    it.status == "resolved-decoded-object" || it.status == "resolved-object-record-not-decoded"
-                } -> updateAnalyzerRun(runId, AnalyzerRunStatus.ANALYZED)
-                else -> updateAnalyzerRun(
-                    runId, AnalyzerRunStatus.PARTIAL,
-                    if (count > 2048) "External PPtr resolution was capped at 2048 references for this file."
-                    else "One or more external PPtrs were unresolved, ambiguous, or outside the sampled target metadata."
-                )
-            }
-            val ownerEntry = files.firstOrNull { it.path == path } ?: return@forEach
-            links.forEach { link ->
+        try {
+            resolutions.forEach { (path, links) ->
                 if (shouldCancel()) throw ScanCancelledException()
-                recordExternalPointerResolution(
-                    ownerPath = path,
-                    owner = ownerEntry,
-                    metadata = old,
-                    link = link,
-                    analyzerRunId = runId,
-                    files = files,
-                    externalPathIndex = externalPathIndex
-                )
+                val old = unityMetadata[path] ?: return@forEach
+                unityMetadata[path] = old.copy(externalPointerResolutions = links)
+                val count = externalPointerCandidateCount(old)
+                val runId = runs[path] ?: return@forEach
+                when {
+                    count == 0 -> updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "No sampled external PPtrs were present in decoded scene objects.")
+                    links.size == count && count <= 2048 && links.all {
+                        it.status == "resolved-decoded-object" || it.status == "resolved-object-record-not-decoded"
+                    } -> updateAnalyzerRun(runId, AnalyzerRunStatus.ANALYZED)
+                    else -> updateAnalyzerRun(
+                        runId, AnalyzerRunStatus.PARTIAL,
+                        if (count > 2048) "External PPtr resolution was capped at 2048 references for this file."
+                        else "One or more external PPtrs were unresolved, ambiguous, or outside the sampled target metadata."
+                    )
+                }
+                val ownerEntry = files.firstOrNull { it.path == path } ?: return@forEach
+                links.forEach { link ->
+                    if (shouldCancel()) throw ScanCancelledException()
+                    recordExternalPointerResolution(
+                        ownerPath = path,
+                        owner = ownerEntry,
+                        metadata = old,
+                        link = link,
+                        analyzerRunId = runId,
+                        files = files,
+                        externalPathIndex = externalPathIndex
+                    )
+                }
             }
+        } catch (e: ScanCancelledException) {
+            markQueuedAnalyzerRunsPartialOnCancellation(
+                runs.values, "Cancelled while publishing external Unity PPtr findings."
+            )
+            throw e
         }
     }
 
@@ -1412,36 +1419,43 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             }
             return
         }
-        bindings.forEach { (path, items) ->
-            if (shouldCancel()) throw ScanCancelledException()
-            val old = unityMetadata[path] ?: return@forEach
-            unityMetadata[path] = old.copy(monoBehaviourScriptBindings = items)
-            val count = monoBehaviourScriptCandidateCount(old)
-            val runId = runs[path] ?: return@forEach
-            when {
-                count == 0 -> updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "No decoded MonoBehaviour m_Script pointers were present in the bounded object sample.")
-                items.size == count && items.all { it.status == "resolved-monoscript-class" } && count <= 1024 ->
-                    updateAnalyzerRun(runId, AnalyzerRunStatus.ANALYZED)
-                else -> updateAnalyzerRun(
-                    runId, AnalyzerRunStatus.PARTIAL,
-                    if (count > 1024) "MonoBehaviour m_Script binding was capped at 1024 objects for this file."
-                    else "One or more MonoBehaviour m_Script references were null, unresolved, ambiguous or lacked decoded MonoScript payload."
-                )
-            }
-
-            val ownerEntry = files.firstOrNull { it.path == path } ?: return@forEach
-            items.forEach { binding ->
+        try {
+            bindings.forEach { (path, items) ->
                 if (shouldCancel()) throw ScanCancelledException()
-                recordMonoBehaviourScriptBinding(
-                    ownerPath = path,
-                    owner = ownerEntry,
-                    metadata = old,
-                    binding = binding,
-                    analyzerRunId = runId,
-                    files = files,
-                    externalPathIndex = externalPathIndex
-                )
+                val old = unityMetadata[path] ?: return@forEach
+                unityMetadata[path] = old.copy(monoBehaviourScriptBindings = items)
+                val count = monoBehaviourScriptCandidateCount(old)
+                val runId = runs[path] ?: return@forEach
+                when {
+                    count == 0 -> updateAnalyzerRun(runId, AnalyzerRunStatus.SKIPPED, "No decoded MonoBehaviour m_Script pointers were present in the bounded object sample.")
+                    items.size == count && items.all { it.status == "resolved-monoscript-class" } && count <= 1024 ->
+                        updateAnalyzerRun(runId, AnalyzerRunStatus.ANALYZED)
+                    else -> updateAnalyzerRun(
+                        runId, AnalyzerRunStatus.PARTIAL,
+                        if (count > 1024) "MonoBehaviour m_Script binding was capped at 1024 objects for this file."
+                        else "One or more MonoBehaviour m_Script references were null, unresolved, ambiguous or lacked decoded MonoScript payload."
+                    )
+                }
+
+                val ownerEntry = files.firstOrNull { it.path == path } ?: return@forEach
+                items.forEach { binding ->
+                    if (shouldCancel()) throw ScanCancelledException()
+                    recordMonoBehaviourScriptBinding(
+                        ownerPath = path,
+                        owner = ownerEntry,
+                        metadata = old,
+                        binding = binding,
+                        analyzerRunId = runId,
+                        files = files,
+                        externalPathIndex = externalPathIndex
+                    )
+                }
             }
+        } catch (e: ScanCancelledException) {
+            markQueuedAnalyzerRunsPartialOnCancellation(
+                runs.values, "Cancelled while publishing MonoBehaviour script binding findings."
+            )
+            throw e
         }
     }
 
