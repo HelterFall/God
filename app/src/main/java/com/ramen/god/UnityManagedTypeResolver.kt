@@ -13,13 +13,37 @@ internal data class UnityManagedTypeResolution(
 
 /** Links parsed MonoScript identities to exact CLR assembly/type metadata. */
 internal object UnityManagedTypeResolver {
+    private data class IndexedAssembly(
+        val path: String,
+        val summary: ClrAssemblySummary,
+        val typeCounts: Map<Pair<String, String>, Int>
+    )
+
     fun resolve(
         unityMetadata: Map<String, UnityMetadataSummary>,
-        managedAssemblies: Map<String, ClrAssemblySummary>
+        managedAssemblies: Map<String, ClrAssemblySummary>,
+        shouldCancel: () -> Boolean = { false }
     ): List<UnityManagedTypeResolution> {
+        if (shouldCancel()) throw ScanCancelledException()
+        val assembliesByName = linkedMapOf<String, MutableList<IndexedAssembly>>()
+        for ((path, summary) in managedAssemblies) {
+            if (shouldCancel()) throw ScanCancelledException()
+            val assemblyName = normalizeAssemblyName(summary.name) ?: continue
+            val typeCounts = linkedMapOf<Pair<String, String>, Int>()
+            for (type in summary.types) {
+                if (shouldCancel()) throw ScanCancelledException()
+                val key = type.name to type.namespace
+                typeCounts[key] = (typeCounts[key] ?: 0) + 1
+            }
+            assembliesByName.getOrPut(assemblyName) { mutableListOf() }
+                .add(IndexedAssembly(path, summary, typeCounts))
+        }
+
         val results = mutableListOf<UnityManagedTypeResolution>()
-        unityMetadata.forEach { (sourcePath, metadata) ->
-            metadata.monoBehaviourScriptBindings.forEach bindingLoop@ { binding ->
+        for ((sourcePath, metadata) in unityMetadata) {
+            if (shouldCancel()) throw ScanCancelledException()
+            for (binding in metadata.monoBehaviourScriptBindings) {
+                if (shouldCancel()) throw ScanCancelledException()
                 val className = binding.className?.takeIf { it.isNotBlank() }
                 val namespace = binding.namespace.orEmpty()
                 val assemblyName = normalizeAssemblyName(binding.assemblyName)
@@ -28,12 +52,10 @@ internal object UnityManagedTypeResolver {
                         sourcePath, binding.sourcePathId, className, binding.namespace,
                         binding.assemblyName, null, null, "mono-script-class-unavailable"
                     ))
-                    return@bindingLoop
+                    continue
                 }
 
-                val candidates = managedAssemblies.filter { (_, summary) ->
-                    normalizeAssemblyName(summary.name) == assemblyName
-                }.keys
+                val candidates = assembliesByName[assemblyName].orEmpty()
                 when {
                     candidates.isEmpty() -> results.add(UnityManagedTypeResolution(
                         sourcePath, binding.sourcePathId, className, binding.namespace,
@@ -44,14 +66,12 @@ internal object UnityManagedTypeResolver {
                         binding.assemblyName, null, null, "managed-assembly-ambiguous"
                     ))
                     else -> {
-                        val assemblyPath = candidates.single()
-                        val assembly = managedAssemblies.getValue(assemblyPath)
-                        val typeMatches = assembly.types.filter {
-                            it.name == className && it.namespace == namespace
-                        }
+                        val candidate = candidates.single()
+                        val assembly = candidate.summary
+                        val typeMatches = candidate.typeCounts[className to namespace] ?: 0
                         val status = when {
-                            typeMatches.size == 1 -> "resolved-managed-type"
-                            typeMatches.size > 1 -> "managed-type-ambiguous"
+                            typeMatches == 1 -> "resolved-managed-type"
+                            typeMatches > 1 -> "managed-type-ambiguous"
                             assembly.status != "parsed" -> "managed-assembly-metadata-partial"
                             assembly.types.size < (assembly.typeCount - 1).coerceAtLeast(0) ->
                                 "managed-type-outside-sample"
@@ -59,7 +79,7 @@ internal object UnityManagedTypeResolver {
                         }
                         results.add(UnityManagedTypeResolution(
                             sourcePath, binding.sourcePathId, className, binding.namespace,
-                            binding.assemblyName, assemblyPath,
+                            binding.assemblyName, candidate.path,
                             when (status) {
                                 "resolved-managed-type" -> true
                                 "managed-type-not-found" -> false
