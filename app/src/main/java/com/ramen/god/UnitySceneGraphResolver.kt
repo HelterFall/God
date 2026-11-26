@@ -100,8 +100,8 @@ internal object UnitySceneGraphResolver {
                     val childTransform = childTransformTarget?.takeIf { isTransformClass(it.classId) }
                     if (childTransformTarget != null && childTransform == null) unresolved++
                     val childFather = childTransform?.father
-                    val childRelationIsReciprocal = childFather?.fileId == 0 &&
-                        childFather.pathId == transform?.pathId
+                    val childRelationIsReciprocal = childFather != null &&
+                        childFather.fileId == 0 && childFather.pathId == transform?.pathId
                     if (childTransform != null && !childRelationIsReciprocal) unresolved++
                     val childGameObjectTarget = if (childRelationIsReciprocal) {
                         childTransform?.let { resolveLocal(it.gameObject) }
