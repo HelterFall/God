@@ -248,6 +248,76 @@ class UnitySceneGraphResolverTest {
         assertEquals(null, result.getValue("scene.assets").single().className)
     }
 
+    @Test
+    fun excludesDuplicatePathIdsFromSceneGraphLookup() {
+        val graph = UnitySceneGraphResolver.resolve(
+            listOf(
+                UnityDecodedObjectSummary(pathId = 100L, classId = 1, name = "First"),
+                UnityDecodedObjectSummary(pathId = 100L, classId = 1, name = "Second"),
+                UnityDecodedObjectSummary(pathId = 200L, classId = 4, gameObject = ptr(0, 100L))
+            )
+        )
+
+        assertTrue(graph.nodes.isEmpty())
+        assertEquals(1, graph.unresolvedReferenceCount)
+    }
+
+    @Test
+    fun externalPointerResolverRejectsDuplicateTargetPathIds() {
+        val owner = UnityMetadataSummary(
+            null, null, true, 0,
+            externalReferences = listOf(UnityExternalReference(1, "target.assets", 0)),
+            decodedObjects = listOf(
+                UnityDecodedObjectSummary(10L, 1, components = listOf(ptr(1, 77L)))
+            )
+        )
+        val target = UnityMetadataSummary(
+            null, null, true, 0,
+            decodedObjects = listOf(
+                UnityDecodedObjectSummary(77L, 114),
+                UnityDecodedObjectSummary(77L, 115)
+            )
+        )
+
+        val result = UnityExternalPointerResolver.resolve(
+            metadataByPath = mapOf("owner.assets" to owner, "target.assets" to target),
+            resolvePath = { it }
+        )
+
+        assertEquals(
+            "target-path-id-ambiguous",
+            result.getValue("owner.assets").single().status
+        )
+    }
+
+    @Test
+    fun monoBehaviourScriptResolverRejectsDuplicateMonoScriptPathIds() {
+        val owner = UnityMetadataSummary(
+            null, null, true, 0,
+            externalReferences = listOf(UnityExternalReference(1, "scripts.assets", 0)),
+            decodedObjects = listOf(
+                UnityDecodedObjectSummary(10L, 114, script = ptr(1, 77L))
+            )
+        )
+        val duplicateScriptA = UnityMonoScriptSummary(77L, "One", 0, "One", "Game", "Assembly-CSharp")
+        val duplicateScriptB = UnityMonoScriptSummary(77L, "Two", 0, "Two", "Game", "Assembly-CSharp")
+        val target = UnityMetadataSummary(
+            null, null, true, 0,
+            monoScripts = listOf(duplicateScriptA, duplicateScriptB)
+        )
+
+        val result = UnityMonoBehaviourScriptResolver.resolve(
+            metadataByPath = mapOf("owner.assets" to owner, "scripts.assets" to target),
+            resolveExternalPath = { it }
+        )
+
+        assertEquals(
+            "monoscript-path-id-ambiguous",
+            result.getValue("owner.assets").single().status
+        )
+        assertNull(result.getValue("owner.assets").single().className)
+    }
+
     private fun ptr(fileId: Int, pathId: Long) =
         UnityObjectPointerSummary(fileId, pathId)
 }
