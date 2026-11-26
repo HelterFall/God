@@ -430,6 +430,71 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun marksSceneGraphPartialWhenRelevantObjectsExceedMetadataSampleLimit() {
+        val objects = (0 until 501).map { index ->
+            (10_000L + index) to minimalGameObjectPayload("Object-$index", active = true)
+        }
+        val root = MemoryScanNode(
+            name = "SampleLimitedUnitySceneFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithGameObjectScene(objects)
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .single { it.getString("analyzerId") == "unity_scene_graph" }
+
+        assertEquals("partial", run.getString("status"))
+        assertTrue(run.getString("reason").contains("1 of 501 scene-object records were not decoded"))
+    }
+
+    @Test
+    fun marksSceneGraphPartialWhenLocalPointersRemainUnresolved() {
+        val root = MemoryScanNode(
+            name = "UnresolvedUnitySceneFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithLocalSceneObjects(
+                        listOf(localGameObject(100L, "Broken", true, listOf(0 to 999L)))
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val run = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .single { it.getString("analyzerId") == "unity_scene_graph" }
+
+        assertEquals("partial", run.getString("status"))
+        assertTrue(run.getString("reason").contains("1 local/external scene pointers"))
+        val scene = (0 until report.getJSONArray("unityMetadata").length())
+            .map { report.getJSONArray("unityMetadata").getJSONObject(it) }
+            .single { it.getString("path") == "globalgamemanagers" }
+        assertEquals(1, scene.getJSONObject("sceneGraph").getInt("unresolvedReferenceCount"))
+    }
+
+    @Test
     fun publishesResolvedLocalScenePointersAsEvidenceBackedGraphRelations() {
         val root = MemoryScanNode(
             name = "LocalSceneEvidenceFixture",
