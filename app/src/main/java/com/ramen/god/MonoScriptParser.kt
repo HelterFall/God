@@ -56,8 +56,17 @@ internal object MonoScriptParser {
         if (dataOffset < 0L || fileSize < dataOffset) {
             return MonoScriptReadResult(emptyList(), targets.size, "Некорректные границы data section.")
         }
-        val ordered = targets.distinctBy { it.pathId }
-            .sortedBy { it.byteStart }
+        val seenPathIds = HashSet<Long>(targets.size)
+        for (target in targets) {
+            if (!seenPathIds.add(target.pathId)) {
+                return MonoScriptReadResult(
+                    emptyList(),
+                    targets.size,
+                    "Duplicate MonoScript PathID in decoder targets; decoding stopped to avoid ambiguous selection."
+                )
+            }
+        }
+        val ordered = targets.sortedBy { it.byteStart }
         val limited = ordered.take(MAX_OBJECTS_PER_FILE)
         var skipped = (ordered.size - limited.size).coerceAtLeast(0)
         var position = 0L
