@@ -351,6 +351,42 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun marksUnitySceneGraphPartialWhenDuplicatePathIdsDisableObjectSamples() {
+        val root = MemoryScanNode(
+            name = "DuplicateUnityPathIdScene",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "globalgamemanagers",
+                    false,
+                    unitySerializedFileWithGameObjectScene(
+                        listOf(
+                            42L to minimalGameObjectPayload("First", active = true),
+                            42L to minimalGameObjectPayload("Second", active = true)
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+        val report = JSONObject(result.json)
+        val runs = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+        val metadataRun = runs.single { it.getString("analyzerId") == "serialized_file_metadata" }
+        val sceneRun = runs.single { it.getString("analyzerId") == "unity_scene_graph" }
+
+        assertEquals("partial", metadataRun.getString("status"))
+        assertTrue(metadataRun.getString("reason").contains("повторяющийся PathID"))
+        assertEquals("partial", sceneRun.getString("status"))
+        assertTrue(sceneRun.getString("reason").contains("повторяющийся PathID"))
+    }
+
+    @Test
     fun recordsSuccessfulUnitySceneGraphRunAgainstItsFileRecord() {
         val root = MemoryScanNode(
             name = "UnitySceneFixture",
