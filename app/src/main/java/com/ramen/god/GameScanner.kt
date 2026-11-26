@@ -1937,7 +1937,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             if (externalPathIndex != null) {
                 externalPathIndex.exactPath(path)
             } else {
-                files.firstOrNull { it.path == path }
+                files.singleOrNull { it.path == path }
             }
         }
         val targetMetadata = targetPath?.let { unityMetadata[it] }
