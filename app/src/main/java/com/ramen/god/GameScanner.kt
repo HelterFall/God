@@ -925,8 +925,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
 
         metadataSnapshot.forEach { (ownerPath, metadata) ->
             if (shouldCancel()) throw ScanCancelledException()
-            metadata.scriptTypeBindings.forEachIndexed { index, binding ->
-                if (shouldCancel()) throw ScanCancelledException()
+            try {
+                metadata.scriptTypeBindings.forEachIndexed { index, binding ->
+                    if (shouldCancel()) throw ScanCancelledException()
                 val fileId = binding.fileId ?: return@forEachIndexed
                 if (fileId <= 0) return@forEachIndexed
                 val current = updatedBindings[ownerPath]?.getOrNull(index) ?: binding
@@ -1162,6 +1163,14 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                     ownerPath, index, targetEntry, targetHeader,
                     MonoScriptObjectTarget(targetObject.pathId, targetObject.byteStart, targetObject.byteSize)
                 ))
+                }
+            } catch (e: ScanCancelledException) {
+                ownerRuns[ownerPath]?.let {
+                    markAnalyzerRunPartialOnCancellation(
+                        it, "Cancelled while resolving this file's external MonoScript bindings."
+                    )
+                }
+                throw e
             }
         }
 
