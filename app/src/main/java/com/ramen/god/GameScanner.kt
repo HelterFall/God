@@ -2245,7 +2245,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 try {
                     val summary = ClrMetadataParser.parse(
                         data, info.clrMetadataOffset, info.clrMetadataSize,
-                        info.clrRuntimeVersion, info.clrFlags
+                        info.clrRuntimeVersion, info.clrFlags, shouldCancel
                     )
                     if (summary == null) {
                         clrFailedCount++
@@ -2268,6 +2268,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                             summary.note ?: summary.status.takeIf { status != AnalyzerRunStatus.ANALYZED }
                         )
                     }
+                } catch (e: ScanCancelledException) {
+                    throw e
                 } catch (e: Exception) {
                     clrFailedCount++
                     updateAnalyzerRun(
