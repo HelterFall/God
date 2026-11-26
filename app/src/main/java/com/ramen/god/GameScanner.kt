@@ -894,8 +894,9 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         // did not provide an exact version string.
         if (evidence.none { it.source == "globalgamemanagers-metadata" }) {
             files.filter {
-                it.name.equals("globalgamemanagers", true) ||
-                    it.name.equals("globalgamemanagers.assets", true)
+                (it.name.equals("globalgamemanagers", true) ||
+                    it.name.equals("globalgamemanagers.assets", true)) &&
+                    it.path !in ambiguousInventoryPaths
             }.take(2).forEach { entry ->
                 if (shouldCancel()) throw ScanCancelledException()
                 try {
