@@ -59,8 +59,19 @@ class UnityObjectDecoderTest {
     }
 
     @Test
-    fun decodesTransformParentAndChildrenPointers() {
-        val tree = tree(4, listOf(
+    fun decodesTransformAndRectTransformParentChildPointers() {
+        val payload = payload {
+            writeInt(0)
+            writeLong(10L)
+            writeInt(0)
+            writeLong(5L)
+            writeInt(2)
+            writeInt(0)
+            writeLong(11L)
+            writeInt(0)
+            writeLong(12L)
+        }
+        val nodes = listOf(
             node(0, "Transform", "Base"),
             node(1, "PPtr<GameObject>", "m_GameObject"),
             node(2, "int", "m_FileID"),
@@ -74,27 +85,19 @@ class UnityObjectDecoderTest {
             node(3, "PPtr<Transform>", "data"),
             node(4, "int", "m_FileID"),
             node(4, "SInt64", "m_PathID")
-        ))
-        val payload = payload {
-            writeInt(0)
-            writeLong(10L)
-            writeInt(0)
-            writeLong(5L)
-            writeInt(2)
-            writeInt(0)
-            writeLong(11L)
-            writeInt(0)
-            writeLong(12L)
-        }
-
-        val result = UnityObjectDecoder.decodePayload(payload, 20L, 4, tree, false)
-
-        assertEquals(UnityObjectPointerSummary(0, 10L), result?.gameObject)
-        assertEquals(UnityObjectPointerSummary(0, 5L), result?.father)
-        assertEquals(
-            listOf(UnityObjectPointerSummary(0, 11L), UnityObjectPointerSummary(0, 12L)),
-            result?.children
         )
+
+        for (classId in listOf(4, 224)) {
+            val tree = tree(classId, nodes)
+            val result = UnityObjectDecoder.decodePayload(payload, 20L, classId, tree, false)
+
+            assertEquals(UnityObjectPointerSummary(0, 10L), result?.gameObject)
+            assertEquals(UnityObjectPointerSummary(0, 5L), result?.father)
+            assertEquals(
+                listOf(UnityObjectPointerSummary(0, 11L), UnityObjectPointerSummary(0, 12L)),
+                result?.children
+            )
+        }
     }
 
     @Test
