@@ -25,13 +25,19 @@ internal object UnityMonoBehaviourScriptResolver {
                     else -> refs[pointer.fileId]?.let { resolveExternalPath(it.path) }
                 }
                 val targetMetadata = targetPath?.let { metadataByPath[it] }
-                val script = targetMetadata?.monoScripts?.firstOrNull { it.pathId == pointer.pathId }
-                val objectSample = targetMetadata?.monoScriptObjects?.firstOrNull { it.pathId == pointer.pathId }
+                val scriptMatches = targetMetadata?.monoScripts.orEmpty()
+                    .filter { it.pathId == pointer.pathId }
+                val objectMatches = targetMetadata?.monoScriptObjects.orEmpty()
+                    .filter { it.pathId == pointer.pathId }
+                val targetAmbiguous = scriptMatches.size > 1 || objectMatches.size > 1
+                val script = scriptMatches.singleOrNull()
+                val objectSample = objectMatches.singleOrNull()
                 val status = when {
                     pointer.pathId == 0L -> "null-script-reference"
                     pointer.fileId != 0 && refs[pointer.fileId] == null -> "external-fileID-not-in-reference-table"
                     targetPath == null -> "external-file-path-unmatched-or-ambiguous"
                     targetMetadata == null -> "target-file-not-parsed"
+                    targetAmbiguous -> "monoscript-path-id-ambiguous"
                     script != null -> "resolved-monoscript-class"
                     objectSample != null -> "monoscript-object-found-payload-unavailable"
                     else -> "monoscript-not-in-object-sample"
