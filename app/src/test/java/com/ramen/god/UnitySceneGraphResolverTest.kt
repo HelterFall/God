@@ -165,6 +165,45 @@ class UnitySceneGraphResolverTest {
     }
 
     @Test
+    fun marksNonReciprocalParentLinkAsUnresolvedInsteadOfAddingHierarchyEdge() {
+        val objects = listOf(
+            UnityDecodedObjectSummary(
+                pathId = 100L,
+                classId = 1,
+                name = "Parent",
+                components = listOf(ptr(0, 200L))
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 101L,
+                classId = 1,
+                name = "Child",
+                components = listOf(ptr(0, 201L))
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 200L,
+                classId = 4,
+                gameObject = ptr(0, 100L)
+                // The parent's children array does not contain Transform 201.
+            ),
+            UnityDecodedObjectSummary(
+                pathId = 201L,
+                classId = 4,
+                gameObject = ptr(0, 101L),
+                father = ptr(0, 200L)
+            )
+        )
+
+        val graph = UnitySceneGraphResolver.resolve(objects)
+        val parent = graph.nodes.single { it.gameObjectPathId == 100L }
+        val child = graph.nodes.single { it.gameObjectPathId == 101L }
+
+        assertTrue(parent.childGameObjectPathIds.isEmpty())
+        assertNull(child.parentGameObjectPathId)
+        assertEquals(1, child.unresolvedReferenceCount)
+        assertEquals(1, graph.unresolvedReferenceCount)
+    }
+
+    @Test
     fun preservesExternalAndMissingLinksAsUnresolved() {
         val objects = listOf(
             UnityDecodedObjectSummary(
