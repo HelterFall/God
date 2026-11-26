@@ -10,7 +10,7 @@
 
 ## 1. С чего начинаем
 
-God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage и анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и partial report с per-file analyzer outcomes реализованы. PR #29 добавил `FileRecord`; PR #30 — PE/CLR AnalyzerRun; PR #31 — Unity header/SerializedFile AnalyzerRun; PR #33 добавил local MonoScript payload run и был слит в main (`653e370`). [Post-merge run #385](https://github.com/HelterFall/God/actions/runs/45000328521) подтвердил main CI. QA-01 остаётся открытым для truncated/partial streams, реальных бинарных fixtures, external-reference/scene resolver matrix и Android SAF. Глубокое исследование игры ещё не завершено.
+God уже умеет выполнять ограниченную инвентаризацию папки, показывать базовый прогресс, принимать запрос на отмену, экспортировать Markdown/JSON schemaVersion 24, собирать ScanCoverage и анализировать PE/CLR metadata и часть Unity SerializedFile/scene data. `ReportExporter`, `ScanCoordinator` и partial report с per-file analyzer outcomes реализованы. PR #29 добавил `FileRecord`; PR #30 — PE/CLR AnalyzerRun; PR #31 — Unity header/SerializedFile AnalyzerRun; PR #33 добавил local MonoScript payload run и был слит в main (`653e370`). [Post-merge run #385](https://github.com/HelterFall/God/actions/runs/45000328521) подтвердил main CI. В draft PR #37 добавлены external PPtr/MonoBehaviour/scene AnalyzerRuns, bounded PathID uniqueness, `RectTransform` decoding, partial scene coverage при пропусках/неразрешённых ссылках и cancellation-aware parser/resolver loops. QA-01 остаётся открытым для truncated/partial streams, реальных бинарных fixtures и Android SAF. Глубокое исследование игры ещё не завершено.
 
 Главная проблема следующего этапа — не недостаток отдельных парсеров. Сейчас приложению не хватает общего надёжного конвейера, который:
 
@@ -48,10 +48,10 @@ God уже умеет выполнять ограниченную инвента
 - [x] JSON-поле files содержит все записи, собранные текущим обходом в пределах этих лимитов. Markdown-дерево отдельно ограничено 20 000 строк.
 - [x] Базовый callback прогресса во время инвентаризации; UI обновляет путь/счётчик каждые 128 записей.
 - [x] Кнопка запроса отмены и job-scoped cancellation через `ScanCoordinator`.
-- [x] При отмене на этапах inventory/PE/Unity/resolver возвращается partial report с собранным inventory; `analyzerRuns[]` сохраняет завершённые и queued результаты PE/CLR, Unity header/SerializedFile и local MonoScript payload, если этапы уже начались.
+- [x] При отмене сохраняется inventory; завершённые AnalyzerRun остаются завершёнными, активный этап переводится в `partial`, а ещё не начатые этапы остаются `queued`.
 - [x] Агрегированная ScanCoverage: inventory counters, PE/CLR/Unity analyzer candidate/attempt/parsed/partial/failed/limited/skipped counts и derived status.
 
-**Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report остаётся пустым, но `analyzerRuns[]` сохраняет per-file результаты этапов, уже достигнутых к моменту отмены. PE/CLR, Unity header/SerializedFile, local/external MonoScript payload, external PPtr, MonoBehaviour script binding и scene-object decoding подключены к per-file AnalyzerRun. Path matching и reference resolver loops проверяют cancellation внутри проходов; чтение MonoScript payload/provider streams пока не cancellation-aware. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
+**Ограничения:** прогресс пока относится преимущественно к обходу папок. `scanCoverage.analyzers` в partial report остаётся пустым, но `analyzerRuns[]` сохраняет per-file результаты этапов, уже достигнутых к моменту отмены. PE/CLR, Unity header/SerializedFile, local/external MonoScript payload, external PPtr, MonoBehaviour script binding и scene-object decoding подключены к per-file AnalyzerRun. PE/CLR/SerializedFile/TypeTree/object parser loops, reference resolver loops и MonoScript/scene payload streams проверяют cancellation между bounded chunks (до 8/16 KiB); активные runs помечаются `partial`. Блокирующий вызов provider `InputStream.read()` нельзя принудительно прервать. Android lifecycle/SAF instrumentation tests ещё отсутствуют.
 
 ### Уже существующие форматы и экспорт
 
@@ -142,7 +142,7 @@ God уже умеет выполнять ограниченную инвента
 - [x] Добавить `inventoryStatus` (`discovered`, `enumerated`, `partial`, `inaccessible`) и сохранять его в JSON, включая partial report при отмене.
 - [x] Добавить `AnalyzerRun` с `inputFileId` и статусами `queued`, `analyzed`, `partial`, `skipped`, `unsupported`, `failed`; PE/CLR — PR #30, Unity header/SerializedFile — PR #31, local MonoScript payload — PR #33. Partial report сохраняет уже собранные и queued outcomes.
 - [x] Подключить `mono_script_payload` run для локальных MonoScript targets в PR #33; success/partial/failed/skipped и FileRecord link проверяются scanner integration tests.
-- [ ] Подключить отдельные runs к external MonoScript payload resolution, external-reference/PPtr и scene-object resolvers.
+- [x] Подключить отдельные runs к external MonoScript payload resolution, external-reference/PPtr, MonoBehaviour script bindings и scene-object resolvers.
 - [ ] Ввести Finding/Evidence и точные locators: relative path, offset/range, RVA, metadata token, PathID, IL offset.
 - [x] Ввести typed `ScanIssue` для диагностик с постоянным кодом, стадией, уровнем серьёзности, необязательным путём и сообщением. JSON `issues[]` добавлен без изменения существующего `warnings[]`; `schemaVersion=24` сохранён.
 - [x] Проверить структурированные diagnostics на scanner integration paths и при cancellation; коды/стадии/пути проверяются, а legacy `warnings[]` и Markdown сохраняют исходные сообщения.
@@ -191,20 +191,20 @@ God уже умеет выполнять ограниченную инвента
 **Что нужно сделать:**
 - [ ] Выделить InventoryScanner / ScanCoordinator из GameScanner, не переписывая существующий обход без необходимости.
 - [x] Добавить стабильные file IDs, `parentId` и `inventoryStatus` в JSON files[]; provider keys хешируются, raw URI не экспортируется.
-- [x] Добавить per-file AnalyzerRun для PE, CLR metadata, Unity header, SerializedFile metadata и local MonoScript payload; `inventoryStatus` по-прежнему относится только к обходу папок.
+- [x] Добавить per-file AnalyzerRun для PE, CLR metadata, Unity header, SerializedFile metadata, local/external MonoScript payload, external PPtr, MonoBehaviour bindings и scene graph; `inventoryStatus` по-прежнему относится только к обходу папок.
 - [x] Подключить per-file AnalyzerRun к Unity header/SerializedFile metadata в PR #31.
 - [x] Подключить отдельный `mono_script_payload` run для локальных targets в PR #33.
-- [ ] Подключить отдельные runs к external MonoScript payload resolution, external-reference/PPtr и scene resolvers.
+- [x] Подключить отдельные runs к external MonoScript payload resolution, external-reference/PPtr и scene resolvers.
 - [ ] Сохранить aggregate ScanCoverage и расширить его связями с per-file/per-analyzer runs.
 - [ ] Учитывать причины пропусков: permission denied, inaccessible, depth/entry limit, too large, unsupported и другие.
 - [ ] Добавить analyzer jobs с per-file/per-analyzer status и избежать повторной обработки без необходимости.
 - [x] Отключать кнопку повторного запуска, пока scan активен; `ScanCoordinator` запрещает второй job.
 - [x] Заменить общий флаг на отдельный job-scoped cancellation token в `ScanCoordinator`.
-- [x] При отмене сохранять уже собранную инвентаризацию и завершённые/queued AnalyzerRun outcomes; parser результаты не выдаются за готовые, если соответствующие этапы не достигнуты.
+- [x] При отмене сохранять уже собранную инвентаризацию; активный AnalyzerRun становится `partial`, а незапущенные runs сохраняются как `queued`.
 - [ ] Добавить прогресс по стадиям и анализаторам; текущий счётчик/путь отражает в основном обход папок.
 - [ ] Сохранять результат/состояние scan при пересоздании Activity; сейчас сохраняется URI папки, но не отчёт и не состояние задания.
 
-**Обязательные оставшиеся тесты:** Activity destruction/recreation и SAF provider cancellation; fake-tree integration tests уже проверяют inventory и точный partial-report snapshot. Расширить тесты на успешные parser/resolver paths, ошибки чтения и resource limits.
+**Обязательные оставшиеся тесты:** Activity destruction/recreation и реальные SAF provider сценарии; fake-tree integration tests теперь проверяют активные AnalyzerRun statuses при отмене, external resolver ambiguity и scene graph partial outcomes. Расширить реальные binary fixtures, stream error matrix и resource-limit coverage.
 
 **Выполнено частично:** fake-tree tests проверяют inventory и точный snapshot при отмене. **Критерий полного завершения:** один активный job; Android lifecycle/provider tests подтверждают корректную остановку и отсутствие утечки Activity.
 
