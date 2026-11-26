@@ -250,3 +250,17 @@ PR #31 добавил per-file AnalyzerRun для Unity header и SerializedFile
 - `GameScanner` передаёт job callback в CLR parser и managed resolver; `ScanCancelledException` пробрасывается наружу, а не учитывается как failed analyzer.
 - Новые JVM-тесты: отмена внутри CLR metadata tables, внутри managed type indexing, а также end-to-end отмена через `GameScanner -> readPeInfo -> ClrMetadataParser`.
 - CI run #553 (`0412180`) прошёл `:app:testDebugUnitTest`, `:app:assembleDebug` и загрузку `God-debug-apk`. Это подтверждает синтетические fixtures, не полный ECMA-335/Unity corpus.
+
+## 8. Follow-up — 2026-11-26 (Unity graph consistency and cancellation)
+
+В draft PR #37 дополнительно закрыты несколько проблем достоверности локального графа и partial-report lifecycle.
+
+**Изменения, проверенные синтетическими regression tests:**
+- Для SerializedFile object tables до 250 000 строк проверяется каждый PathID; дубликат блокирует object samples, а большее число строк отключает samples/scene graph и даёт partial. Decoder и external resolvers дополнительно отказываются выбирать первую запись при повторяющемся PathID.
+- ClassID 224 RectTransform проходит TypeTree retention, payload decoding и локальный scene graph наряду с Transform.
+- GameObject должен иметь ровно один Transform/RectTransform; неоднозначная привязка, отсутствие Transform, неверный ClassID цели и не reciprocal father/children links учитываются как unresolved. Scene AnalyzerRun становится partial при пропущенных scene records или unresolved links, а не выдаёт неполный граф как analyzed.
+- Cancellation checkpoints добавлены в SerializedFile type/object/reference/TypeTree loops, MonoScript/scene payload reads с bounded chunks, PE/CLR/TypeTree parsers и external reference resolvers. Активный AnalyzerRun помечается partial; этапы, до которых отмена ещё не дошла, остаются queued. Прервать уже начавшийся блокирующий InputStream.read() провайдера всё ещё нельзя.
+
+**CI:** #582–#589 завершились успешно; JVM unit tests, Debug APK assemble и APK artifact upload прошли. #584 включает тест отмены внутри SerializedFile object table; #587–#589 — type validation и взаимные parent/child links. Запуск #590 проверяет обновлённую документацию.
+
+**Остаётся открытым:** нет реального легально распространяемого corpus Unity/PE/CLR fixtures, fuzz/property testing, Android SAF instrumentation/lifecycle coverage и полного UnityFS block/decompression/entry reader. SerializedFile parser ограничен v19–v26; shared TypeTree subtrees v26 ещё не полностью декодируются; IL2CPP global-metadata.dat и полный resource/asset decoder отсутствуют. PR #37 остаётся draft, не слит в main.
