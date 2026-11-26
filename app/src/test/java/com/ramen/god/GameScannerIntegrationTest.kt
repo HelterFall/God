@@ -1290,6 +1290,82 @@ class GameScannerIntegrationTest {
     }
 
     @Test
+    fun decodesOneExternalMonoScriptTargetRequestedByMultipleBindings() {
+        val externalPath = "archive:/CAB-123/sharedassets0.assets"
+        val targetPath = "Data/Resources/sharedassets0.assets"
+        val root = MemoryScanNode(
+            name = "RepeatedExternalMonoScriptRequestFixture",
+            isDirectory = true,
+            children = listOf(
+                MemoryScanNode(
+                    "Data",
+                    true,
+                    children = listOf(
+                        MemoryScanNode(
+                            "globalgamemanagers",
+                            false,
+                            unitySerializedFileWithRepeatedExternalMonoScriptReference(externalPath)
+                        ),
+                        MemoryScanNode(
+                            "Resources",
+                            true,
+                            children = listOf(
+                                MemoryScanNode(
+                                    "sharedassets0.assets",
+                                    false,
+                                    unitySerializedFileWithMonoScriptObject(
+                                        minimalMonoScriptPayload(
+                                            name = "HeroController",
+                                            className = "HeroController",
+                                            namespace = "Game",
+                                            assemblyName = "Assembly-CSharp",
+                                            executionOrder = -12
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val result = GameScanner(MemoryScanFileAccess()).scan(
+            root,
+            shouldCancel = { false },
+            onProgress = { _, _ -> }
+        )
+
+        assertFalse(result.isPartial)
+        val report = JSONObject(result.json)
+        val metadata = report.getJSONArray("unityMetadata")
+        val owner = (0 until metadata.length()).map { metadata.getJSONObject(it) }
+            .single { it.getString("path") == "Data/globalgamemanagers" }
+        val bindings = owner.getJSONArray("scriptTypeBindings")
+        assertEquals(2, bindings.length())
+        for (index in 0 until bindings.length()) {
+            assertEquals("external-monoscript-decoded", bindings.getJSONObject(index).getString("resolution"))
+            assertEquals("HeroController", bindings.getJSONObject(index).getString("className"))
+            assertEquals(targetPath, bindings.getJSONObject(index).getString("matchedExternalFilePath"))
+        }
+        assertEquals(1, owner.getJSONArray("monoScripts").length())
+
+        val files = report.getJSONArray("files")
+        val fileIds = (0 until files.length()).associate { index ->
+            val file = files.getJSONObject(index)
+            file.getString("path") to file.getString("id")
+        }
+        val payloadRuns = (0 until report.getJSONArray("analyzerRuns").length())
+            .map { report.getJSONArray("analyzerRuns").getJSONObject(it) }
+            .filter {
+                it.getString("analyzerId") == "unity_external_monoscript_payload" &&
+                    it.getString("inputFileId") == fileIds.getValue(targetPath)
+            }
+        assertEquals(1, payloadRuns.size)
+        assertEquals("analyzed", payloadRuns.single().getString("status"))
+    }
+
+    @Test
     fun recordsFailedExternalMonoScriptPayloadAgainstTargetFileRecord() {
         val externalPath = "archive:/CAB-123/sharedassets0.assets"
         val root = MemoryScanNode(
@@ -2548,6 +2624,46 @@ class GameScannerIntegrationTest {
         assertEquals("partial", records.first { it.getString("path") == "Assets/nested" }.getString("inventoryStatus"))
         assertEquals("discovered", records.first { it.getString("path") == "Assets/nested/first.txt" }.getString("inventoryStatus"))
     }
+}
+
+private fun unitySerializedFileWithRepeatedExternalMonoScriptReference(externalPath: String): ByteArray {
+    val metadata = ByteArrayOutputStream().apply {
+        write("2022.3.10f1".toByteArray(Charsets.UTF_8))
+        write(0)
+        u32le(5)
+        write(0)
+        u32le(2) // two MonoBehaviour serialized types sharing one script reference
+        repeat(2) {
+            u32le(114)
+            write(0)
+            u16le(0) // both point to the same scriptTypeReferences row
+            write(ByteArray(16))
+            write(ByteArray(16))
+            u32le(0)
+        }
+        u32le(0) // object count
+        u32le(1) // one shared script type reference
+        u32le(1)
+        u64le(77)
+        u32le(1) // one external reference
+        write("CAB-123".toByteArray(Charsets.US_ASCII))
+        write(0)
+        write(ByteArray(16))
+        u32le(0)
+        write(externalPath.toByteArray(Charsets.US_ASCII))
+        write(0)
+        u32le(0)
+    }.toByteArray()
+
+    val dataOffset = 48 + metadata.size
+    val bytes = ByteArray(dataOffset)
+    put32be(bytes, 8, 22)
+    put64be(bytes, 16, metadata.size.toLong())
+    put64be(bytes, 24, bytes.size.toLong())
+    put64be(bytes, 32, dataOffset.toLong())
+    bytes[40] = 0
+    metadata.copyInto(bytes, 48)
+    return bytes
 }
 
 private fun unitySerializedFileWithExternalMonoScriptReference(externalPath: String): ByteArray {
