@@ -204,6 +204,47 @@ class UnitySceneGraphResolverTest {
     }
 
     @Test
+    fun detectsCyclesInOtherwiseReciprocalTransformHierarchy() {
+        val graph = UnitySceneGraphResolver.resolve(
+            listOf(
+                UnityDecodedObjectSummary(
+                    pathId = 100L,
+                    classId = 1,
+                    name = "First",
+                    components = listOf(ptr(0, 200L))
+                ),
+                UnityDecodedObjectSummary(
+                    pathId = 101L,
+                    classId = 1,
+                    name = "Second",
+                    components = listOf(ptr(0, 201L))
+                ),
+                UnityDecodedObjectSummary(
+                    pathId = 200L,
+                    classId = 4,
+                    gameObject = ptr(0, 100L),
+                    father = ptr(0, 201L),
+                    children = listOf(ptr(0, 201L))
+                ),
+                UnityDecodedObjectSummary(
+                    pathId = 201L,
+                    classId = 4,
+                    gameObject = ptr(0, 101L),
+                    father = ptr(0, 200L),
+                    children = listOf(ptr(0, 200L))
+                )
+            )
+        )
+
+        assertEquals(2, graph.unresolvedReferenceCount)
+        graph.nodes.forEach { node ->
+            assertNull(node.parentGameObjectPathId)
+            assertTrue(node.childGameObjectPathIds.isEmpty())
+            assertEquals(1, node.unresolvedReferenceCount)
+        }
+    }
+
+    @Test
     fun preservesExternalAndMissingLinksAsUnresolved() {
         val objects = listOf(
             UnityDecodedObjectSummary(
