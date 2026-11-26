@@ -1367,10 +1367,10 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             "components" -> "has-component"
             else -> return
         }
-        val expectedTargetClassId = when (field) {
-            "gameObject" -> 1
-            "father", "children" -> 4
-            else -> null
+        val expectedTargetClassIds = when (field) {
+            "gameObject" -> setOf(1)
+            "father", "children" -> setOf(4, 224)
+            else -> emptySet()
         }
         val targetDecodedObject = metadata.decodedObjects.firstOrNull {
             it.pathId == targetPathId
@@ -1379,8 +1379,8 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             it.pathId == targetPathId
         }
         val targetClassId = targetDecodedObject?.classId ?: targetObjectRecord?.classId
-        val targetClassMatches = expectedTargetClassId == null ||
-            targetClassId == null || targetClassId == expectedTargetClassId
+        val targetClassMatches = expectedTargetClassIds.isEmpty() ||
+            targetClassId == null || targetClassId in expectedTargetClassIds
         val isDecodedTarget = targetDecodedObject != null &&
             targetObjectRecord != null && targetClassMatches
         val isMetadataOnlyTarget = targetDecodedObject == null &&
@@ -1406,7 +1406,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 "The local PPtr target PathID is outside the bounded object sample."
             else ->
                 "The local PPtr target has ClassID=" + targetClassId +
-                    ", which does not match the expected ClassID=" + expectedTargetClassId + "."
+                    ", which does not match the expected ClassID=" + expectedTargetClassIds.joinToString(" or ") + "."
         }
 
         val sourceLabel = unityObjectGraphLabel(
@@ -2134,7 +2134,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         }
         val targets = metadata.objectSamples.mapNotNull { objectInfo ->
             val classId = objectInfo.classId ?: return@mapNotNull null
-            if (classId != 1 && classId != 4 && classId != 114) return@mapNotNull null
+            if (classId != 1 && classId != 4 && classId != 224 && classId != 114) return@mapNotNull null
             val tree = metadata.typeTrees.firstOrNull {
                 it.typeIndex == objectInfo.typeIndex && it.classId == classId && it.completeForDecoding
             } ?: return@mapNotNull null
@@ -2143,7 +2143,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
         if (targets.isEmpty()) {
             val reason = when {
                 metadata.typeTreeEnabled != true -> "TypeTree отключён или отсутствует."
-                else -> "В ограниченной выборке нет полного TypeTree для GameObject, Transform или MonoBehaviour."
+                else -> "В ограниченной выборке нет полного TypeTree для GameObject, Transform, RectTransform или MonoBehaviour."
             }
             return skipped(reason)
         }
@@ -2467,6 +2467,7 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
                 val label = when (obj.classId) {
                     1 -> "GameObject"
                     4 -> "Transform"
+                    224 -> "RectTransform"
                     114 -> "MonoBehaviour"
                     else -> "ClassID=${obj.classId}"
                 }
