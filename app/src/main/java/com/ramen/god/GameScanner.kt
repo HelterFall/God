@@ -420,7 +420,13 @@ internal class GameScanner(private val fileAccess: ScanFileAccess) {
             return buildPartialResult(root.name ?: "(unnamed)")
         }
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
-        managedTypeResolutions.addAll(UnityManagedTypeResolver.resolve(unityMetadata, clrResults))
+        try {
+            managedTypeResolutions.addAll(
+                UnityManagedTypeResolver.resolve(unityMetadata, clrResults, shouldCancel)
+            )
+        } catch (_: ScanCancelledException) {
+            return buildPartialResult(root.name ?: "(unnamed)")
+        }
         if (shouldCancel()) return buildPartialResult(root.name ?: "(unnamed)")
         val unityVersion = try {
             collectUnityVersion(files, shouldCancel)
